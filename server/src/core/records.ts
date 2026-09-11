@@ -94,6 +94,14 @@ function serializeValue(field: FieldDefinition, value: unknown): unknown {
       return value === true ? 1 : 0;
     case 'json':
       return JSON.stringify(value);
+    case 'relation': {
+      // D2: multi-relation disimpan sebagai JSON array string
+      const isMulti = (field.options?.maxSelect ?? 1) > 1;
+      if (isMulti) {
+        return JSON.stringify(value); // ['a','b'] → '["a","b"]'
+      }
+      return value; // single: string biasa
+    }
     default:
       return value;
   }
@@ -118,6 +126,17 @@ function deserializeRow(meta: CollectionMeta, row: Record<string, unknown>): For
       } catch {
         result[key] = value; // biarkan apa adanya kalau bukan JSON valid
       }
+    } else if (field.type === 'relation' && typeof value === 'string') {
+      // D2: multi-relation disimpan sebagai JSON array → parse kembali
+      const isMulti = (field.options?.maxSelect ?? 1) > 1;
+      if (isMulti) {
+        try {
+          result[key] = JSON.parse(value);
+        } catch {
+          result[key] = [];
+        }
+      }
+      // single relation: biarkan string apa adanya
     }
   }
 

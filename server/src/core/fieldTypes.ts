@@ -138,9 +138,31 @@ export function validateValue(field: FieldDefinition, value: unknown): string | 
       } catch {
         return `Field '${field.name}' must be JSON-serializable`;
       }
-    case 'relation':
+    case 'relation': {
+      // D2: bedakan single (string) vs multi (array of strings)
+      const maxSelect = field.options?.maxSelect ?? 1;
+      const isMulti = maxSelect > 1;
+
+      if (isMulti) {
+        // Multi-relation: nilai HARUS array of strings
+        if (!Array.isArray(value)) {
+          return `Field '${field.name}' must be an array of record ids (multi-relation)`;
+        }
+        if (value.length > maxSelect) {
+          return `Field '${field.name}' exceeds maxSelect ${maxSelect} (dapat ${value.length})`;
+        }
+        for (const item of value) {
+          if (typeof item !== 'string') {
+            return `Field '${field.name}' must be an array of record id strings`;
+          }
+        }
+        return null;
+      }
+
+      // Single relation: nilai harus string (satu id)
       if (typeof value !== 'string') return `Field '${field.name}' must be a record id (string)`;
       return null;
+    }
     default:
       return `Unknown type for field '${field.name}'`;
   }

@@ -100,8 +100,8 @@ Konsep: SQL aggregation, mengubah bentuk hasil query.
 | # | Fitur | Estimasi | Dampak Produksi | Status |
 |---|-------|----------|-----------------|--------|
 | D1 | Unique constraint | 1-2 jam | 🔴 Tinggi | ✅ SELESAI (7 test) |
-| D2 | Multi-relation | 2-3 jam | 🔴 Tinggi | ⬅ BERIKUTNYA |
-| D3 | Cascade delete | 2-3 jam | 🔴 Tinggi | |
+| D2 | Multi-relation | 2-3 jam | 🔴 Tinggi | ✅ SELESAI (7 test) |
+| D3 | Cascade delete | 2-3 jam | 🔴 Tinggi | ⬅ BERIKUTNYA |
 | D4 | Table rebuild | 2-3 jam | 🟡 Tinggi | |
 | D5 | Migration history | 2 jam | 🟡 Sedang | |
 | D6 | Nested expand | 1-2 jam | 🟡 Sedang | |

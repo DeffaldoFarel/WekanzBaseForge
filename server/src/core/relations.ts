@@ -74,14 +74,41 @@ export function expandRecords(
   const targetMeta = getCollectionByName(db, targetCollection);
   if (!targetMeta) return records;
 
+  // D2: apakah ini multi-relation (array of ids)?
+  const isMulti = (relationField.options?.maxSelect ?? 1) > 1;
+
   // ── BATCH LOADING dimulai ──
 
   // 1. Kumpulkan semua id target yang dirujuk (unik)
+  //    Untuk multi: id bisa tersebar di dalam ARRAY setiap record.
+  //    Catatan: nilai bisa berupa array (sudah deserialize) ATAU string JSON
+  //    (mentah dari SELECT langsung) — kita tangani keduanya.
   const referencedIds = new Set<string>();
+
+  // Helper: normalisasi nilai multi menjadi array of strings
+  function toIdArray(val: unknown): string[] {
+    if (Array.isArray(val)) return val.filter((x): x is string => typeof x === 'string');
+    if (typeof val === 'string' && val.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(val);
+        if (Array.isArray(parsed)) return parsed.filter((x): x is string => typeof x === 'string');
+      } catch {
+        return [];
+      }
+    }
+    return [];
+  }
+
   for (const rec of records) {
-    const refId = rec[head];
-    if (typeof refId === 'string' && refId.length > 0) {
-      referencedIds.add(refId);
+    const refValue = rec[head];
+    if (isMulti) {
+      for (const item of toIdArray(refValue)) {
+        if (item.length > 0) referencedIds.add(item);
+      }
+    } else {
+      if (typeof refValue === 'string' && refValue.length > 0) {
+        referencedIds.add(refValue);
+      }
     }
   }
 
@@ -103,26 +130,34 @@ export function expandRecords(
 
   // 3. Petakan kembali — pasangkan setiap record dengan relasinya
   const expanded = records.map((rec) => {
-    const refId = rec[head];
-    const target = typeof refId === 'string' ? targetById.get(refId) : undefined;
-
-    // Bangun properti expand
+    const refValue = rec[head];
     const existingExpand = (rec.expand as Record<string, unknown>) ?? {};
     const newExpand: Record<string, unknown> = { ...existingExpand };
 
-    if (target) {
-      // Kalau ada expand bertingkat (restSpec), proses rekursif
-      if (restSpec) {
-        const nested = expandRecords(
-          db,
-          [target as ForgeRecord],
-          targetMeta,
-          restSpec,
-          counter
-        );
-        newExpand[head] = nested[0];
-      } else {
-        newExpand[head] = target;
+    if (isMulti) {
+      // Multi: hasilkan ARRAY of objects
+      const ids = toIdArray(refValue);
+      const targets = ids
+        .map((item) => targetById.get(item))
+        .filter((t): t is Record<string, unknown> => t !== undefined);
+
+      newExpand[head] = targets.map((t) => {
+        if (restSpec) {
+          const nested = expandRecords(db, [t as ForgeRecord], targetMeta, restSpec, counter);
+          return nested[0];
+        }
+        return t;
+      });
+    } else {
+      // Single: hasilkan satu object (seperti M12)
+      const target = typeof refValue === 'string' ? targetById.get(refValue) : undefined;
+      if (target) {
+        if (restSpec) {
+          const nested = expandRecords(db, [target as ForgeRecord], targetMeta, restSpec, counter);
+          newExpand[head] = nested[0];
+        } else {
+          newExpand[head] = target;
+        }
       }
     }
 
