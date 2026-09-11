@@ -276,6 +276,148 @@ export function deleteCollection(db: DatabaseSync, name: string): boolean {
   return true;
 }
 
+// ─── D4: REBUILD COLLECTION — ubah skema tanpa kehilangan data ──────────────
+//
+// SQLite tidak bisa DROP/ALTER kolom secara langsung. Solusinya pola
+// "rebuild": buat tabel baru dengan skema baru, pindahkan data, ganti.
+// SEMUA dalam SATU transaksi — kalau gagal di tengah, tabel lama utuh.
+//
+// Yang bisa dilakukan (yang tidak bisa oleh updateCollection biasa):
+//   - Hapus kolom
+//   - Ubah tipe kolom
+//   - Ubah required
+//   - Sekaligus tambah kolom baru
+
+export function rebuildCollection(
+  db: DatabaseSync,
+  name: string,
+  newDef: { fields: FieldDefinition[] }
+): CollectionMeta {
+  const existing = getCollectionByName(db, name);
+  if (!existing) {
+    throw new Error(`Collection '${name}' not found`);
+  }
+
+  // Validasi nama field baru
+  for (const field of newDef.fields) {
+    if (!isValidName(field.name)) {
+      throw new Error(`Invalid field name: '${field.name}'`);
+    }
+    if (['id', 'created', 'updated'].includes(field.name)) {
+      throw new Error(`Field name '${field.name}' is reserved (field sistem)`);
+    }
+  }
+
+  const tempName = `${name}__rebuild`;
+  const oldFields = existing.fields;
+  const newFields = newDef.fields;
+
+  // Kolom yang ada di KEDUA skema (lama & baru) — hanya ini yang bisa di-copy
+  const newFieldNames = new Set(newFields.map((f) => f.name));
+  const commonFields = oldFields.filter((f) => newFieldNames.has(f.name));
+
+  // Deteksi kolom yang berubah tipenya — nilainya perlu CAST saat copy
+  const typeChanged = new Map<string, string>(); // fieldName → newType
+  for (const nf of newFields) {
+    const of = oldFields.find((f) => f.name === nf.name);
+    if (of && of.type !== nf.type) {
+      typeChanged.set(nf.name, nf.type);
+    }
+  }
+
+  db.exec('BEGIN');
+  try {
+    // ── 1. Buat tabel baru dengan skema baru ──
+    const newTableDef: CollectionDefinition = { name: tempName, fields: newFields };
+    db.exec(generateCreateTableSql(newTableDef));
+
+    // ── 2. Copy data dari tabel lama ──
+    // Bangun daftar kolom untuk SELECT dengan transformasi tipe bila perlu
+    const selectCols: string[] = ['id', 'created', 'updated'];
+    for (const field of commonFields) {
+      if (typeChanged.has(field.name)) {
+        // Tipe berubah → konversi nilai saat copy.
+        // Untuk number→text: printf('%g') menghilangkan trailing zero
+        // (CAST biasa menghasilkan "42.0", kita ingin "42").
+        const newType = typeChanged.get(field.name);
+        if (newType === 'text' && field.type === 'number') {
+          selectCols.push(`printf('%g', "${field.name}") AS "${field.name}"`);
+        } else {
+          const targetSqlType = newType === 'number' ? 'REAL' : 'TEXT';
+          selectCols.push(`CAST("${field.name}" AS ${targetSqlType}) AS "${field.name}"`);
+        }
+      } else {
+        selectCols.push(`"${field.name}"`);
+      }
+    }
+
+    // Untuk kolom BARU yang required tapi tidak ada di skema lama,
+    // kita perlu memberi nilai default saat copy (atau gagal karena NOT NULL)
+    const oldFieldNames = new Set(oldFields.map((f) => f.name));
+    const insertCols: string[] = ['id', 'created', 'updated', ...commonFields.map((f) => `"${f.name}"`)];
+    const insertVals: string[] = [...selectCols];
+    for (const nf of newFields) {
+      if (!oldFieldNames.has(nf.name)) {
+        // Kolom baru → isi nilai default agar tidak melanggar NOT NULL
+        insertCols.push(`"${nf.name}"`);
+        insertVals.push(defaultValueForType(nf));
+      }
+    }
+
+    const copySql = `INSERT INTO "${tempName}" (${insertCols.join(', ')})
+                     SELECT ${insertVals.join(', ')} FROM "${name}"`;
+    db.exec(copySql);
+
+    // ── 3. Hapus tabel lama ──
+    db.exec(`DROP TABLE "${name}"`);
+
+    // ── 4. Rename tabel baru menjadi nama asli ──
+    db.exec(`ALTER TABLE "${tempName}" RENAME TO "${name}"`);
+
+    // ── 5. Buat ulang index (unique D1 + custom M06) ──
+    for (const field of newFields) {
+      if (field.unique) {
+        db.exec(generateUniqueIndexSql(name, field));
+      }
+    }
+    for (const index of existing.indexes) {
+      // Hanya buat ulang index yang semua kolomnya masih ada
+      const allExist = index.fields.every((f) => f === 'id' || f === 'created' || f === 'updated' || newFieldNames.has(f));
+      if (allExist) {
+        db.exec(generateCreateIndexSql(name, index, newFields));
+      }
+    }
+
+    // ── 6. Update definisi di _collections ──
+    db.prepare(
+      `UPDATE _collections SET fields = ?,
+       updated = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE name = ?`
+    ).run(JSON.stringify(newFields), name);
+
+    db.exec('COMMIT');
+    return getCollectionByName(db, name)!;
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw new Error(
+      `Rebuild collection '${name}' gagal (tidak ada data yang hilang): ${err instanceof Error ? err.message : err}`
+    );
+  }
+}
+
+// Nilai default untuk kolom BARU yang required saat rebuild
+function defaultValueForType(field: FieldDefinition): string {
+  switch (field.type) {
+    case 'number':
+      return '0';
+    case 'bool':
+      return '0';
+    case 'json':
+      return `'null'`;
+    default:
+      return `''`;
+  }
+}
+
 // ─── Helper ──────────────────────────────────────────────────────────────────
 
 function rowToMeta(row: CollectionRow): CollectionMeta {
