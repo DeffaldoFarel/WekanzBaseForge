@@ -41,19 +41,34 @@ export function getRelationFields(meta: CollectionMeta): FieldDefinition[] {
 //   2. Satu query: SELECT * FROM users WHERE id IN (semua id tadi)
 //   3. Petakan kembali ke record masing-masing
 //
+// D6: expand bertingkat ('a.b.c') diproses rekursif — setiap LEVEL tetap
+// batch loading sendiri, jadi tidak ada N+1 berlapis.
+//
 // @param db        — koneksi database
 // @param records   — daftar record yang mau di-expand
 // @param meta      — skema collection dari record-record ini
 // @param expandSpec— string seperti 'user' atau 'author.profile'
 // @param counter   — opsional, untuk menghitung query (test)
+// @param depth     — internal: kedalaman rekursi saat ini
+
+// D6: batasi kedalaman expand untuk mencegah rekursi tak terkendali
+// (misal 'a.b.c.d.e.f...' tanpa henti — bisa dari relasi sirkular).
+const MAX_EXPAND_DEPTH = 5;
+
 export function expandRecords(
   db: DatabaseSync,
   records: ForgeRecord[],
   meta: CollectionMeta,
   expandSpec: string,
-  counter?: QueryCounter
+  counter?: QueryCounter,
+  depth: number = 0
 ): ForgeRecord[] {
   if (!expandSpec || records.length === 0) return records;
+
+  // D6: batasi kedalaman
+  if (depth >= MAX_EXPAND_DEPTH) {
+    return records;
+  }
 
   // expandSpec bisa 'a.b.c' — kita proses level pertama dulu ('a'),
   // sisanya ('b.c') diproses rekursif pada record hasil expand.
@@ -128,7 +143,46 @@ export function expandRecords(
     }
   }
 
-  // 3. Petakan kembali — pasangkan setiap record dengan relasinya
+  // 3. Petakan kembali — pasangkan setiap record dengan relasinya.
+  //
+  // D6 PENTING: untuk nested expand, kita harus mengumpulkan SEMUA target
+  // level ini DULU, lalu expand sekali untuk semuanya (batch), BUKAN
+  // expand per target (yang akan jadi N+1 di level berikutnya!).
+
+  // Kumpulkan semua target level ini (dengan referensi pemiliknya)
+  const allTargets: ForgeRecord[] = [];
+  for (const rec of records) {
+    const refValue = rec[head];
+    if (isMulti) {
+      for (const item of toIdArray(refValue)) {
+        const t = targetById.get(item);
+        if (t) allTargets.push(t as ForgeRecord);
+      }
+    } else {
+      const t = typeof refValue === 'string' ? targetById.get(refValue) : undefined;
+      if (t) allTargets.push(t as ForgeRecord);
+    }
+  }
+
+  // Expand SEMUA target level ini SEKALIGUS (satu batch) untuk level berikutnya
+  let nestedById = new Map<string, ForgeRecord>();
+  if (restSpec && allTargets.length > 0) {
+    const nestedExpanded = expandRecords(db, allTargets, targetMeta, restSpec, counter, depth + 1);
+    for (const n of nestedExpanded) {
+      nestedById.set(n.id, n);
+    }
+  }
+
+  // Fungsi untuk mengambil target (dengan nested expand kalau ada)
+  function resolveTarget(id: string): ForgeRecord | undefined {
+    const base = targetById.get(id);
+    if (!base) return undefined;
+    if (restSpec) {
+      return nestedById.get(id) ?? (base as ForgeRecord);
+    }
+    return base as ForgeRecord;
+  }
+
   const expanded = records.map((rec) => {
     const refValue = rec[head];
     const existingExpand = (rec.expand as Record<string, unknown>) ?? {};
@@ -137,25 +191,14 @@ export function expandRecords(
     if (isMulti) {
       // Multi: hasilkan ARRAY of objects
       const ids = toIdArray(refValue);
-      const targets = ids
-        .map((item) => targetById.get(item))
-        .filter((t): t is Record<string, unknown> => t !== undefined);
-
-      newExpand[head] = targets.map((t) => {
-        if (restSpec) {
-          const nested = expandRecords(db, [t as ForgeRecord], targetMeta, restSpec, counter);
-          return nested[0];
-        }
-        return t;
-      });
+      newExpand[head] = ids
+        .map((item) => resolveTarget(item))
+        .filter((t): t is ForgeRecord => t !== undefined);
     } else {
-      // Single: hasilkan satu object (seperti M12)
-      const target = typeof refValue === 'string' ? targetById.get(refValue) : undefined;
-      if (target) {
-        if (restSpec) {
-          const nested = expandRecords(db, [target as ForgeRecord], targetMeta, restSpec, counter);
-          newExpand[head] = nested[0];
-        } else {
+      // Single: hasilkan satu object
+      if (typeof refValue === 'string') {
+        const target = resolveTarget(refValue);
+        if (target) {
           newExpand[head] = target;
         }
       }
