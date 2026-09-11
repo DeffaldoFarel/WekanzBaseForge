@@ -91,3 +91,103 @@ export async function deleteProject(id: string): Promise<void> {
 export function logout(): void {
   setToken(null);
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// M05u: DATABASE API (collections + records)
+// ════════════════════════════════════════════════════════════════════════════
+
+export interface FieldDef {
+  name: string;
+  type: string;
+  required?: boolean;
+  options?: { collectionId?: string };
+}
+
+export interface CollectionInfo {
+  name: string;
+  fields: FieldDef[];
+  indexes: { name: string; fields: string[] }[];
+  recordCount?: number;
+  created: string;
+}
+
+export interface ListResult {
+  page: number;
+  perPage: number;
+  totalItems: number;
+  totalPages: number;
+  items: Record<string, unknown>[];
+}
+
+export async function listCollections(projectId: string): Promise<CollectionInfo[]> {
+  const data = await request<{ collections: CollectionInfo[] }>(
+    `/api/admin/projects/${projectId}/collections`
+  );
+  return data.collections;
+}
+
+export async function createCollection(
+  projectId: string,
+  def: { name: string; fields: FieldDef[] }
+): Promise<CollectionInfo> {
+  const data = await request<{ collection: CollectionInfo }>(
+    `/api/admin/projects/${projectId}/collections`,
+    { method: 'POST', body: JSON.stringify(def) }
+  );
+  return data.collection;
+}
+
+export async function deleteCollection(projectId: string, name: string): Promise<void> {
+  await request(`/api/admin/projects/${projectId}/collections/${name}`, { method: 'DELETE' });
+}
+
+export async function listRecords(
+  projectId: string,
+  collection: string,
+  opts: { filter?: string; sort?: string; page?: number; perPage?: number } = {}
+): Promise<ListResult> {
+  const params = new URLSearchParams();
+  if (opts.filter) params.set('filter', opts.filter);
+  if (opts.sort) params.set('sort', opts.sort);
+  if (opts.page) params.set('page', String(opts.page));
+  if (opts.perPage) params.set('perPage', String(opts.perPage));
+  const qs = params.toString();
+  return request<ListResult>(
+    `/api/admin/projects/${projectId}/collections/${collection}/records${qs ? '?' + qs : ''}`
+  );
+}
+
+export async function createRecord(
+  projectId: string,
+  collection: string,
+  data: Record<string, unknown>
+): Promise<Record<string, unknown>> {
+  const res = await request<{ record: Record<string, unknown> }>(
+    `/api/admin/projects/${projectId}/collections/${collection}/records`,
+    { method: 'POST', body: JSON.stringify(data) }
+  );
+  return res.record;
+}
+
+export async function updateRecord(
+  projectId: string,
+  collection: string,
+  id: string,
+  data: Record<string, unknown>
+): Promise<Record<string, unknown>> {
+  const res = await request<{ record: Record<string, unknown> }>(
+    `/api/admin/projects/${projectId}/collections/${collection}/records/${id}`,
+    { method: 'PATCH', body: JSON.stringify(data) }
+  );
+  return res.record;
+}
+
+export async function deleteRecord(
+  projectId: string,
+  collection: string,
+  id: string
+): Promise<void> {
+  await request(`/api/admin/projects/${projectId}/collections/${collection}/records/${id}`, {
+    method: 'DELETE',
+  });
+}

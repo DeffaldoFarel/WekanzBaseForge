@@ -98,6 +98,18 @@ export class Router {
     this.add(method, pattern, middlewares, handler);
   }
 
+  // Menggabungkan routes dari router lain ke router ini.
+  // Berguna untuk memecah routes ke banyak file lalu menggabungkannya.
+  merge(other: Router): void {
+    for (const route of other.getRoutes()) {
+      this.routes.push(route);
+    }
+  }
+
+  getRoutes(): Route[] {
+    return this.routes;
+  }
+
   // ─── URL matching ───────────────────────────────────────────────────────
   // Inti dari semua router: mencocokkan path aktual dengan pola.
   //
