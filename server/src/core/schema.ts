@@ -73,6 +73,77 @@ export function initSchemaTable(db: DatabaseSync): void {
   if (!cols.some((c) => c.name === 'indexes')) {
     db.exec(`ALTER TABLE _collections ADD COLUMN indexes TEXT NOT NULL DEFAULT '[]'`);
   }
+
+  // ── D5: tabel _migrations — mencatat setiap perubahan skema ──
+  // Schema-as-data (M03) sekarang juga punya HISTORY-as-data.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS _migrations (
+      id         TEXT PRIMARY KEY,
+      collection TEXT NOT NULL,
+      action     TEXT NOT NULL,
+      changes    TEXT NOT NULL DEFAULT '{}',
+      applied_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    );
+  `);
+}
+
+// ─── D5: Migration recording ─────────────────────────────────────────────────
+
+export type MigrationAction = 'create' | 'add_column' | 'rebuild' | 'drop';
+
+export interface MigrationRecord {
+  id: string;
+  collection: string;
+  action: MigrationAction;
+  changes: Record<string, unknown>;
+  applied_at: string;
+}
+
+// Mencatat satu perubahan skema ke _migrations.
+// Dipanggil otomatis oleh defineCollection, updateCollection,
+// rebuildCollection, dan deleteCollection.
+function recordMigration(
+  db: DatabaseSync,
+  collection: string,
+  action: MigrationAction,
+  changes: Record<string, unknown>
+): void {
+  db.prepare(
+    'INSERT INTO _migrations (id, collection, action, changes) VALUES (?, ?, ?, ?)'
+  ).run(generateId(), collection, action, JSON.stringify(changes));
+}
+
+// Membaca history migrasi (urut waktu, terbaru terakhir).
+// Kalau collectionName diisi, hanya migrasi untuk collection itu.
+export function getMigrations(db: DatabaseSync, collectionName?: string): MigrationRecord[] {
+  const sql = collectionName
+    ? 'SELECT * FROM _migrations WHERE collection = ? ORDER BY applied_at ASC'
+    : 'SELECT * FROM _migrations ORDER BY applied_at ASC';
+  const rows = (collectionName
+    ? db.prepare(sql).all(collectionName)
+    : db.prepare(sql).all()) as unknown as {
+    id: string;
+    collection: string;
+    action: MigrationAction;
+    changes: string;
+    applied_at: string;
+  }[];
+
+  return rows.map((r) => ({
+    id: r.id,
+    collection: r.collection,
+    action: r.action,
+    changes: JSON.parse(r.changes) as Record<string, unknown>,
+    applied_at: r.applied_at,
+  }));
+}
+
+// Versi skema sebuah collection = berapa kali ia berubah
+export function getSchemaVersion(db: DatabaseSync, collectionName: string): number {
+  const row = db
+    .prepare('SELECT COUNT(*) AS n FROM _migrations WHERE collection = ?')
+    .get(collectionName) as { n: number };
+  return row.n;
 }
 
 // ─── SQL GENERATOR — bagian paling ajaib ─────────────────────────────────────
@@ -199,6 +270,9 @@ export function defineCollection(
     db.exec(indexSql);
   }
 
+  // ── D5: catat migrasi ──
+  recordMigration(db, def.name, 'create', { fields: def.fields, indexes });
+
   return getCollectionByName(db, def.name)!;
 }
 
@@ -263,6 +337,9 @@ export function updateCollection(
      updated = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE name = ?`
   ).run(JSON.stringify(updates.fields), name);
 
+  // ── D5: catat migrasi ──
+  recordMigration(db, name, 'add_column', { added: newFields.map((f) => f.name), fields: updates.fields });
+
   return getCollectionByName(db, name)!;
 }
 
@@ -273,6 +350,10 @@ export function deleteCollection(db: DatabaseSync, name: string): boolean {
   // Hapus dari meta + drop tabel asli
   db.prepare('DELETE FROM _collections WHERE name = ?').run(name);
   db.exec(`DROP TABLE IF EXISTS "${name}";`);
+
+  // ── D5: catat migrasi ──
+  recordMigration(db, name, 'drop', { fields: existing.fields });
+
   return true;
 }
 
@@ -393,6 +474,12 @@ export function rebuildCollection(
       `UPDATE _collections SET fields = ?,
        updated = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE name = ?`
     ).run(JSON.stringify(newFields), name);
+
+    // ── 7. D5: catat migrasi rebuild (dengan before & after) ──
+    recordMigration(db, name, 'rebuild', {
+      before: oldFields,
+      after: newFields,
+    });
 
     db.exec('COMMIT');
     return getCollectionByName(db, name)!;

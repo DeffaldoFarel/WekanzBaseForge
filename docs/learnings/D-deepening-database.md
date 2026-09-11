@@ -103,8 +103,8 @@ Konsep: SQL aggregation, mengubah bentuk hasil query.
 | D2 | Multi-relation | 2-3 jam | 🔴 Tinggi | ✅ SELESAI (7 test) |
 | D3 | Cascade delete | 2-3 jam | 🔴 Tinggi | ✅ SELESAI (6 test) |
 | D4 | Table rebuild | 2-3 jam | 🟡 Tinggi | ✅ SELESAI (5 test) |
-| D5 | Migration history | 2 jam | 🟡 Sedang | ⬅ BERIKUTNYA |
-| D6 | Nested expand | 1-2 jam | 🟡 Sedang | |
+| D5 | Migration history | 2 jam | 🟡 Sedang | ✅ SELESAI (6 test) |
+| D6 | Nested expand | 1-2 jam | 🟡 Sedang | ⬅ BERIKUTNYA |
 | D7 | Aggregates | 2 jam | 🟢 Sedang | |
 
 **Urutan kerja yang disarankan:** D1 → D2 → D3 → D4 → D5 → D6 → D7
