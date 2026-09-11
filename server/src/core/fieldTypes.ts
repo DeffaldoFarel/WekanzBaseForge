@@ -27,6 +27,8 @@ export interface FieldDefinition {
   options?: {
     collectionId?: string;
     maxSelect?: number;
+    /** D3: strategi saat record tujuan dihapus. Default 'setNull'. */
+    cascadeDelete?: 'cascade' | 'setNull' | 'restrict';
   };
 }
 

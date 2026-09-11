@@ -11,7 +11,7 @@
 
 import { DatabaseSync } from 'node:sqlite';
 import { generateId } from './router.js';
-import { getCollectionByName, CollectionMeta } from './schema.js';
+import { getCollectionByName, listCollections, CollectionMeta } from './schema.js';
 import { FieldDefinition, validateValue } from './fieldTypes.js';
 import { filterToSql } from './query/sqlBuilder.js';
 
@@ -253,16 +253,126 @@ export function updateRecord(
 
 // ─── DELETE ──────────────────────────────────────────────────────────────────
 
+// D3: Error khusus saat penghapusan ditolak oleh restrict
+export class RestrictError extends Error {
+  constructor(
+    public referencingCollection: string,
+    public referencingField: string,
+    public count: number
+  ) {
+    super(
+      `Tidak bisa menghapus: masih ada ${count} record di '${referencingCollection}.${referencingField}' yang merujuk (restrict)`
+    );
+    this.name = 'RestrictError';
+  }
+}
+
+// Mencari semua field relation di SEMUA collection yang menunjuk ke
+// collection tertentu. Ini kebalikan arah relasi: bukan "record ini menunjuk
+// ke mana", melainkan "siapa yang menunjuk ke sini".
+interface ReferencingField {
+  collection: string;
+  field: FieldDefinition;
+}
+
+function findReferencingFields(db: DatabaseSync, targetCollection: string): ReferencingField[] {
+  const result: ReferencingField[] = [];
+  for (const meta of listCollections(db)) {
+    for (const field of meta.fields) {
+      if (field.type === 'relation' && field.options?.collectionId === targetCollection) {
+        result.push({ collection: meta.name, field });
+      }
+    }
+  }
+  return result;
+}
+
+// Helper: normalisasi nilai multi jadi array (untuk cek referensi)
+function idsOf(value: unknown): string[] {
+  if (Array.isArray(value)) return value.filter((x): x is string => typeof x === 'string');
+  if (typeof value === 'string' && value.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) return parsed.filter((x): x is string => typeof x === 'string');
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
 export function deleteRecord(
   db: DatabaseSync,
   collection: string,
   id: string
 ): boolean {
   mustGetCollection(db, collection);
-  const result = db
-    .prepare(`DELETE FROM "${collection}" WHERE id = ?`)
-    .run(id);
-  return result.changes > 0;
+
+  // ── D3: Tangani record lain yang merujuk ke record ini ──
+  // Semua dibungkus SATU transaksi: kalau ada restrict yang melarang,
+  // tidak ada SATUPUN perubahan yang terjadi (atomik — M07!).
+  const referencingFields = findReferencingFields(db, collection);
+
+  db.exec('BEGIN');
+  try {
+    for (const { collection: refCol, field } of referencingFields) {
+      const strategy = field.options?.cascadeDelete ?? 'setNull';
+      const isMulti = (field.options?.maxSelect ?? 1) > 1;
+
+      // Ambil semua record di collection perujuk (kita periksa satu per satu
+      // apakah merujuk ke id yang mau dihapus)
+      const rows = db
+        .prepare(`SELECT id, "${field.name}" AS refval FROM "${refCol}"`)
+        .all() as { id: string; refval: unknown }[];
+
+      for (const row of rows) {
+        let refers = false;
+        if (isMulti) {
+          refers = idsOf(row.refval).includes(id);
+        } else {
+          refers = row.refval === id;
+        }
+        if (!refers) continue;
+
+        // Record ini merujuk ke yang mau dihapus → terapkan strategi
+        if (strategy === 'restrict') {
+          // Hitung berapa banyak yang merujuk (untuk pesan error)
+          const count = rows.filter((r) =>
+            isMulti ? idsOf(r.refval).includes(id) : r.refval === id
+          ).length;
+          throw new RestrictError(refCol, field.name, count);
+        }
+
+        if (strategy === 'cascade') {
+          // Hapus record anak ini juga
+          db.prepare(`DELETE FROM "${refCol}" WHERE id = ?`).run(row.id);
+        }
+
+        if (strategy === 'setNull') {
+          if (isMulti) {
+            // Multi: hapus HANYA id ini dari array, sisakan yang lain
+            const remaining = idsOf(row.refval).filter((x) => x !== id);
+            db.prepare(`UPDATE "${refCol}" SET "${field.name}" = ? WHERE id = ?`).run(
+              JSON.stringify(remaining),
+              row.id
+            );
+          } else {
+            // Single: kosongkan field relasinya
+            db.prepare(`UPDATE "${refCol}" SET "${field.name}" = NULL WHERE id = ?`).run(row.id);
+          }
+        }
+      }
+    }
+
+    // Setelah semua rujukan ditangani, baru hapus record aslinya
+    const result = db.prepare(`DELETE FROM "${collection}" WHERE id = ?`).run(id);
+
+    db.exec('COMMIT');
+    return result.changes > 0;
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
 }
 
 // ─── LIST (dengan filter M04 + sort + pagination) ───────────────────────────
