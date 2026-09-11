@@ -24,12 +24,20 @@ import {
 export interface CollectionDefinition {
   name: string;
   fields: FieldDefinition[];
+  indexes?: IndexDefinition[];
+}
+
+// Definisi index — M06
+export interface IndexDefinition {
+  name: string;
+  fields: string[]; // nama kolom yang di-index (bisa >1 = composite)
 }
 
 export interface CollectionMeta {
   id: string;
   name: string;
   fields: FieldDefinition[];
+  indexes: IndexDefinition[];
   created: string;
   updated: string;
 }
@@ -38,6 +46,7 @@ interface CollectionRow {
   id: string;
   name: string;
   fields: string; // JSON string di DB
+  indexes: string; // JSON string di DB — M06
   created: string;
   updated: string;
 }
@@ -52,10 +61,18 @@ export function initSchemaTable(db: DatabaseSync): void {
       id      TEXT PRIMARY KEY,
       name    TEXT UNIQUE NOT NULL,
       fields  TEXT NOT NULL DEFAULT '[]',
+      indexes TEXT NOT NULL DEFAULT '[]',
       created TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
       updated TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
   `);
+
+  // Migrasi ringan: kalau tabel _collections lama belum punya kolom
+  // indexes, tambahkan (ALTER TABLE). Ini pelajaran kecil migrasi skema!
+  const cols = db.prepare(`PRAGMA table_info(_collections)`).all() as { name: string }[];
+  if (!cols.some((c) => c.name === 'indexes')) {
+    db.exec(`ALTER TABLE _collections ADD COLUMN indexes TEXT NOT NULL DEFAULT '[]'`);
+  }
 }
 
 // ─── SQL GENERATOR — bagian paling ajaib ─────────────────────────────────────
@@ -77,6 +94,36 @@ export function generateCreateTableSql(def: CollectionDefinition): string {
   const allColumns = [...systemColumns, ...userColumns].join(',\n  ');
 
   return `CREATE TABLE "${def.name}" (\n  ${allColumns}\n);`;
+}
+
+// ─── Index SQL generator — M06 ───────────────────────────────────────────────
+// Membuat CREATE INDEX untuk satu definisi index.
+// Nama index & kolom divalidasi (sama seperti field — tidak bisa via binding!)
+
+export function generateCreateIndexSql(
+  collectionName: string,
+  index: IndexDefinition,
+  validFields: FieldDefinition[]
+): string {
+  const validNames = new Set([...validFields.map((f) => f.name), 'id', 'created', 'updated']);
+
+  if (!isValidName(index.name)) {
+    throw new Error(`Invalid index name: '${index.name}'`);
+  }
+  if (index.fields.length === 0) {
+    throw new Error(`Index '${index.name}' harus punya minimal 1 field`);
+  }
+
+  for (const fieldName of index.fields) {
+    if (!validNames.has(fieldName)) {
+      throw new Error(
+        `Index '${index.name}' merujuk field '${fieldName}' yang tidak ada di collection '${collectionName}'`
+      );
+    }
+  }
+
+  const cols = index.fields.map((f) => `"${f}"`).join(', ');
+  return `CREATE INDEX IF NOT EXISTS "${index.name}" ON "${collectionName}" (${cols});`;
 }
 
 // ─── CRUD untuk collections (meta-level) ─────────────────────────────────────
@@ -114,13 +161,20 @@ export function defineCollection(
   // ── Simpan definisi ke META table ──
   // Inilah "schema as data": skema disimpan sebagai BARIS DATA.
   const id = generateId();
+  const indexes = def.indexes ?? [];
   db.prepare(
-    'INSERT INTO _collections (id, name, fields) VALUES (?, ?, ?)'
-  ).run(id, def.name, JSON.stringify(def.fields));
+    'INSERT INTO _collections (id, name, fields, indexes) VALUES (?, ?, ?, ?)'
+  ).run(id, def.name, JSON.stringify(def.fields), JSON.stringify(indexes));
 
   // ── Generate & eksekusi CREATE TABLE untuk tabel ASLI ──
   const sql = generateCreateTableSql(def);
   db.exec(sql);
+
+  // ── Buat index yang didefinisikan (M06) ──
+  for (const index of indexes) {
+    const indexSql = generateCreateIndexSql(def.name, index, def.fields);
+    db.exec(indexSql);
+  }
 
   return getCollectionByName(db, def.name)!;
 }
@@ -206,6 +260,7 @@ function rowToMeta(row: CollectionRow): CollectionMeta {
     id: row.id,
     name: row.name,
     fields: JSON.parse(row.fields) as FieldDefinition[],
+    indexes: JSON.parse(row.indexes ?? '[]') as IndexDefinition[],
     created: row.created,
     updated: row.updated,
   };
