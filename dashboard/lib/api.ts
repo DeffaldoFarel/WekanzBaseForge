@@ -14,7 +14,8 @@ export interface Project {
     storage: boolean;
     functions: boolean;
   };
-  apiKey: string;
+  // apiKey belum diimplementasikan — akan datang di milestone API keys
+  apiKey?: string;
 }
 
 export function getToken(): string | null {
@@ -46,7 +47,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 }
 
 export async function login(email: string, password: string): Promise<string> {
-  const data = await request<{ token: string }>('/api/admin/login', {
+  const data = await request<{ token: string }>('/api/admin/auth/login', {
     method: 'POST',
     body: JSON.stringify({ email, password }),
   });
@@ -77,8 +78,8 @@ export async function updateServices(
   services: Partial<Project['services']>
 ): Promise<Project> {
   const data = await request<{ project: Project }>(
-    `/api/admin/projects/${id}/services`,
-    { method: 'PATCH', body: JSON.stringify(services) }
+    `/api/admin/projects/${id}`,
+    { method: 'PATCH', body: JSON.stringify({ services }) }
   );
   return data.project;
 }

@@ -88,7 +88,7 @@ export default function ProjectDetailPage() {
 
         <div className="card" style={{ marginTop: "0.75rem" }}>
           <div className="kv"><span className="k">Project ID</span><span className="v">{project.id}</span></div>
-          <div className="kv"><span className="k">API Key</span><span className="v">{project.apiKey}</span></div>
+          <div className="kv"><span className="k">API Key</span><span className="v">{project.apiKey ?? '— (coming soon)'}</span></div>
           <div className="kv"><span className="k">Created</span><span className="v">{new Date(project.created).toLocaleString("id-ID")}</span></div>
         </div>
 
