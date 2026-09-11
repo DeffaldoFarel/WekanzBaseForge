@@ -1,7 +1,7 @@
 // API client untuk BaseForge Admin API
 // M00: token disimpan di localStorage (session proper di M09)
 
-const API_URL = process.env.NEXT_PUBLIC_BASEFORGE_API || 'http://localhost:7700';
+const API_URL = process.env.NEXT_PUBLIC_BASEFORGE_API || 'http://localhost:5100';
 
 export interface Project {
   id: string;
