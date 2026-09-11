@@ -21,6 +21,8 @@ export interface FieldDefinition {
   name: string;
   type: FieldType;
   required?: boolean;
+  /** D1: field harus unik (tidak boleh duplikat) — ditegakkan oleh UNIQUE INDEX */
+  unique?: boolean;
   // Untuk type 'relation': collection tujuan (detail di M12)
   options?: {
     collectionId?: string;

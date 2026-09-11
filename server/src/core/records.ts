@@ -50,6 +50,40 @@ function fieldMap(meta: CollectionMeta): Map<string, FieldDefinition> {
   return new Map(meta.fields.map((f) => [f.name, f]));
 }
 
+// ─── D1: Error translator — error mesin → pesan ramah untuk produksi ────────
+// SQLite melempar error mentah seperti:
+//   "UNIQUE constraint failed: users.email"
+// Untuk produksi, kita terjemahkan menjadi pesan yang bisa ditampilkan ke user:
+//   "Email 'farel@x.com' sudah digunakan"
+
+export class DuplicateError extends Error {
+  constructor(
+    public field: string,
+    public value: unknown
+  ) {
+    super(`Nilai '${String(value)}' sudah digunakan untuk field '${field}' (harus unik)`);
+    this.name = 'DuplicateError';
+  }
+}
+
+function translateConstraintError(err: unknown, meta: CollectionMeta, data: Record<string, unknown>): never {
+  const message = err instanceof Error ? err.message : String(err);
+
+  // Pola error SQLite: "UNIQUE constraint failed: <table>.<column>"
+  const match = message.match(/UNIQUE constraint failed: \w+\.(\w+)/i);
+  if (match) {
+    const column = match[1];
+    const field = meta.fields.find((f) => f.name === column);
+    if (field) {
+      throw new DuplicateError(column, data[column]);
+    }
+    throw new DuplicateError(column, data[column]);
+  }
+
+  // Bukan error constraint → lempar apa adanya
+  throw err;
+}
+
 // ─── SERIALIZE: nilai user → bentuk simpan di SQLite ────────────────────────
 // bool → 1/0, json → string JSON. Tipe lain apa adanya.
 
@@ -132,7 +166,11 @@ export function createRecord(
   }
 
   const sql = `INSERT INTO "${collection}" (${columns.join(', ')}) VALUES (${placeholders.join(', ')})`;
-  db.prepare(sql).run(...(params as never[]));
+  try {
+    db.prepare(sql).run(...(params as never[]));
+  } catch (err) {
+    translateConstraintError(err, meta, data as Record<string, unknown>);
+  }
 
   return getRecord(db, collection, id)!;
 }
@@ -185,7 +223,11 @@ export function updateRecord(
 
   params.push(id);
   const sql = `UPDATE "${collection}" SET ${setClauses.join(', ')} WHERE id = ?`;
-  db.prepare(sql).run(...(params as never[]));
+  try {
+    db.prepare(sql).run(...(params as never[]));
+  } catch (err) {
+    translateConstraintError(err, meta, data as Record<string, unknown>);
+  }
 
   return getRecord(db, collection, id);
 }

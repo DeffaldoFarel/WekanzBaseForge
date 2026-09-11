@@ -126,6 +126,22 @@ export function generateCreateIndexSql(
   return `CREATE INDEX IF NOT EXISTS "${index.name}" ON "${collectionName}" (${cols});`;
 }
 
+// ─── Unique index generator — D1 ─────────────────────────────────────────────
+// Untuk setiap field dengan unique: true, kita buat UNIQUE INDEX.
+// SQLite yang menegakkan keunikan secara atomik — tidak bisa dilewati
+// race condition (lihat D1 docs: validasi di kode saja tidak cukup).
+
+export function generateUniqueIndexSql(
+  collectionName: string,
+  field: FieldDefinition
+): string {
+  if (!isValidName(field.name)) {
+    throw new Error(`Invalid field name for unique index: '${field.name}'`);
+  }
+  const indexName = `idx_${collectionName}_${field.name}_unique`;
+  return `CREATE UNIQUE INDEX IF NOT EXISTS "${indexName}" ON "${collectionName}" ("${field.name}");`;
+}
+
 // ─── CRUD untuk collections (meta-level) ─────────────────────────────────────
 
 export function defineCollection(
@@ -169,6 +185,13 @@ export function defineCollection(
   // ── Generate & eksekusi CREATE TABLE untuk tabel ASLI ──
   const sql = generateCreateTableSql(def);
   db.exec(sql);
+
+  // ── Buat UNIQUE INDEX untuk field unique (D1) ──
+  for (const field of def.fields) {
+    if (field.unique) {
+      db.exec(generateUniqueIndexSql(def.name, field));
+    }
+  }
 
   // ── Buat index yang didefinisikan (M06) ──
   for (const index of indexes) {
