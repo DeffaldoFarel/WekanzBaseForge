@@ -1,0 +1,25 @@
+{
+  "name": "wekanz-baseforge",
+  "version": "0.1.0",
+  "description": "Learning project: building a complete backend from scratch (database, auth, storage, functions) to deeply understand how they work",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch",
+    "build": "tsc",
+    "m01": "tsx src/m01-kv-store/index.ts"
+  },
+  "keywords": [
+    "learning",
+    "database",
+    "backend",
+    "sqlite",
+    "from-scratch"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2"
+  }
+}
