@@ -72,6 +72,11 @@ BaseForge (1 instalasi)
 - [x] B2 — Backup & restore (VACUUM INTO) ✅
 - [x] B3 — Duplikasi collection + batch API ✅
 
+### 🧩 M16: Menutup gap SQL Database ✅ — GAP DITUTUP!
+- [x] M16a — View collections (SQL view read-only + rules + filter M04) ✅
+- [x] M16b — Field types baru: editor, geoPoint, password (hash-only write) ✅
+- [x] M16c — Import/Export JSON (create/replace/merge upsert by id) ✅
+
 ### 🔐 Auth (per project) — ✅ FASE SELESAI (email/password)
 - [x] M08 — Password hashing (scrypt) ✅
 - [x] M09 — JWT + sessions + refresh tokens ✅
