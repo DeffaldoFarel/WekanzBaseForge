@@ -78,7 +78,27 @@ export function tokenize(input: string): Token[] {
       continue;
     }
 
-    // ── Operator perbandingan (cek yang 2-karakter dulu!) ──
+    // ── Operator perbandingan (cek yang 3-karakter dulu!) ──
+    // M17a: operator ? (any-match) untuk array/multi-value: ?=, ?!=, ?>, ?>=,
+    // ?<, ?<=, ?~, ?!~ — cek SEBELUM operator 2-char, dan '?' tidak boleh
+    // diikuti '=' lain yang membingungkan.
+    if (ch === '?' && /[=!<>~]/.test(input[i + 1] ?? '')) {
+      // consume '?' + operator 1-2 char berikutnya
+      const rest = input.slice(i + 1);
+      let op2: string | null = null;
+      for (const op of ['!=', '!~', '>=', '<=', '=', '>', '<', '~']) {
+        if (rest.startsWith(op)) {
+          op2 = op;
+          break;
+        }
+      }
+      if (op2) {
+        tokens.push({ type: 'OPERATOR', value: '?' + op2, pos: i });
+        i += 1 + op2.length;
+        continue;
+      }
+    }
+
     // Penting: '!=' harus dicek SEBELUM '=' atau '!' akan salah dibaca.
     let matchedOp: string | null = null;
     for (const op of OPERATORS) {

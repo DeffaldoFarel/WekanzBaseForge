@@ -19,6 +19,7 @@ import { parseMultipart, extractBoundary, MultipartFile } from './multipart.js';
 import { saveFile, deleteFile, deleteRecordFiles, storedFilenames } from './storage.js';
 import { isViewCollection } from './schema.js';
 import { hashPassword, verifyPassword } from '../auth/password.js';
+import { ftsTableName, sanitizeFtsQuery, ftsFields } from './fts.js';
 
 // M16a: error khusus write ke view collection
 export class ViewWriteError extends Error {
@@ -47,6 +48,7 @@ export interface ListOptions {
   page?: number;
   perPage?: number;
   reqCtx?: RequestContext; // M11: identitas user untuk rules
+  search?: string; // M17b: full-text search (jika collection punya FTS index)
 }
 
 export interface ListResult {
@@ -729,6 +731,24 @@ export function listRecords(
 
   const whereSql = whereParts.length > 0 ? `WHERE ${whereParts.join(' AND ')}` : '';
 
+  // ── M17b: full-text search (FTS5) ──
+  // Hanya aktif kalau collection punya field options.fulltext (ada FTS table).
+  // search user di-sanitasi (quote per token + prefix terakhir).
+  let fromClause = `"${collection}"`;
+  const searchParams: unknown[] = [];
+  const ftsCols = meta.type === 'base' ? ftsFields(meta) : null;
+  if (options.search && options.search.trim() !== '' && ftsCols) {
+    const ftsQuery = sanitizeFtsQuery(options.search);
+    if (ftsQuery === '') {
+      // search kosong setelah sanitasi → hasil kosong (konsisten filter tak cocok)
+      return { page, perPage, totalItems: 0, totalPages: 1, items: [] };
+    }
+    fromClause = `"${collection}" JOIN "${ftsTableName(collection)}" ON "${collection}"."id" = "${ftsTableName(collection)}"."record_id"`;
+    whereParts.push(`"${ftsTableName(collection)}" MATCH ?`);
+    searchParams.push(ftsQuery);
+  }
+  const whereSqlFts = whereParts.length > 0 ? `WHERE ${whereParts.join(' AND ')}` : '';
+
   // ── ORDER BY dari sort ──
   // M16a: view tidak menjamin punya kolom created — deteksi dari fields meta
   // (fields view = kolom hasil SELECT; field sistem 'created' hanya ada
@@ -741,17 +761,20 @@ export function listRecords(
   }
 
   // ── Hitung total (untuk pagination) ──
+  // M17b: pakai whereSqlFts (sudah termasuk MATCH) + fromClause (join FTS)
+  // URUTAN PARAM: params dulu (rule/filter — whereParts awal), search belakangan
+  // (MATCH push dilakukan SETELAH rule/filter pada whereParts).
   const countRow = db
-    .prepare(`SELECT COUNT(*) AS n FROM "${collection}" ${whereSql}`)
-    .get(...(params as never[])) as { n: number };
+    .prepare(`SELECT COUNT(*) AS n FROM ${fromClause} ${whereSqlFts}`)
+    .get(...([...params, ...searchParams] as never[])) as { n: number };
   const totalItems = countRow.n;
   const totalPages = Math.max(1, Math.ceil(totalItems / perPage));
 
   // ── Ambil halaman yang diminta ──
   const offset = (page - 1) * perPage;
   const rows = db
-    .prepare(`SELECT * FROM "${collection}" ${whereSql} ${orderSql} LIMIT ? OFFSET ?`)
-    .all(...([...params, perPage, offset] as never[])) as Record<string, unknown>[];
+    .prepare(`SELECT "${collection}".* FROM ${fromClause} ${whereSqlFts} ${orderSql} LIMIT ? OFFSET ?`)
+    .all(...([...params, ...searchParams, perPage, offset] as never[])) as Record<string, unknown>[];
 
   return {
     page,

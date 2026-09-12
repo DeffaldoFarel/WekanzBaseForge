@@ -13,6 +13,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { generateId } from './router.js';
 import { CollectionRules, DEFAULT_RULES, validateRuleFields } from './rules.js';
+import { createFts, dropFts } from './fts.js';
 import {
   FieldDefinition,
   fieldToSql,
@@ -293,6 +294,12 @@ export function defineCollection(
     }
   }
 
+  // ── M17b: FTS5 index untuk field dengan options.fulltext ──
+  const ftsFields = def.fields.filter((f) => f.options?.fulltext === true).map((f) => f.name);
+  if (ftsFields.length > 0) {
+    createFts(db, def.name, ftsFields);
+  }
+
   // ── Buat index yang didefinisikan (M06) ──
   for (const index of indexes) {
     const indexSql = generateCreateIndexSql(def.name, index, def.fields);
@@ -383,6 +390,8 @@ export function deleteCollection(db: DatabaseSync, name: string): boolean {
     db.exec(`DROP VIEW IF EXISTS "${name}";`);
   } else {
     db.exec(`DROP TABLE IF EXISTS "${name}";`);
+    // M17b: bersihkan FTS index + triggers jika ada
+    dropFts(db, name);
   }
 
   // ── D5: catat migrasi ──

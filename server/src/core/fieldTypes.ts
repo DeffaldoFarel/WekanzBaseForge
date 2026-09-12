@@ -43,6 +43,8 @@ export interface FieldDefinition {
     onUpdate?: boolean;
     /** M14 (file): ukuran maksimum file dalam bytes. Default 5 MB. */
     maxSize?: number;
+    /** M17b: field teks diikutkan dalam FTS5 full-text index */
+    fulltext?: boolean;
   };
 }
 

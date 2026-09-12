@@ -197,6 +197,7 @@ export function createPublicRouter(): Router {
         page: req.query.get('page') ? parseInt(req.query.get('page')!, 10) : 1,
         perPage: req.query.get('perPage') ? parseInt(req.query.get('perPage')!, 10) : 20,
         reqCtx,
+        search: req.query.get('search') ?? undefined, // M17b
       });
       res.json(result);
     } catch (err) {

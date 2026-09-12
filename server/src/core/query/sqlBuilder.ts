@@ -127,6 +127,12 @@ function walkComparison(
   const col = `"${node.field}"`;
 
   // ── Operator mapping ──
+  // M17a: operator ? (any-match) — untuk multi-value (array JSON/relation multi)
+  if (node.operator.startsWith('?')) {
+    const baseOp = node.operator.slice(1); // '=', '!=', '>', ...
+    return anyMatchToSql(node.field, baseOp, value, params);
+  }
+
   switch (node.operator) {
     case '=':
       if (value === null) return `${col} IS NULL`;
@@ -170,4 +176,63 @@ export function filterToSql(filter: string, fields: FieldDefinition[], reqCtx?: 
   const tokens = tokenize(filter);
   const ast = parse(tokens);
   return buildWhere(ast, fields, reqCtx);
+}
+
+// ─── M17a: any-match (?operator) via json_each ──────────────────────────────
+// Field array (JSON string atau kolom array) diekspansi per elemen:
+//   tags ?= "merah"  →  EXISTS (SELECT 1 FROM json_each("tags") WHERE value = ?)
+// Semantik PocketBase: "?=" = AT LEAST ONE element cocok; "?!=" = TIDAK ADA
+// yang cocok (all-not); ?~, elemen mengandung; dsb.
+function anyMatchToSql(
+  field: string,
+  baseOp: string,
+  value: unknown,
+  params: (string | number | boolean | null)[]
+): string {
+  const col = `"${field}"`;
+
+  // Normalisasi value untuk perbandingan elemen JSON
+  let cmpValue: string | number | boolean | null;
+  let likeValue: string | null = null;
+  if (typeof value === 'string') {
+    cmpValue = value;
+    likeValue = `%${value}%`;
+  } else if (value === null || typeof value === 'number' || typeof value === 'boolean') {
+    cmpValue = value as string | number | boolean;
+  } else {
+    cmpValue = JSON.stringify(value);
+  }
+
+  const inner = (cmp: string): string =>
+    `EXISTS (SELECT 1 FROM json_each(${col}) WHERE json_each.type != 'object' AND json_each.${cmp})`;
+
+  switch (baseOp) {
+    case '=':
+      params.push(cmpValue);
+      return inner(`value = ?`);
+    case '!=':
+      // ?!= = TIDAK ADA elemen yang sama (NOT EXISTS)
+      params.push(cmpValue);
+      return `NOT EXISTS (SELECT 1 FROM json_each(${col}) WHERE json_each.value = ?)`;
+    case '>':
+      params.push(cmpValue);
+      return inner(`value > ?`);
+    case '>=':
+      params.push(cmpValue);
+      return inner(`value >= ?`);
+    case '<':
+      params.push(cmpValue);
+      return inner(`value < ?`);
+    case '<=':
+      params.push(cmpValue);
+      return inner(`value <= ?`);
+    case '~':
+      params.push(likeValue);
+      return inner(`value LIKE ?`);
+    case '!~':
+      params.push(likeValue);
+      return `NOT EXISTS (SELECT 1 FROM json_each(${col}) WHERE json_each.value LIKE ?)`;
+    default:
+      throw new Error(`Operator any-match tidak didukung: '?${baseOp}'`);
+  }
 }

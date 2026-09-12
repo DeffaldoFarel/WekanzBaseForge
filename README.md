@@ -77,6 +77,10 @@ BaseForge (1 instalasi)
 - [x] M16b — Field types baru: editor, geoPoint, password (hash-only write) ✅
 - [x] M16c — Import/Export JSON (create/replace/merge upsert by id) ✅
 
+### 🚀 M17: 100% SQL Database parity ✅ — SQL DATABASE 100%!
+- [x] M17a — Any-match operator (?=, ?!=, ?~, ?>, dst via json_each) ✅
+- [x] M17b — FTS5 full-text search (?search=, trigger-synced, +rules) ✅
+
 ### 🔐 Auth (per project) — ✅ FASE SELESAI (email/password)
 - [x] M08 — Password hashing (scrypt) ✅
 - [x] M09 — JWT + sessions + refresh tokens ✅
