@@ -31,6 +31,7 @@ import { getCollectionByName } from '../core/schema.js';
 import type { DatabaseSync } from 'node:sqlite';
 import { deleteRecordFiles } from '../core/storage.js';
 import { realtimeHub } from '../core/realtime.js';
+import { fireTriggersSafe } from '../core/triggerExecutor.js';
 
 // ─── Helper: identitas pemanggil (admin ATAU end user) ──────────────────────
 // - Bearer JWT admin (login admin) → bypass rules (undefined ctx)
@@ -168,6 +169,8 @@ export function createPublicRouter(): Router {
       const record = createRecord(db, req.params.name, body, reqCtx, preId);
       // M13: broadcast ke realtime subscribers (setelah DB sukses)
       realtimeHub.publish(db, meta, 'create', record as Record<string, unknown>);
+      // M15b: jalankan functions yang ter-trigger (setelah realtime)
+      fireTriggersSafe(db, req.params.name, 'create', record as Record<string, unknown>);
       res.status(201).json({ record });
     } catch (err) {
       handleErrorPublic(res, err);
@@ -199,6 +202,14 @@ export function createPublicRouter(): Router {
 
       // M13: broadcast ke realtime subscribers
       realtimeHub.publish(db, meta, 'update', record as Record<string, unknown>);
+      // M15b: jalankan trigger dengan previous = snapshot sebelum update
+      fireTriggersSafe(
+        db,
+        req.params.name,
+        'update',
+        record as Record<string, unknown>,
+        oldRecord ?? undefined
+      );
 
       res.json({ record });
     } catch (err) {
@@ -221,6 +232,8 @@ export function createPublicRouter(): Router {
       if (meta) {
         // M13: broadcast delete (record id terakhir yang diketahui subscriber)
         realtimeHub.publish(db, meta, 'delete', { id: req.params.id } as Record<string, unknown>);
+        // M15b: trigger delete — record yang dikirim hanya { id }
+        fireTriggersSafe(db, req.params.name, 'delete', { id: req.params.id });
         // record sudah terhapus — kita tak punya isinya; deleteRecordFiles by prefix
         deleteRecordFiles(req.params.pid, req.params.id);
       }

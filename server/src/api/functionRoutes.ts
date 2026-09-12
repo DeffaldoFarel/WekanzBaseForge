@@ -18,6 +18,7 @@
 import { Router } from '../core/router.js';
 import { requireAdmin } from '../platform/adminAuth.js';
 import { getProjectDb } from '../core/projectDbManager.js';
+import { listCollections } from '../core/schema.js';
 import {
   initFunctionsTable,
   createFunction,
@@ -53,12 +54,41 @@ export function createFunctionRouter(): Router {
   router.post('/api/admin/projects/:pid/functions', requireAdmin, (req, res) => {
     try {
       const db = getProjectDb(req.params.pid);
-      const body = (req.body ?? {}) as { name?: string; code?: string; enabled?: boolean; timeoutMs?: number };
+      const body = (req.body ?? {}) as {
+        name?: string;
+        code?: string;
+        enabled?: boolean;
+        timeoutMs?: number;
+        triggers?: { collection: string; actions: string[] }[];
+      };
       if (!body.name || !body.code) {
         res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'name dan code wajib' } });
         return;
       }
-      const fn = createFunction(db, { name: body.name, code: body.code, enabled: body.enabled, timeoutMs: body.timeoutMs });
+      // Validasi trigger collection terhadap skema project
+      let triggers;
+      if (Array.isArray(body.triggers)) {
+        const existing = listCollections(db).map((c) => c.name);
+        triggers = body.triggers.map((t) => ({
+          collection: t.collection,
+          actions: t.actions as ('create' | 'update' | 'delete')[],
+        }));
+        for (const t of triggers) {
+          if (!existing.includes(t.collection)) {
+            res.status(400).json({
+              error: { code: 'BAD_REQUEST', message: `Trigger collection '${t.collection}' tidak ada di project ini` },
+            });
+            return;
+          }
+        }
+      }
+      const fn = createFunction(db, {
+        name: body.name,
+        code: body.code,
+        enabled: body.enabled,
+        timeoutMs: body.timeoutMs,
+        triggers,
+      });
       res.status(201).json({ function: fn });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Internal error';
@@ -95,8 +125,30 @@ export function createFunctionRouter(): Router {
   router.patch('/api/admin/projects/:pid/functions/:name', requireAdmin, (req, res) => {
     try {
       const db = getProjectDb(req.params.pid);
-      const body = (req.body ?? {}) as { code?: string; enabled?: boolean; timeoutMs?: number };
-      const fn = updateFunction(db, req.params.name, body);
+      const body = (req.body ?? {}) as {
+        code?: string;
+        enabled?: boolean;
+        timeoutMs?: number;
+        triggers?: { collection: string; actions: string[] }[];
+      };
+      // Validasi trigger collection terhadap skema project
+      let triggers;
+      if (Array.isArray(body.triggers)) {
+        const existing = listCollections(db).map((c) => c.name);
+        for (const t of body.triggers) {
+          if (!existing.includes(t.collection)) {
+            res.status(400).json({
+              error: { code: 'BAD_REQUEST', message: `Trigger collection '${t.collection}' tidak ada di project ini` },
+            });
+            return;
+          }
+        }
+        triggers = body.triggers.map((t) => ({
+          collection: t.collection,
+          actions: t.actions as ('create' | 'update' | 'delete')[],
+        }));
+      }
+      const fn = updateFunction(db, req.params.name, { ...body, triggers });
       if (!fn) {
         res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Function tidak ditemukan' } });
         return;

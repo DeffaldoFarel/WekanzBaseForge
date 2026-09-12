@@ -82,7 +82,7 @@ BaseForge (1 instalasi)
 
 ### ⚡ Functions (per project)
 - [x] M15a — Callable functions (node:vm sandbox + timeout + CRUD + execute) ✅
-- [ ] M15b — Database triggers
+- [x] M15b — Database triggers (create/update/delete + previous + fail-safe) ✅
 - [ ] M15c — Scheduler (cron)
 - [ ] M15u 🖥️ — Dashboard: function editor + logs
 

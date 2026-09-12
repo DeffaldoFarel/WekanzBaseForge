@@ -23,6 +23,13 @@ export interface FunctionRunOptions {
   auth?: RequestContext['auth'];
   timeoutMs?: number; // default 2000ms
   maxLogs?: number; // default 100 baris console
+  // M15b: konteks trigger — kalau ada, req = ini (bukan body/query/auth)
+  triggerContext?: {
+    action: 'create' | 'update' | 'delete';
+    collection: string;
+    record: Record<string, unknown>;
+    previous?: Record<string, unknown> | null;
+  };
 }
 
 export interface FunctionRunResult {
@@ -69,7 +76,7 @@ export function runFunctionCode(code: string, opts: FunctionRunOptions = {}): Fu
   // ── Sandbox context — inilah SELURUH dunia yang dilihat kode user ──
   const sandbox = {
     console: sandboxConsole,
-    req: {
+    req: opts.triggerContext ?? {
       body: opts.body ?? {},
       query: opts.query ?? {},
       auth: opts.auth ?? null, // { id, email } | null

@@ -1,0 +1,108 @@
+// ============================================================================
+// M15b: TRIGGER EXECUTOR — jalankan functions yang ter-trigger oleh CRUD
+//
+// Dipanggil dari API layer SETELAH create/update/delete sukses (pola sama
+// dengan realtime publish). Untuk tiap function enabled yang punya trigger
+// cocok (collection + action), jalankan kode di sandbox dengan konteks:
+//
+//   req = {
+//     action:     'create' | 'update' | 'delete',
+//     collection: 'posts',
+//     record:     { ...data },       // utk delete: hanya { id }
+//     previous:   { ... } | null,    // data SEBELUM update (null utk create)
+//   }
+//
+// DESAIN PENTING:
+// 1. Sinkron & fire-and-forget: trigger error TIDAK menggagalkan operasi
+//    CRUD asli (data sudah tersimpan) — error dicatat di log server.
+// 2. Timeout per function tetap berlaku (M15a).
+// 3. Log trigger ditulis ke console server (operator melihat apa yang
+//    terjadi; M15u nanti bisa simpan ke tabel _function_logs).
+// 4. Triggers dijalankan SETELAH realtime publish — urutan: DB → realtime
+//    → triggers → side effects (file cleanup). Data konsisten dulu,
+//    reaksi kemudian.
+// ============================================================================
+
+import { DatabaseSync } from 'node:sqlite';
+import { getCollectionByName, CollectionMeta } from './schema.js';
+import { listFunctions, StoredFunction } from './functionsStore.js';
+import { runFunctionCode, FunctionRunResult } from './functionRunner.js';
+
+export interface TriggerOutcome {
+  functionName: string;
+  ran: boolean;
+  ok?: boolean;
+  error?: string;
+  durationMs?: number;
+}
+
+export function fireTriggers(
+  db: DatabaseSync,
+  collection: string,
+  action: 'create' | 'update' | 'delete',
+  record: Record<string, unknown>,
+  previous?: Record<string, unknown> | null
+): TriggerOutcome[] {
+  let functions: StoredFunction[];
+  try {
+    functions = listFunctions(db);
+  } catch {
+    return []; // tabel belum ada / DB bermasalah — jangan ganggu operasi utama
+  }
+
+  const outcomes: TriggerOutcome[] = [];
+
+  for (const fn of functions) {
+    if (!fn.enabled) continue;
+
+    const matched = fn.triggers.some((t) => t.collection === collection && t.actions.includes(action));
+    if (!matched) continue;
+
+    // Disable triggers saat menjalankan function → fungsi yang menulis
+    // ke collection sama TIDAK memicu dirinya sendiri (anti infinite loop)
+    const result = runFunctionCode(fn.code, {
+      timeoutMs: fn.timeoutMs,
+      triggerContext: {
+        action,
+        collection,
+        record,
+        previous: previous ?? null,
+      },
+    });
+
+    if (!result.ok) {
+      console.error(
+        `[trigger:${fn.name}] ${collection}.${action} FAILED (${result.durationMs}ms): ${result.error}`
+      );
+    } else if (result.logs.length > 0) {
+      console.log(`[trigger:${fn.name}] ${collection}.${action} (${result.durationMs}ms) ${result.logs.join(' | ')}`);
+    } else {
+      console.log(`[trigger:${fn.name}] ${collection}.${action} ok (${result.durationMs}ms)`);
+    }
+
+    outcomes.push({
+      functionName: fn.name,
+      ran: true,
+      ok: result.ok,
+      error: result.error,
+      durationMs: result.durationMs,
+    });
+  }
+
+  return outcomes;
+}
+
+// Helper untuk API layer: ambil meta + fire (ignore error — best effort)
+export function fireTriggersSafe(
+  db: DatabaseSync,
+  collection: string,
+  action: 'create' | 'update' | 'delete',
+  record: Record<string, unknown>,
+  previous?: Record<string, unknown> | null
+): void {
+  try {
+    fireTriggers(db, collection, action, record, previous);
+  } catch (err) {
+    console.error(`[trigger] unexpected error firing ${collection}.${action}:`, err);
+  }
+}
