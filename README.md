@@ -74,7 +74,7 @@ BaseForge (1 instalasi)
 
 ### 🔐 Auth (per project) — SEDANG BERJALAN
 - [x] M08 — Password hashing (scrypt) ✅
-- [ ] M09 — JWT + sessions + refresh tokens
+- [x] M09 — JWT + sessions + refresh tokens ✅
 - [ ] M10 — OAuth2 (Google)
 - [ ] M11 — API rules (row-level security)
 - [ ] M10u 🖥️ — Dashboard: user management + rules editor
