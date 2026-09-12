@@ -117,7 +117,7 @@ test('M09u setup: admin login + buat project', async () => {
 // ════════════════════════════════════════════════════════════════════════════
 
 test('M09u: register → user + tokens (auto-login)', async () => {
-  resetAllRateLimits();
+  await resetAllRateLimits();
   const res = await http('POST', `/api/p/${projectId}/auth/register`, {
     email: 'farel@x.com',
     password: 'passwordRahasia123',
@@ -156,7 +156,7 @@ test('M09u: register password lemah → 400', async () => {
 // ════════════════════════════════════════════════════════════════════════════
 
 test('M09u: login benar → user + tokens', async () => {
-  resetAllRateLimits();
+  await resetAllRateLimits();
   const res = await http('POST', `/api/p/${projectId}/auth/login`, {
     email: 'farel@x.com',
     password: 'passwordRahasia123',
@@ -268,7 +268,7 @@ test('M09u: logout → refresh token mati', async () => {
 // ════════════════════════════════════════════════════════════════════════════
 
 test('M09u: RATE LIMIT — 11 percobaan login dalam 1 menit → 429', async () => {
-  resetAllRateLimits();
+  await resetAllRateLimits();
 
   // 10 percobaan pertama: boleh (semuanya gagal karena password salah, tapi bukan 429)
   for (let i = 0; i < 10; i++) {
@@ -291,11 +291,11 @@ test('M09u: RATE LIMIT — 11 percobaan login dalam 1 menit → 429', async () =
   console.log('\n   🚦 Rate limit: percobaan ke-11 → 429, Retry-After =',
     res11.headers['retry-after']);
 
-  resetAllRateLimits(); // bersihkan untuk test lain
+  await resetAllRateLimits(); // bersihkan untuk test lain
 });
 
 test('M09u: endpoint auth project lain terpisah (isolasi data)', async () => {
-  resetAllRateLimits();
+  await resetAllRateLimits();
 
   // Buat project kedua
   const p2 = await http('POST', '/api/admin/projects', { name: 'authapp2' }, adminToken);

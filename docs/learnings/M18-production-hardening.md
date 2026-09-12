@@ -2,9 +2,9 @@
 
 > Filosofi: "walaupun belajar, aku tetap ingin baseforge di level produksi."
 > node:vm bukan mekanisme keamanan; JWT buatan sendiri belum punya alg whitelist;
-> parser Buffer manual tidak streaming. M18 mengganti 3 komponen ini dengan
-> library teruji, TANPA mengubah satu pun route handler (dividen arsitektur
-> single-gate).
+> parser Buffer manual tidak streaming. M18 mengganti 4 komponen ini dengan
+> library teruji, TANPA mengubah satu pun route handler secara logika (dividen
+> arsitektur single-gate).
 
 ## Hasil Akhir
 
@@ -13,6 +13,7 @@
 | Function sandbox | `node:vm` (V8 context BERBAGAI heap host) | **isolated-vm** (isolate V8 sungguhan) | Context escape node:vm terbukti publik; isolated-vm = memory limit per isolate + tidak berbagi heap |
 | JWT | Hand-rolled HMAC-SHA256 (M09) | **jose** | Alg whitelist enforcement (anti alg:none/confusion), standard-compliant, jalan jalan ke OAuth2 (M10) |
 | Multipart | Parser Buffer manual (M14a) | **@fastify/busboy** | Battle-tested (dipakai Fastify), edge cases (header folding, boundary dalam konten) ditangani |
+| Rate limiter | In-memory Map (M09u) | **ioredis + Lua atomic** (fallback memory otomatis) | Persistent antar restart, SHARED antar multi-instance (WBS queue siap) |
 
 **TIDAK diganti** (sudah production-grade): scrypt `node:crypto` (OpenSSL
 teraudit), `node:sqlite` (engine C battle-tested), SSE realtime (150 baris,
@@ -90,7 +91,43 @@ milik sendiri).
    'viewquery'`. (Lesson: SQLite case-insensitive untuk identifier; selalu
    bandingkan lowercase.)
 
-## Verifikasi E2E (HTTP nyata, server :5100)
+## M18d — ioredis rate limiter (`auth/rateLimiter.ts`)
+
+### Perubahan kunci
+- **Redis fixed-window ATOMIK via Lua script** (`INCR` + `EXPIRE` + `TTL` dalam
+  satu script) — anti race condition multi-instance.
+- **Graceful degradation**: `REDIS_URL` tidak diset / Redis down → otomatis
+  fallback ke memory Map (kode M09u asli utuh). Server TETAP hidup tanpa Redis.
+- `reconnecting` + `retryStrategy` capped 5s; error Redis TIDAK crash server.
+- `resetAllRateLimits` pakai `SCAN` (bukan `KEYS` — KEYS blok produksi).
+- `checkRateLimit` & `secondsUntilReset` **async** → authRoutes menambah `await`.
+- Prefix key `rl:` agar scan/reset terisolasi dari data Redis lain (WBS queue).
+
+### Jebakan yang ditemukan (PENTING!)
+1. **Jebakan ESM hoisting**: `process.env.REDIS_URL = ...` di file test TIDAK
+   terbaca oleh module yang membaca env saat import — ESM mengangkat import
+   statis DI ATAS assignment. Fix: env dibaca LAZY via `ensureRedis()` saat
+   call pertama (init-once flag).
+2. **Jebakan race koneksi**: ioredis `ready` event ASYNC (~15-20ms), request
+   pertama sering datang sebelum ready → selamanya memory fallback. Fix:
+   `waitForRedisReady(maxMs=2000)` — poll tiap 20ms, timeout → fallback.
+   Setelah fix: probe E2E menunjukkan key `rl:login:::ffff:127.0.0.1` = 12,
+   TTL 52s di Redis nyata, dan 429 tepat di call ke-11 (limit 10).
+3. **Dua server 5100**: server lama (start sebelum M18d) masih jalan tanpa
+   `REDIS_URL` → probe 429 datang dari memory fallback server lama. Lesson:
+   saat verifikasi env-dependent, kill server lama dulu & cek `CommandLine`
+   proses yang listen di port.
+4. IPv6 mapping: Node bind `[::]:5100` → remoteAddress `::ffff:127.0.0.1`
+   (bukan `127.0.0.1`) — key Redis ikut format ini. Normal, bukan bug.
+
+### Verifikasi E2E M18d (server :5100 + Redis :16379)
+1. `REDIS_URL=... tsx src/index.ts` → health OK
+2. 12x login password salah → `401 ×10, 429 ×2` (limit 10/menit)
+3. Redis berisi `rl:login:::ffff:127.0.0.1` = 12, TTL 52s (backend Redis nyata!)
+4. Tanpa `REDIS_URL` → fallback memory bekerja (5 call, limit 3 → pola sama)
+5. 279/279 test tetap hijau
+
+## Verifikasi E2E M18a-c (HTTP nyata, server :5100)
 
 1. **isolated-vm**: create function `sapa` → execute `{"nama":"Farel"}` →
    `{"result":{"pesan":"Hai Farel"},"logs":["[log] [\"dipanggil\",\"Farel\"]"]}`
@@ -115,11 +152,12 @@ milik sendiri).
 isolated-vm     — isolate V8 (native module, prebuilt tersedia)
 jose            — JWT/OAuth standard (WebCrypto, zero-dep)
 @fastify/busboy — multipart parser (dipakai Fastify production)
+ioredis         — Redis client (opsional runtime; hanya aktif jika REDIS_URL diset)
 ```
 
 ## Arah berikutnya
 
-- M18d: Redis rate limiter (ioredis) — rate limit sekarang in-memory; VPS
-  tencentvps1 perlu install Redis (sekalian untuk WBS queue).
 - Audit & hardening router/FTS (fuzz-test URL encoding, rate limit khusus search).
 - M10: OAuth2 (jose siap verifikasi id_token Google).
+- VPS tencentvps1: install Redis (rate limiter + WBS queue, satu install dua
+  kebutuhan) — set `REDIS_URL` di PM2 env.

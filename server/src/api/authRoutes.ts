@@ -92,7 +92,8 @@ export function createProjectAuthRouter(): Router {
     const ip = clientIp(req);
 
     // Rate limit register juga (mencegah spam pendaftaran)
-    if (!checkRateLimit(`register:${ip}`, 10, 60_000)) {
+    // M18d: rate limiter async (Redis backend + memory fallback)
+    if (!(await checkRateLimit(`register:${ip}`, 10, 60_000))) {
       res.status(429).json({
         error: { code: 'RATE_LIMITED', message: 'Terlalu banyak percobaan. Coba lagi nanti.' },
       });
@@ -140,8 +141,9 @@ export function createProjectAuthRouter(): Router {
     const ip = clientIp(req);
 
     // Rate limit: 10 percobaan/menit per IP
-    if (!checkRateLimit(`login:${ip}`, 10, 60_000)) {
-      const retryAfter = secondsUntilReset(`login:${ip}`);
+    // M18d: rate limiter async (Redis backend + memory fallback)
+    if (!(await checkRateLimit(`login:${ip}`, 10, 60_000))) {
+      const retryAfter = await secondsUntilReset(`login:${ip}`);
       res.raw.setHeader('Retry-After', String(retryAfter));
       res.status(429).json({
         error: {
