@@ -9,8 +9,11 @@ import {
   createRecord,
   updateRecord,
   deleteRecord,
+  getRules,
+  updateRules,
   type CollectionInfo,
   type FieldDef,
+  type CollectionRules as Rules,
   type ListResult,
 } from "../../../../../lib/api";
 
@@ -29,6 +32,21 @@ export default function CollectionDataPage() {
 
   const [editing, setEditing] = useState<Record<string, unknown> | null>(null);
   const [showNew, setShowNew] = useState(false);
+
+  // ── M10u: Rules editor state ──
+  const [rules, setRules] = useState<Rules | null>(null);
+  const [showRules, setShowRules] = useState(false);
+  const [rulesDraft, setRulesDraft] = useState<Rules | null>(null);
+  const [rulesSaving, setRulesSaving] = useState(false);
+  const [rulesError, setRulesError] = useState("");
+
+  const RULE_LABELS: { key: keyof Rules; label: string; hint: string }[] = [
+    { key: "listRule", label: "List", hint: "siapa boleh melihat daftar record" },
+    { key: "viewRule", label: "View", hint: "siapa boleh melihat 1 record" },
+    { key: "createRule", label: "Create", hint: "siapa boleh membuat record" },
+    { key: "updateRule", label: "Update", hint: "siapa boleh mengubah" },
+    { key: "deleteRule", label: "Delete", hint: "siapa boleh menghapus" },
+  ];
 
   const loadCollection = useCallback(async () => {
     const cols = await listCollections(projectId);
@@ -63,6 +81,28 @@ export default function CollectionDataPage() {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, collectionName, page]);
+
+  // ── M10u: muat rules saat collection berubah ──
+  useEffect(() => {
+    getRules(projectId, collectionName)
+      .then(setRules)
+      .catch(() => setRules(null));
+  }, [projectId, collectionName]);
+
+  async function saveRules() {
+    if (!rulesDraft) return;
+    setRulesSaving(true);
+    setRulesError("");
+    try {
+      const saved = await updateRules(projectId, collectionName, rulesDraft);
+      setRules(saved);
+      setRulesDraft(null);
+    } catch (e) {
+      setRulesError(e instanceof Error ? e.message : "Gagal menyimpan rules");
+    } finally {
+      setRulesSaving(false);
+    }
+  }
 
   async function applyFilter(e?: React.FormEvent) {
     e?.preventDefault();
@@ -117,6 +157,88 @@ export default function CollectionDataPage() {
           </div>
         </div>
       )}
+
+      {/* M10u: API Rules (keamanan per collection) */}
+      <div className="card" style={{ marginTop: "0.5rem", padding: "0.75rem 1rem" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.5rem" }}>
+          <span style={{ fontSize: "0.85rem", fontWeight: 600 }}>🔐 API Rules</span>
+          <div style={{ display: "flex", gap: "0.4rem" }}>
+            <button
+              className="btn btn-secondary"
+              onClick={() => {
+                setShowRules(!showRules);
+                setRulesDraft(null);
+                setRulesError("");
+              }}
+            >
+              {showRules ? "Tutup" : "Edit"}
+            </button>
+            {showRules && rulesDraft && (
+              <button className="btn btn-primary" onClick={saveRules} disabled={rulesSaving}>
+                {rulesSaving ? "Menyimpan…" : "Simpan rules"}
+              </button>
+            )}
+          </div>
+        </div>
+
+        {!showRules ? (
+          rules && (
+            <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap", marginTop: "0.5rem" }}>
+              {RULE_LABELS.map(({ key, label }) => {
+                const v = rules[key];
+                const badge = v === null ? "🔒 Admin" : v.trim() === "" ? "🌐 Publik" : "🧮 Rule";
+                return (
+                  <span key={key} className="type-badge" title={`${label}: ${String(v ?? "null")}`}>
+                    {label}: {badge}
+                  </span>
+                );
+              })}
+            </div>
+          )
+        ) : (
+          <div style={{ marginTop: "0.6rem" }}>
+            <p className="muted" style={{ fontSize: "0.78rem", marginBottom: "0.6rem" }}>
+              Kosongkan = publik (siapa pun). Hapus isi & tulis <code>null</code> = admin-only.
+              Gunakan <code>@request.auth.id</code> untuk identitas user yang login.
+              Contoh: <code>user = @request.auth.id</code>
+            </p>
+            {(rulesDraft ?? rules) &&
+              RULE_LABELS.map(({ key, label, hint }) => {
+                const draft = rulesDraft ?? rules!;
+                const val = draft[key];
+                return (
+                  <div key={key} style={{ marginBottom: "0.5rem" }}>
+                    <label style={{ display: "block", fontSize: "0.8rem", marginBottom: "0.2rem" }}>
+                      <strong>{label}</strong> <span className="muted">— {hint}</span>
+                    </label>
+                    <div style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
+                      <input
+                        className="input"
+                        style={{ flex: 1, fontFamily: "var(--mono, monospace)", fontSize: "0.8rem" }}
+                        placeholder="(null = admin-only) atau rule, misal: user = @request.auth.id"
+                        value={val === null ? "null" : val}
+                        onChange={(e) => {
+                          const text = e.target.value;
+                          // "null" (persis, lowercase) → null (admin-only);
+                          // string lain (termasuk kosong) → rule publik/kosong
+                          const parsed: string | null = text.trim() === "null" ? null : text;
+                          setRulesDraft({
+                            ...(rulesDraft ?? rules!),
+                            [key]: parsed,
+                          });
+                        }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            {rulesError && <div className="error-text">{rulesError}</div>}
+            <p className="muted" style={{ fontSize: "0.75rem", marginTop: "0.4rem" }}>
+              💡 Trik: ketik <code>null</code> (huruf kecil) untuk admin-only, string kosong untuk publik.
+            </p>
+          </div>
+        )}
+      </div>
 
       {/* Filter bar (M04 parser bekerja di sini!) */}
       <form className="filter-bar" onSubmit={applyFilter}>

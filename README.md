@@ -77,8 +77,8 @@ BaseForge (1 instalasi)
 - [x] M09 — JWT + sessions + refresh tokens ✅
 - [x] M09u — Auth API endpoints (register/login/refresh/me/logout + rate limit) ✅
 - [x] M11 — API rules (row-level security) ✅ — FASE AUTH TUNTAS!
+- [x] M10u 🖥️ — Dashboard: user management + rules editor ✅
 - [ ] M10 — OAuth2 (Google) — DITUNDA (email/password dulu)
-- [ ] M10u 🖥️ — Dashboard: user management + rules editor
 
 ### ⚡ Functions (per project)
 - [ ] M15a — Code editor + vm isolation

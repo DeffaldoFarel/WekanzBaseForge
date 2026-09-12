@@ -199,3 +199,89 @@ export async function deleteRecord(
     method: 'DELETE',
   });
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// M10u: AUTH USERS + RULES API (dashboard mengelola end users & keamanan)
+// ════════════════════════════════════════════════════════════════════════════
+
+export interface AuthUser {
+  id: string;
+  email: string;
+  name?: string;
+  verified: boolean;
+  created: string;
+  updated: string;
+  // password_hash TIDAK PERNAH dikirim server — lihat users.ts
+}
+
+export interface AuthUsersResult {
+  items: AuthUser[];
+  totalItems: number;
+  totalPages: number;
+  page: number;
+  perPage: number;
+}
+
+export async function listAuthUsers(
+  projectId: string,
+  page = 1
+): Promise<AuthUsersResult> {
+  return request<AuthUsersResult>(
+    `/api/admin/projects/${projectId}/auth-users?page=${page}&perPage=50`
+  );
+}
+
+export async function createAuthUser(
+  projectId: string,
+  data: { email: string; password: string; name?: string }
+): Promise<AuthUser> {
+  const res = await request<{ user: AuthUser }>(
+    `/api/admin/projects/${projectId}/auth-users`,
+    { method: 'POST', body: JSON.stringify(data) }
+  );
+  return res.user;
+}
+
+export async function changeAuthUserPassword(
+  projectId: string,
+  userId: string,
+  password: string
+): Promise<void> {
+  await request(`/api/admin/projects/${projectId}/auth-users/${userId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ password }),
+  });
+}
+
+export async function deleteAuthUser(projectId: string, userId: string): Promise<void> {
+  await request(`/api/admin/projects/${projectId}/auth-users/${userId}`, {
+    method: 'DELETE',
+  });
+}
+
+export interface CollectionRules {
+  listRule: string | null;
+  viewRule: string | null;
+  createRule: string | null;
+  updateRule: string | null;
+  deleteRule: string | null;
+}
+
+export async function getRules(projectId: string, collection: string): Promise<CollectionRules> {
+  const res = await request<{ rules: CollectionRules }>(
+    `/api/admin/projects/${projectId}/collections/${collection}/rules`
+  );
+  return res.rules;
+}
+
+export async function updateRules(
+  projectId: string,
+  collection: string,
+  rules: Partial<CollectionRules>
+): Promise<CollectionRules> {
+  const res = await request<{ rules: CollectionRules }>(
+    `/api/admin/projects/${projectId}/collections/${collection}/rules`,
+    { method: 'PATCH', body: JSON.stringify(rules) }
+  );
+  return res.rules;
+}
