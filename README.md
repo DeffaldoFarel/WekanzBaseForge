@@ -72,8 +72,8 @@ BaseForge (1 instalasi)
 - [x] B2 — Backup & restore (VACUUM INTO) ✅
 - [x] B3 — Duplikasi collection + batch API ✅
 
-### 🔐 Auth (per project) — BERIKUTNYA
-- [ ] M08 — Password hashing
+### 🔐 Auth (per project) — SEDANG BERJALAN
+- [x] M08 — Password hashing (scrypt) ✅
 - [ ] M09 — JWT + sessions + refresh tokens
 - [ ] M10 — OAuth2 (Google)
 - [ ] M11 — API rules (row-level security)
