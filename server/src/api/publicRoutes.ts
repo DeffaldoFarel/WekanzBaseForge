@@ -29,6 +29,7 @@ import { ForbiddenError } from '../core/rules.js';
 import type { DatabaseSync } from 'node:sqlite';
 import { deleteRecordFiles } from '../core/storage.js';
 import { realtimeHub } from '../core/realtime.js';
+import { checkSearchRateLimit } from '../core/searchGuard.js'; // M18e
 import { fireTriggersSafe } from '../core/triggerExecutor.js';
 
 // ─── Helper: identitas pemanggil (admin ATAU end user) ──────────────────────
@@ -188,8 +189,21 @@ export function createPublicRouter(): Router {
   // ═══════════════════════════════════════════════════════════════════════
 
   // GET list
+  // M18e: rate limit KHUSUS request dengan ?search= (FTS scan mahal, anti
+  // dictionary-abuse). List biasa tanpa search tidak terbatas.
   router.get('/api/p/:pid/collections/:name/records', async (req, res) => {
     try {
+      const searchQ = req.query.get('search') ?? undefined; // M17b
+      if (searchQ) {
+        const ip = req.raw.socket.remoteAddress ?? 'unknown';
+        const allowed = await checkSearchRateLimit(req.params.pid, ip);
+        if (!allowed) {
+          res.status(429).json({
+            error: { code: 'RATE_LIMITED', message: 'Terlalu banyak pencarian. Coba lagi sebentar.' },
+          });
+          return;
+        }
+      }
       const db = getProjectDb(req.params.pid);
       const reqCtx = await resolveEndUserCtx(req); // admin → undefined (bypass)
       const result = listRecords(db, req.params.name, {
@@ -198,7 +212,7 @@ export function createPublicRouter(): Router {
         page: req.query.get('page') ? parseInt(req.query.get('page')!, 10) : 1,
         perPage: req.query.get('perPage') ? parseInt(req.query.get('perPage')!, 10) : 20,
         reqCtx,
-        search: req.query.get('search') ?? undefined, // M17b
+        search: searchQ,
       });
       res.json(result);
     } catch (err) {

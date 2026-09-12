@@ -128,7 +128,14 @@ export class Router {
       const pathSeg = pathSegments[i];
 
       if (patternSeg.startsWith(':')) {
-        params[patternSeg.slice(1)] = decodeURIComponent(pathSeg);
+        // M18e hardening: URL hostile (`%%`, `%e0%80`, `%ff`) membuat
+        // decodeURIComponent melempar URIError → 500/crash. Fallback:
+        // pakai segmen mentah (handler atas yang memvalidasi isi param).
+        try {
+          params[patternSeg.slice(1)] = decodeURIComponent(pathSeg);
+        } catch {
+          params[patternSeg.slice(1)] = pathSeg;
+        }
       } else if (patternSeg !== pathSeg) {
         return null; // segmen literal tidak cocok
       }

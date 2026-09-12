@@ -78,15 +78,21 @@ export function dropFts(db: DatabaseSync, collection: string): void {
 // ─── Query sanitasi untuk FTS5 MATCH ─────────────────────────────────────────
 // - quote tiap token → phrase (aman dari operator FTS asing)
 // - prefix * di token terakhir → UX pencarian lebih baik
+// - M18e hardening: buang token non-word murni (`***`, `***`, `---`), dan
+//   operator FTS5 yang lolos dalam phrase (OR/AND/NOT/NEAR di luar quote)
+//   tetap TIDAK aktif karena tiap token dibungkus `"..."`.
+//   Token yang mengandung `"` dihapus dari karakter itu — sisa huruf aman.
 // "kopi gayo" → '"kopi" "gayo"*'
 
 export function sanitizeFtsQuery(search: string): string {
   const tokens = search
     .trim()
     .split(/\s+/)
-    .filter((t) => t.length > 0)
     .map((t) => t.replace(/"/g, ''))
-    .filter((t) => t.length > 0);
+    // M18e: buang token yang setelah pembersihan tidak punya karakter
+    // alphanumeric sama sekali (`***`, `---`, `*`, punct-only) — token begitu
+    // di dalam `"..."` diabaikan FTS5, tapi lebih bersih dibuang di sini.
+    .filter((t) => /[\p{L}\p{N}]/u.test(t));
 
   if (tokens.length === 0) return '';
 

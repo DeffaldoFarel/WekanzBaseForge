@@ -120,9 +120,10 @@ describe('M17b: sanitizeFtsQuery', () => {
 
   test('M17b: karakter FTS berbahaya dibuang (anti syntax error)', () => {
     // quote user dibuang; tiap token di-quote terpisah (phrase per token)
-    assert.equal(sanitizeFtsQuery('kopi" OR 1=1 --'), '"kopi" "OR" "1=1" "--"*');
+    // M18e: token punct-only (`--`) dibuang sanitizer baru
+    assert.equal(sanitizeFtsQuery('kopi" OR 1=1 --'), '"kopi" "OR" "1=1"*');
     assert.equal(sanitizeFtsQuery('   '), '');
-    assert.equal(sanitizeFtsQuery('"""'), '');
+    assert.equal(sanitizeFtsQuery('""""'), '');
   });
 });
 

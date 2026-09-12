@@ -127,6 +127,28 @@ milik sendiri).
 4. Tanpa `REDIS_URL` → fallback memory bekerja (5 call, limit 3 → pola sama)
 5. 279/279 test tetap hijau
 
+## M18e — Hardening router & FTS (audit + patch, bukan ganti)
+
+### Fuzz-test menemukan bug router NYATA
+- **`decodeURIComponent` melempar `URIError`** untuk URL hostile (`%%`,
+  `%e0%80`, `%ff%fe`) → unhandled rejection di dispatch async router
+  (ditemukan test fuzz `M18e`, bukan oleh manusia review!). Fix: try/catch
+  per-segmen, fallback ke segmen mentah — handler atas yang memvalidasi.
+- Double-encode `%252e%252e` TIDAK di-decode ganda (correct behavior —
+  terbukti test).
+- `%2f` di :param tidak mengubah jumlah segmen (match sebelum decode).
+
+### FTS sanitizer diperkuat
+- Token **punct-only** (`***`, `---`, `""`) dibuang (regex `\p{L}\p{N}`
+  unicode-aware — CJK/emoji tetap diterima sebagai token).
+- Operator FTS5 (OR/AND/NOT/NEAR) tetap mati karena phrase-quoting.
+- Input 10k char → aman.
+
+### Rate limit khusus search (`core/searchGuard.ts`)
+- Endpoint list dengan `?search=` dibatasi **60 req/menit per (project, IP)**
+  — FTS scan mahal; anti dictionary-abuse. List tanpa search tak terbatas.
+- Memakai backend rate limiter umum (Redis + fallback memory) — satu backend.
+
 ## Verifikasi E2E M18a-c (HTTP nyata, server :5100)
 
 1. **isolated-vm**: create function `sapa` → execute `{"nama":"Farel"}` →
