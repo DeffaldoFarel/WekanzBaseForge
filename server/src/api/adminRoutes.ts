@@ -15,6 +15,7 @@ import {
   DEFAULT_SERVICES,
   type ProjectServices,
 } from '../core/platformDb.js';
+import { closeProjectDb } from '../core/projectDbManager.js';
 
 export function createAdminRouter(): Router {
   const router = new Router();
@@ -136,6 +137,9 @@ export function createAdminRouter(): Router {
   });
 
   router.delete('/api/admin/projects/:id', requireAdmin, (req, res) => {
+    // Tutup koneksi DB project jika sedang aktif di cache (wajib di Windows sebelum unlink)
+    closeProjectDb(req.params.id);
+
     const deleted = deleteProject(req.params.id);
     if (!deleted) {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Project not found' } });

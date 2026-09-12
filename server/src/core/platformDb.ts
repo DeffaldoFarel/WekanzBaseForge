@@ -162,7 +162,11 @@ export function provisionProjectStorage(projectId: string): void {
 export function destroyProjectStorage(projectId: string): void {
   const dir = projectDir(projectId);
   if (fs.existsSync(dir)) {
-    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  }
+  const storageDir = path.join(DATA_DIR, 'storage', projectId);
+  if (fs.existsSync(storageDir)) {
+    fs.rmSync(storageDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 }
 
