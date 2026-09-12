@@ -100,7 +100,15 @@ export interface FieldDef {
   name: string;
   type: string;
   required?: boolean;
-  options?: { collectionId?: string };
+  unique?: boolean;
+  options?: {
+    collectionId?: string;
+    maxSelect?: number;
+    cascadeDelete?: string;
+    values?: string[]; // untuk type 'select'
+    onCreate?: boolean; // untuk type 'autodate'
+    onUpdate?: boolean;
+  };
 }
 
 export interface CollectionInfo {

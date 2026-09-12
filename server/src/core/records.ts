@@ -165,6 +165,8 @@ export function createRecord(
 
   // ── Validasi field required yang TIDAK dikirim ──
   for (const field of meta.fields) {
+    // autodate dikelola sistem → tidak perlu dikirim user
+    if (field.type === 'autodate') continue;
     if (field.required && !(field.name in data)) {
       throw new Error(`Field '${field.name}' is required`);
     }
@@ -179,11 +181,13 @@ export function createRecord(
   const now = new Date().toISOString();
 
   for (const field of meta.fields) {
-    // B1: autodate diisi otomatis saat create (jika onCreate aktif)
-    if (field.type === 'autodate' && field.options?.onCreate) {
-      columns.push(`"${field.name}"`);
-      placeholders.push('?');
-      params.push(now);
+    // B1: autodate SEPENUHNYA dikelola sistem — nilai dari user diabaikan.
+    if (field.type === 'autodate') {
+      if (field.options?.onCreate) {
+        columns.push(`"${field.name}"`);
+        placeholders.push('?');
+        params.push(now);
+      }
       continue;
     }
 
@@ -278,6 +282,9 @@ export function updateRecord(
     if (!field) {
       throw new Error(`Field '${key}' tidak ada di collection '${collection}'`);
     }
+    // B1: autodate dikelola sistem — abaikan nilai dari user
+    if (field.type === 'autodate') continue;
+
     const err = validateValue(field, value);
     if (err) throw new Error(err);
 

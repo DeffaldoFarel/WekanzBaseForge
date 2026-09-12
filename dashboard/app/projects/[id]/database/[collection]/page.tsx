@@ -323,6 +323,31 @@ function FieldInput({
           onChange={(e) => onChange(e.target.value === "" ? null : Number(e.target.value))}
         />
       );
+    case "select": {
+      // Dropdown dari options.values
+      const allowed = field.options?.values ?? [];
+      return (
+        <select
+          className="input"
+          value={value === null || value === undefined ? "" : String(value)}
+          onChange={(e) => onChange(e.target.value === "" ? null : e.target.value)}
+        >
+          <option value="">— pilih —</option>
+          {allowed.map((v) => (
+            <option key={v} value={v}>
+              {v}
+            </option>
+          ))}
+        </select>
+      );
+    }
+    case "autodate":
+      // Diisi otomatis oleh sistem — tampilkan sebagai info, tidak bisa diedit
+      return (
+        <div className="muted" style={{ fontSize: "0.85rem", fontStyle: "italic" }}>
+          ⏱ Diisi otomatis oleh sistem
+        </div>
+      );
     case "json":
       return (
         <textarea

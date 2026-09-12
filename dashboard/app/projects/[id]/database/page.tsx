@@ -11,7 +11,18 @@ import {
   type FieldDef,
 } from "../../../../lib/api";
 
-const FIELD_TYPES = ["text", "number", "bool", "email", "date", "json", "relation"];
+const FIELD_TYPES = [
+  "text",
+  "number",
+  "bool",
+  "email",
+  "date",
+  "json",
+  "relation",
+  "select",
+  "url",
+  "autodate",
+];
 
 export default function DatabasePage() {
   const params = useParams();
