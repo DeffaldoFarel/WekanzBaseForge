@@ -2,7 +2,9 @@
 
 > **Project belajar: membangun complete backend dari bawah — SQL database, auth, functions, storage, dan dashboard admin — untuk memahami cara kerjanya.**
 
-⚠️ **Status: Learning playground.** BUKAN untuk production. Wekanz production tetap memakai PocketBase + WBS (WekanzBackendService).
+⚠️ **Status: Learning playground, production-hardened core.** Bagian security-critical
+(function sandbox, JWT, multipart, rate limiting) sudah memakai library teruji
+sejak M18; Wekanz production tetap memakai PocketBase + WBS (WekanzBackendService).
 
 ---
 
@@ -81,6 +83,17 @@ BaseForge (1 instalasi)
 - [x] M17a — Any-match operator (?=, ?!=, ?~, ?>, dst via json_each) ✅
 - [x] M17b — FTS5 full-text search (?search=, trigger-synced, +rules) ✅
 
+### 🛡️ M18: Production Hardening ✅ — security-critical swap ke library teruji
+- [x] M18a — Function sandbox: node:vm → **isolated-vm** (isolate V8 nyata, memory limit/isolate, async timeout, host invisible) ✅
+- [x] M18b — JWT: hand-rolled → **jose** (alg whitelist HS256, standard-compliant, OAuth2-ready) ✅
+- [x] M18c — Multipart: parser manual → **@fastify/busboy** (streaming, battle-tested) ✅
+- [x] M18d — Rate limiter: in-memory → **ioredis + Lua atomic** (fallback memory otomatis, persistent & shared antar instance) ✅
+- [x] M18e — Hardening router & FTS (fuzz-test menangkap URIError bug nyata!, sanitizer diperkuat, rate limit khusus ?search=) ✅
+
+> Prinsip M18: single-gate module membuat swap tanpa mengubah satu pun route
+> handler; `scrypt node:crypto`, `node:sqlite`, SSE, cron parser TIDAK diganti
+> (sudah production-grade). 289 test hijau.
+
 ### 🔐 Auth (per project) — ✅ FASE SELESAI (email/password)
 - [x] M08 — Password hashing (scrypt) ✅
 - [x] M09 — JWT + sessions + refresh tokens ✅
@@ -104,10 +117,13 @@ BaseForge (1 instalasi)
 - [x] M13 — Realtime subscriptions (SSE ala PocketBase) ✅
 
 ### 🔮 Fitur lanjutan (opsional)
-- [ ] View collections (SQL views read-only)
-- [ ] Full-text search (FTS5)
-- [ ] Field `file` (via M14)
-- [ ] Field `editor` (rich text)
+- [x] View collections (SQL views read-only) — M16a ✅
+- [x] Full-text search (FTS5) — M17b ✅
+- [x] Field `file` (via M14) ✅
+- [x] Field `editor` (rich text) — M16b ✅
+- [ ] OAuth2 (Google) — M10 (jose siap dari M18b)
+- [ ] S3 storage backend
+- [ ] Custom routes + $http sandbox
 
 
 ## 📁 Struktur
