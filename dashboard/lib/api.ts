@@ -132,12 +132,18 @@ export interface FieldDef {
   };
 }
 
+export interface IndexDef {
+  name: string;
+  fields: string[];
+  unique?: boolean;
+}
+
 export interface CollectionInfo {
   name: string;
   type?: 'base' | 'view';
   viewQuery?: string | null;
   fields: FieldDef[];
-  indexes: { name: string; fields: string[] }[];
+  indexes: IndexDef[];
   recordCount?: number;
   created: string;
 }
@@ -183,7 +189,7 @@ export async function updateCollection(
 export async function rebuildCollectionSchema(
   projectId: string,
   name: string,
-  def: { fields: FieldDef[] }
+  def: { fields: FieldDef[]; indexes?: IndexDef[] }
 ): Promise<CollectionInfo> {
   const data = await request<{ collection: CollectionInfo }>(
     `/api/admin/projects/${projectId}/collections/${name}`,

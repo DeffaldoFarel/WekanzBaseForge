@@ -34,6 +34,7 @@ export interface CollectionDefinition {
 export interface IndexDefinition {
   name: string;
   fields: string[]; // nama kolom yang di-index (bisa >1 = composite)
+  unique?: boolean; // apakah UNIQUE index
 }
 
 export interface CollectionMeta {
@@ -216,7 +217,8 @@ export function generateCreateIndexSql(
   }
 
   const cols = index.fields.map((f) => `"${f}"`).join(', ');
-  return `CREATE INDEX IF NOT EXISTS "${index.name}" ON "${collectionName}" (${cols});`;
+  const uniqueStr = index.unique ? 'UNIQUE ' : '';
+  return `CREATE ${uniqueStr}INDEX IF NOT EXISTS "${index.name}" ON "${collectionName}" (${cols});`;
 }
 
 // ─── Unique index generator — D1 ─────────────────────────────────────────────
@@ -522,7 +524,7 @@ export function updateCollectionRules(
 export function rebuildCollection(
   db: DatabaseSync,
   name: string,
-  newDef: { fields: FieldDefinition[] }
+  newDef: { fields: FieldDefinition[]; indexes?: IndexDefinition[] }
 ): CollectionMeta {
   const existing = getCollectionByName(db, name);
   if (!existing) {
@@ -611,7 +613,8 @@ export function rebuildCollection(
         db.exec(generateUniqueIndexSql(name, field));
       }
     }
-    for (const index of existing.indexes) {
+    const finalIndexes = newDef.indexes !== undefined ? newDef.indexes : existing.indexes;
+    for (const index of finalIndexes) {
       // Hanya buat ulang index yang semua kolomnya masih ada
       const allExist = index.fields.every((f) => f === 'id' || f === 'created' || f === 'updated' || newFieldNames.has(f));
       if (allExist) {
@@ -621,9 +624,9 @@ export function rebuildCollection(
 
     // ── 6. Update definisi di _collections ──
     db.prepare(
-      `UPDATE _collections SET fields = ?,
+      `UPDATE _collections SET fields = ?, indexes = ?,
        updated = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE name = ?`
-    ).run(JSON.stringify(newFields), name);
+    ).run(JSON.stringify(newFields), JSON.stringify(finalIndexes), name);
 
     // ── 7. D5: catat migrasi rebuild (dengan before & after) ──
     recordMigration(db, name, 'rebuild', {

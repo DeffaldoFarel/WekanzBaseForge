@@ -30,7 +30,7 @@ import {
   deleteRecord,
   listRecords,
 } from '../core/records.js';
-import type { CollectionDefinition } from '../core/schema.js';
+import type { CollectionDefinition, IndexDefinition } from '../core/schema.js';
 
 export function createDatabaseRouter(): Router {
   const router = new Router();
@@ -118,16 +118,19 @@ export function createDatabaseRouter(): Router {
     }
   });
 
-  // PUT /api/admin/projects/:pid/collections/:name — full schema edit (rebuild table: ubah/hapus/tambah kolom)
+  // PUT /api/admin/projects/:pid/collections/:name — full schema edit (rebuild table: ubah/hapus/tambah kolom & indexes)
   router.put('/api/admin/projects/:pid/collections/:name', requireAdmin, (req, res) => {
     try {
       const db = getProjectDb(req.params.pid);
-      const body = req.body as { fields?: FieldDefinition[] } | undefined;
+      const body = req.body as { fields?: FieldDefinition[]; indexes?: IndexDefinition[] } | undefined;
       if (!Array.isArray(body?.fields)) {
         res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'fields harus berupa array' } });
         return;
       }
-      const updated = rebuildCollection(db, req.params.name, { fields: body.fields });
+      const updated = rebuildCollection(db, req.params.name, {
+        fields: body.fields,
+        indexes: Array.isArray(body.indexes) ? body.indexes : undefined,
+      });
       res.json({ collection: updated });
     } catch (err) {
       handleError(res, err);

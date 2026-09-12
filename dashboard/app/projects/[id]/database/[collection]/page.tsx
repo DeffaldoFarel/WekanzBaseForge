@@ -23,10 +23,12 @@ import {
   fileUrl,
   type CollectionInfo,
   type FieldDef,
+  type IndexDef,
   type CollectionRules as Rules,
   type ListResult,
 } from "@/lib/api";
 import { FieldOptionsEditor } from "@/components/FieldOptionsEditor";
+import { IndexesEditor } from "@/components/IndexesEditor";
 
 const FIELD_TYPES = [
   "text",
@@ -99,6 +101,7 @@ export default function AdvancedDatabaseStudioPage() {
 
   // Schema Editor State (M16 / D4 Rebuild)
   const [fieldsDraft, setFieldsDraft] = useState<FieldDef[]>([]);
+  const [indexesDraft, setIndexesDraft] = useState<IndexDef[]>([]);
   const [schemaSaving, setSchemaSaving] = useState(false);
   const [schemaError, setSchemaError] = useState("");
 
@@ -124,6 +127,7 @@ export default function AdvancedDatabaseStudioPage() {
       setCollection(current ?? null);
       if (current) {
         setFieldsDraft(JSON.parse(JSON.stringify(current.fields)));
+        setIndexesDraft(JSON.parse(JSON.stringify(current.indexes || [])));
       }
       return data;
     } catch (e) {
@@ -302,10 +306,14 @@ export default function AdvancedDatabaseStudioPage() {
     setSchemaError("");
     try {
       const validFields = fieldsDraft.filter((f) => f.name.trim().length > 0);
-      const updated = await rebuildCollectionSchema(projectId, collectionName, { fields: validFields });
+      const updated = await rebuildCollectionSchema(projectId, collectionName, {
+        fields: validFields,
+        indexes: indexesDraft,
+      });
       setCollection(updated);
       setFieldsDraft(JSON.parse(JSON.stringify(updated.fields)));
-      alert("Skema koleksi berhasil diperbarui via Table Rebuild!");
+      setIndexesDraft(JSON.parse(JSON.stringify(updated.indexes || [])));
+      alert("Skema & Indeks berhasil diperbarui via Table Rebuild!");
       await loadAllCollections();
       await loadRecords();
     } catch (e) {
@@ -762,19 +770,6 @@ export default function AdvancedDatabaseStudioPage() {
                       Req
                     </label>
 
-                    <label style={{ display: "flex", alignItems: "center", gap: "0.3rem", fontSize: "0.82rem", whiteSpace: "nowrap", cursor: "pointer" }}>
-                      <input
-                        type="checkbox"
-                        checked={!!f.unique}
-                        onChange={(e) => {
-                          const updated = [...fieldsDraft];
-                          updated[i].unique = e.target.checked;
-                          setFieldsDraft(updated);
-                        }}
-                      />
-                      Unique
-                    </label>
-
                     <button
                       type="button"
                       className="btn-icon"
@@ -802,6 +797,14 @@ export default function AdvancedDatabaseStudioPage() {
                 </div>
               ))}
             </div>
+
+            {/* ─── POCKETBASE-STYLE INDEXES & UNIQUE CONSTRAINTS SECTION ─── */}
+            <IndexesEditor
+              collectionName={collectionName}
+              indexes={indexesDraft}
+              fields={fieldsDraft}
+              onChange={setIndexesDraft}
+            />
 
             <div style={{ marginTop: "1.5rem", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <button
@@ -1118,18 +1121,6 @@ export default function AdvancedDatabaseStudioPage() {
                         }}
                       />
                       Req
-                    </label>
-                    <label style={{ display: "flex", alignItems: "center", gap: "0.3rem", fontSize: "0.82rem", whiteSpace: "nowrap" }}>
-                      <input
-                        type="checkbox"
-                        checked={!!f.unique}
-                        onChange={(e) => {
-                          const updated = [...newColFields];
-                          updated[i].unique = e.target.checked;
-                          setNewColFields(updated);
-                        }}
-                      />
-                      Unique
                     </label>
                     {newColFields.length > 1 && (
                       <button

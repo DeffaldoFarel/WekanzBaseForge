@@ -192,15 +192,6 @@ export default function DatabaseIndexPage() {
                       Req
                     </label>
 
-                    <label style={{ display: "flex", alignItems: "center", gap: "0.3rem", fontSize: "0.82rem", whiteSpace: "nowrap", cursor: "pointer" }}>
-                      <input
-                        type="checkbox"
-                        checked={!!f.unique}
-                        onChange={(e) => updateFieldRow(i, { unique: e.target.checked })}
-                      />
-                      Unique
-                    </label>
-
                     {newFields.length > 1 && (
                       <button type="button" className="btn-icon" onClick={() => removeFieldRow(i)} title="Hapus field">
                         ✕
