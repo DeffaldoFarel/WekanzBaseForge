@@ -17,6 +17,22 @@ import { filterToSql, RequestContext } from './query/sqlBuilder.js';
 import { decideRule, evaluateRuleOnData, ForbiddenError, CollectionRules } from './rules.js';
 import { parseMultipart, extractBoundary, MultipartFile } from './multipart.js';
 import { saveFile, deleteFile, deleteRecordFiles, storedFilenames } from './storage.js';
+import { isViewCollection } from './schema.js';
+
+// M16a: error khusus write ke view collection
+export class ViewWriteError extends Error {
+  constructor(collection: string) {
+    super(`'${collection}' adalah view collection (read-only) — tidak bisa di-INSERT/UPDATE/DELETE`);
+    this.name = 'ViewWriteError';
+  }
+}
+
+// M16a: guard view untuk operasi tulis
+function assertNotView(meta: CollectionMeta): void {
+  if (isViewCollection(meta)) {
+    throw new ViewWriteError(meta.name);
+  }
+}
 
 // ─── Tipe ────────────────────────────────────────────────────────────────────
 
@@ -298,6 +314,7 @@ export function createRecord(
 ): ForgeRecord {
   const meta = mustGetCollection(db, collection);
   const fmap = fieldMap(meta);
+  assertNotView(meta); // M16a: view read-only
 
   // ── M11: createRule dievaluasi terhadap DATA yang dikirim ──
   // Hanya untuk END USER — admin (reqCtx undefined) selalu bypass.
@@ -441,6 +458,7 @@ export function updateRecord(
 ): ForgeRecord | null {
   const meta = mustGetCollection(db, collection);
   const fmap = fieldMap(meta);
+  assertNotView(meta); // M16a: view read-only
 
   const existing = getRecordRaw(db, meta, collection, id);
   if (!existing) return null;
@@ -562,6 +580,7 @@ export function deleteRecord(
   reqCtx?: RequestContext
 ): boolean {
   const meta = mustGetCollection(db, collection);
+  assertNotView(meta); // M16a: view read-only
 
   // ── M11: deleteRule — hanya END USER; record harus ada & lolos rule ──
   const record = getRecordRaw(db, meta, collection, id);
@@ -689,7 +708,12 @@ export function listRecords(
   const whereSql = whereParts.length > 0 ? `WHERE ${whereParts.join(' AND ')}` : '';
 
   // ── ORDER BY dari sort ──
-  let orderSql = 'ORDER BY "created" DESC'; // default: terbaru dulu
+  // M16a: view tidak menjamin punya kolom created — deteksi dari fields meta
+  // (fields view = kolom hasil SELECT; field sistem 'created' hanya ada
+  // kalau query-nya memilihnya). buildOrderBy validasi terhadap fields+sys.
+  const isView = meta.type === 'view';
+  const hasCreated = !isView || meta.fields.some((f) => f.name === 'created');
+  let orderSql = hasCreated ? 'ORDER BY "created" DESC' : '';
   if (options.sort && options.sort.trim().length > 0) {
     orderSql = 'ORDER BY ' + buildOrderBy(options.sort, meta);
   }
@@ -721,7 +745,11 @@ export function listRecords(
 // Nama field divalidasi terhadap skema (tidak bisa disisipi SQL!)
 
 function buildOrderBy(sort: string, meta: CollectionMeta): string {
-  const validNames = new Set([...meta.fields.map((f) => f.name), 'id', 'created', 'updated']);
+  // M16a: view hanya punya kolom hasil SELECT (tanpa field sistem otomatis)
+  const validNames =
+    meta.type === 'view'
+      ? new Set(meta.fields.map((f) => f.name))
+      : new Set([...meta.fields.map((f) => f.name), 'id', 'created', 'updated']);
 
   const parts = sort.split(',').map((part) => {
     const trimmed = part.trim();

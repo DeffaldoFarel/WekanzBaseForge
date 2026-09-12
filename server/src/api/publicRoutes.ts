@@ -7,27 +7,24 @@
 // 2. /api/admin/projects/:pid/collections/:name/rules → admin atur rules
 // ============================================================================
 
-import { Router } from '../core/router.js';
-import { generateId } from '../core/router.js';
+import { Router, generateId } from '../core/router.js';
 import { getProjectDb } from '../core/projectDbManager.js';
 import { requireAdmin, validateToken } from '../platform/adminAuth.js';
 import { verifyToken } from '../auth/jwt.js';
-import { updateCollectionRules } from '../core/schema.js';
+import { updateCollectionRules, getCollectionByName, createViewCollection } from '../core/schema.js';
 import {
   listRecords,
   getRecord,
   createRecord,
   updateRecord,
   deleteRecord,
-} from '../core/records.js';
-import { RequestContext } from '../core/query/sqlBuilder.js';
-import { ForbiddenError } from '../core/rules.js';
-import {
+  ViewWriteError,
   multipartToRecordData,
   cleanupReplacedFiles,
   cleanupAllRecordFiles,
 } from '../core/records.js';
-import { getCollectionByName } from '../core/schema.js';
+import { RequestContext } from '../core/query/sqlBuilder.js';
+import { ForbiddenError } from '../core/rules.js';
 import type { DatabaseSync } from 'node:sqlite';
 import { deleteRecordFiles } from '../core/storage.js';
 import { realtimeHub } from '../core/realtime.js';
@@ -77,6 +74,10 @@ function handleErrorPublic(res: {
     res.status(403).json({ error: { code: 'FORBIDDEN', message: err.message } });
     return;
   }
+  if (err instanceof ViewWriteError) {
+    res.status(400).json({ error: { code: 'VIEW_READ_ONLY', message: err.message } });
+    return;
+  }
   const message = err instanceof Error ? err.message : 'Internal error';
   const status = /tidak ditemukan|not found/i.test(message) ? 404 : 400;
   res.status(status).json({ error: { code: status === 404 ? 'NOT_FOUND' : 'BAD_REQUEST', message } });
@@ -109,6 +110,35 @@ export function createPublicRouter(): Router {
       }
       const meta = updateCollectionRules(db, req.params.name, rules);
       res.json({ rules: meta.rules });
+    } catch (err) {
+      handleErrorPublic(res, err);
+    }
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // ADMIN: create VIEW collection (M16a)
+  // ═══════════════════════════════════════════════════════════════════════
+
+  router.post('/api/admin/projects/:pid/views', requireAdmin, (req, res) => {
+    try {
+      const db = getProjectDb(req.params.pid);
+      const body = (req.body ?? {}) as {
+        name?: string;
+        viewQuery?: string;
+        rules?: Record<string, string | null>;
+      };
+      if (!body.name || !body.viewQuery) {
+        res.status(400).json({
+          error: { code: 'BAD_REQUEST', message: 'name dan viewQuery wajib (viewQuery harus SELECT ...)' },
+        });
+        return;
+      }
+      const meta = createViewCollection(db, {
+        name: body.name,
+        viewQuery: body.viewQuery,
+        rules: body.rules,
+      });
+      res.status(201).json({ collection: meta });
     } catch (err) {
       handleErrorPublic(res, err);
     }

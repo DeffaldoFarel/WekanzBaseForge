@@ -41,6 +41,8 @@ export interface CollectionMeta {
   fields: FieldDefinition[];
   indexes: IndexDefinition[];
   rules: CollectionRules; // M11: API rules per collection
+  type: 'base' | 'view'; // M16a: base = tabel fisik; view = SQL view read-only
+  viewQuery: string | null; // M16a: SELECT statement (hanya untuk type=view)
   created: string;
   updated: string;
 }
@@ -51,6 +53,8 @@ interface CollectionRow {
   fields: string; // JSON string di DB
   indexes: string; // JSON string di DB — M06
   rules: string | null; // JSON string di DB — M11 (null = belum ada kolomnya di DB lama)
+  type: string | null; // M16a: 'base' | 'view' (null = base, kompatibel DB lama)
+  viewQuery: string | null; // M16a
   created: string;
   updated: string;
 }
@@ -81,6 +85,14 @@ export function initSchemaTable(db: DatabaseSync): void {
   // M11: kolom rules (JSON dengan 5 rule per collection)
   if (!cols.some((c) => c.name === 'rules')) {
     db.exec(`ALTER TABLE _collections ADD COLUMN rules TEXT`); // NULL = semua rule null (admin-only default)
+  }
+
+  // M16a: kolom type + viewQuery (view collections)
+  if (!cols.some((c) => c.name === 'type')) {
+    db.exec(`ALTER TABLE _collections ADD COLUMN type TEXT NOT NULL DEFAULT 'base'`);
+  }
+  if (!cols.some((c) => c.name === 'viewquery')) {
+    db.exec(`ALTER TABLE _collections ADD COLUMN viewQuery TEXT`);
   }
 
   // ── D5: tabel _migrations — mencatat setiap perubahan skema ──
@@ -364,14 +376,93 @@ export function deleteCollection(db: DatabaseSync, name: string): boolean {
   const existing = getCollectionByName(db, name);
   if (!existing) return false;
 
-  // Hapus dari meta + drop tabel asli
+  // Hapus dari meta + drop tabel/view asli
   db.prepare('DELETE FROM _collections WHERE name = ?').run(name);
-  db.exec(`DROP TABLE IF EXISTS "${name}";`);
+  if (existing.type === 'view') {
+    // M16a: view pakai DROP VIEW, bukan DROP TABLE
+    db.exec(`DROP VIEW IF EXISTS "${name}";`);
+  } else {
+    db.exec(`DROP TABLE IF EXISTS "${name}";`);
+  }
 
   // ── D5: catat migrasi ──
   recordMigration(db, name, 'drop', { fields: existing.fields });
 
   return true;
+}
+
+// ─── M16a: VIEW COLLECTIONS — SQL view read-only ────────────────────────────
+// "SELECT user, COUNT(*) AS total FROM orders GROUP BY user"
+// → collection virtual: fields dari hasil query, read-only, rules tetap jalan.
+//
+// Aman karena: query dijalankan SEKALI saat create (validasi + ekstrak
+// fields via PRAGMA-style stmt.columns()), bukan dieksekusi per request.
+// Read = query biasa (rules list/view bekerja); write = ditolak (view
+// bukan tabel — SQLite akan error, tapi kita beri pesan lebih ramah).
+
+export function createViewCollection(
+  db: DatabaseSync,
+  def: { name: string; viewQuery: string; rules?: Partial<CollectionRules> }
+): CollectionMeta {
+  if (!isValidName(def.name)) {
+    throw new Error(`Invalid collection name: '${def.name}'`);
+  }
+  if (isSystemName(def.name)) {
+    throw new Error(`Collection name '${def.name}' is reserved`);
+  }
+  if (getCollectionByName(db, def.name)) {
+    throw new Error(`Collection '${def.name}' already exists`);
+  }
+  const query = def.viewQuery.trim();
+  if (!/^select\s/i.test(query)) {
+    throw new Error('viewQuery harus dimulai dengan SELECT');
+  }
+  // Anti multi-statement
+  if (/;\s*\S/i.test(query)) {
+    throw new Error('viewQuery tidak boleh mengandung multiple statements');
+  }
+
+  // Dry run: validasi + ekstrak kolom hasil
+  let columns: { name: string; type: string }[];
+  try {
+    const stmt = db.prepare(query);
+    stmt.all();
+    columns = stmt.columns().map((c) => ({ name: c.name, type: String(c.column ?? '') }));
+  } catch (err) {
+    throw new Error(`viewQuery tidak valid: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  if (columns.length === 0) {
+    throw new Error('viewQuery harus mengembalikan minimal 1 kolom');
+  }
+
+  // Fields dari kolom hasil (skip field sistem; semua dibaca sebagai json
+  // — fleksibel utk read-only; SQLite mengembalikan tipe aslinya)
+  const fields: FieldDefinition[] = [];
+  for (const col of columns) {
+    if (col.name === 'id' || col.name === 'created' || col.name === 'updated') continue;
+    if (fields.some((f) => f.name === col.name)) continue;
+    fields.push({ name: col.name, type: 'json' });
+  }
+
+  // Simpan meta + buat VIEW fisik
+  const id = generateId();
+  const rules: CollectionRules = { ...DEFAULT_RULES, ...(def.rules ?? {}) };
+  db.prepare(
+    `INSERT INTO _collections (id, name, fields, indexes, rules, type, viewQuery) VALUES (?, ?, ?, ?, ?, 'view', ?)`
+  ).run(id, def.name, JSON.stringify(fields), '[]', JSON.stringify(rules), query);
+
+  db.exec(`CREATE VIEW "${def.name}" AS ${query}`);
+
+  // D5: catat migrasi
+  recordMigration(db, def.name, 'create', { type: 'view', viewQuery: query });
+
+  return getCollectionByName(db, def.name)!;
+}
+
+// ─── M16a: helper — apakah collection adalah view? ──────────────────────────
+
+export function isViewCollection(meta: CollectionMeta): boolean {
+  return meta.type === 'view';
 }
 
 // ─── M11: UPDATE RULES — kebijakan keamanan adalah data, jadi bisa diubah ───
@@ -597,6 +688,8 @@ function rowToMeta(row: CollectionRow): CollectionMeta {
     fields: JSON.parse(row.fields) as FieldDefinition[],
     indexes: JSON.parse(row.indexes ?? '[]') as IndexDefinition[],
     rules: parseRules(row.rules),
+    type: row.type === 'view' ? 'view' : 'base', // null/unknown → base
+    viewQuery: row.viewQuery ?? null,
     created: row.created,
     updated: row.updated,
   };
