@@ -19,9 +19,17 @@ import type { Middleware, ForgeRequest, ForgeResponse } from '../core/router.js'
 import { generateToken } from '../core/router.js';
 
 // ─── Kredensial admin dari env ───────────────────────────────────────────────
+// M09u: dibaca LAZY (saat dipanggil), bukan saat modul dimuat.
+// Pelajaran dari perubahan ini: module-level const membaca env TERLALU DINI
+// (sebelum test/deploying mengubah env). Lazy = selalu nilai terbaru.
+// (M11 nanti: admin credentials pindah ke platform.db dengan hashing proper.)
 
-const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? 'admin@baseforge.local';
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? 'admin123';
+function getAdminCredentials(): { email: string; password: string } {
+  return {
+    email: process.env.ADMIN_EMAIL ?? 'admin@baseforge.local',
+    password: process.env.ADMIN_PASSWORD ?? 'admin123',
+  };
+}
 
 // ─── Token store di memori ───────────────────────────────────────────────────
 // Map<token, { email, createdAt }>
@@ -37,12 +45,14 @@ export function loginAdmin(
   email: string,
   password: string
 ): { token: string; admin: { email: string } } | null {
+  const creds = getAdminCredentials();
+
   // timingSafeEqual: perbandingan string biasa (===) bisa bocorkan info
   // lewat TIMING (berhenti di karakter pertama yang beda → attacker bisa
   // menebak karakter per karakter). Fungsi ini selalu membandingkan
   // semua karakter dengan waktu konstan. Detail seru di M08!
-  const emailMatch = safeEqual(email, ADMIN_EMAIL);
-  const passwordMatch = safeEqual(password, ADMIN_PASSWORD);
+  const emailMatch = safeEqual(email, creds.email);
+  const passwordMatch = safeEqual(password, creds.password);
 
   if (!emailMatch || !passwordMatch) {
     return null;
