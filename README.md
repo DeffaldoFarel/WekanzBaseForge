@@ -45,20 +45,34 @@ BaseForge (1 instalasi)
 ## 🗺️ Roadmap (per milestone)
 
 ### 🏗️ Fondasi Platform
-- [ ] **M00** — Shell: platform.db, admin login (sederhana dulu), project registry API, dashboard login + project picker + project detail kosong
+- [x] **M00** — Shell: platform.db, admin login, project registry API, dashboard ✅
 
 ### 📦 SQL Database
-- [ ] M01 — KV store sederhana
-- [ ] M02 — SQLite + raw queries (prepared statements)
-- [ ] M03 — Meta-tables: schema-as-data (inti strategi PocketBase!)
-- [ ] M04 — Query parser (filter string → SQL, lexer/parser/AST)
-- [ ] M05 — Record API + REST endpoints generik
-- [ ] M06 — Indexing & EXPLAIN QUERY PLAN
-- [ ] M07 — Transactions, ACID & WAL
-- [ ] M12 — Relations & expand (JOIN dinamis, N+1)
-- [ ] M05u 🖥️ — Dashboard: schema builder + data browser
+- [x] M01 — KV store sederhana ✅
+- [x] M02 — SQLite + raw queries (prepared statements) ✅
+- [x] M03 — Meta-tables: schema-as-data (inti strategi PocketBase!) ✅
+- [x] M04 — Query parser (filter string → SQL, lexer/parser/AST) ✅
+- [x] M05 — Record API + REST endpoints generik ✅
+- [x] M06 — Indexing & EXPLAIN QUERY PLAN ✅
+- [x] M07 — Transactions, ACID & WAL ✅
+- [x] M12 — Relations & expand (JOIN dinamis, N+1) ✅
+- [x] M05u 🖥️ — Dashboard: schema builder + data browser ✅
 
-### 🔐 Auth (per project)
+### 🔬 Deepening Database (production-grade)
+- [x] D1 — Unique constraint ✅
+- [x] D2 — Multi-relation ✅
+- [x] D3 — Cascade delete (referential integrity) ✅
+- [x] D4 — Table rebuild (schema evolution) ✅
+- [x] D5 — Migration history ✅
+- [x] D6 — Nested expand ✅
+- [x] D7 — Aggregates (count/sum/avg/min/max, GROUP BY) ✅
+
+### 📦 Batch: Melengkapi fitur database (~90% PocketBase)
+- [x] B1 — Field types: select, autodate, url ✅
+- [x] B2 — Backup & restore (VACUUM INTO) ✅
+- [x] B3 — Duplikasi collection + batch API ✅
+
+### 🔐 Auth (per project) — BERIKUTNYA
 - [ ] M08 — Password hashing
 - [ ] M09 — JWT + sessions + refresh tokens
 - [ ] M10 — OAuth2 (Google)
@@ -78,6 +92,13 @@ BaseForge (1 instalasi)
 
 ### 📡 Tambahan
 - [ ] M13 — Realtime subscriptions (WebSocket)
+
+### 🔮 Fitur lanjutan (opsional)
+- [ ] View collections (SQL views read-only)
+- [ ] Full-text search (FTS5)
+- [ ] Field `file` (via M14)
+- [ ] Field `editor` (rich text)
+
 
 ## 📁 Struktur
 
