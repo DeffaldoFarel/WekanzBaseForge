@@ -48,7 +48,7 @@ describe('M14: Multipart parser', () => {
     assert.equal(b, '----WebKitFormBoundaryABC123');
   });
 
-  test('M14: parse field teks & file binary UTUH', () => {
+  test('M14: parse field teks & file binary UTUH', async () => {
     const boundary = 'XBOUND';
     // File "binary" berisi bytes non-utf8-safe (0xFF, 0x00 dst)
     const fileBytes = Buffer.from([0xff, 0xd8, 0xff, 0x00, 0x11, 0x22, 0x50, 0x4b]);
@@ -63,7 +63,7 @@ describe('M14: Multipart parser', () => {
       Buffer.from(`\r\n--${boundary}--\r\n`),
     ]);
 
-    const result = parseMultipart(body, boundary);
+    const result = await parseMultipart(body, boundary);
     assert.equal(result.fields.title, 'Laporan Harian');
     assert.equal(result.files.length, 1);
     assert.equal(result.files[0].fieldName, 'doc');
@@ -108,7 +108,7 @@ describe('M14: Storage disk', () => {
 });
 
 describe('M14: File field di records', () => {
-  test('M14: multipartToRecordData menyimpan file & mengisi field', () => {
+  test('M14: multipartToRecordData menyimpan file & mengisi field', async () => {
     const db = freshDb();
     const meta = getCollectionByName(db, 'docs')!;
     const boundary = 'XB';
@@ -127,7 +127,7 @@ describe('M14: File field di records', () => {
 
     // recordId ditentukan dulu (seperti di publicRoutes: preGeneratedId)
     const recId = 'recABC123';
-    const data = multipartToRecordData('projM14', meta, recId, body, `multipart/form-data; boundary=${boundary}`);
+    const data = await multipartToRecordData('projM14', meta, recId, body, `multipart/form-data; boundary=${boundary}`);
 
     assert.equal(data.title, 'dengan lampiran');
     assert.equal(data.doc, 'gambar.png');
@@ -174,7 +174,7 @@ describe('M14: File field di records', () => {
     assert.ok(readFile('projM14', rec.id, 'v2.txt'), 'file baru tetap ada');
   });
 
-  test('M14: multi-file (maxSelect=3) — semua tersimpan sebagai array', () => {
+  test('M14: multi-file (maxSelect=3) — semua tersimpan sebagai array', async () => {
     const db = freshDb();
     const meta = getCollectionByName(db, 'docs')!;
     const boundary = 'XM';
@@ -193,7 +193,7 @@ describe('M14: File field di records', () => {
     ]);
 
     const recId = 'recMULTI1';
-    const data = multipartToRecordData('projM14', meta, recId, body, `multipart/form-data; boundary=${boundary}`);
+    const data = await multipartToRecordData('projM14', meta, recId, body, `multipart/form-data; boundary=${boundary}`);
 
     assert.ok(Array.isArray(data.gallery), 'multi-file = array');
     assert.equal((data.gallery as string[]).length, 2);

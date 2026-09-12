@@ -58,9 +58,10 @@ export interface TokenPair {
   expiresIn: number;        // detik sampai access token expired
 }
 
-export function issueTokens(db: DatabaseSync, user: AuthUser): TokenPair {
+export async function issueTokens(db: DatabaseSync, user: AuthUser): Promise<TokenPair> {
   // Access token: JWT stateless (payload berisi identitas user)
-  const accessToken = signToken(
+  // M18b: signToken ASYNC (jose)
+  const accessToken = await signToken(
     { sub: user.id, email: user.email, name: user.name ?? undefined },
     ACCESS_TOKEN_TTL
   );
@@ -89,10 +90,10 @@ export function issueTokens(db: DatabaseSync, user: AuthUser): TokenPair {
  * Keamanan: token yang dicari adalah HASH-nya — database bocor pun,
 // attacker tidak bisa memakai refresh token tersimpan.
  */
-export function refreshAccessToken(
+export async function refreshAccessToken(
   db: DatabaseSync,
   refreshToken: string
-): TokenPair | null {
+): Promise<TokenPair | null> {
   const tokenHash = hashToken(refreshToken);
 
   const row = db

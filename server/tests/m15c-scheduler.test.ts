@@ -90,6 +90,24 @@ describe('M15c: cronMatches (menit precision)', () => {
 
 const TEST_DIR = path.join(process.env.TEMP ?? '/tmp', 'baseforge-m15c-tests');
 
+
+// M18a: runner async — tunggu sampai predicate terpenuhi (poll microtask+macrotask)
+async function flushMicrotasks(): Promise<void> {
+  for (let i = 0; i < 5; i++) {
+    await new Promise((r) => setImmediate(r));
+  }
+}
+
+// M18a: tunggu sampai fn() truthy (max 2 detik) — untuk async runner assertion
+async function waitFor(predicate: () => boolean, maxMs = 2000): Promise<boolean> {
+  const start = Date.now();
+  while (!predicate()) {
+    if (Date.now() - start > maxMs) return false;
+    await new Promise((r) => setTimeout(r, 20));
+  }
+  return true;
+}
+
 describe('M15c: Scheduler', () => {
   let db: DatabaseSync;
 
@@ -131,16 +149,17 @@ describe('M15c: Scheduler', () => {
     assert.equal(getFunctionByName(db, 'bad_cron'), undefined);
   });
 
-  test('M15c: scheduler forceTick → function jalan, req = { scheduled: true, time }', () => {
+  test('M15c: scheduler forceTick → function jalan, req = { scheduled: true, time }', async () => {
     scheduler.start([() => db]);
     scheduler.forceTick();
+    // M18a: runner async — tunggu promise isolate resolve
+    await waitFor(() => scheduler.lastRuns.has('every_minute'));
 
     const run = scheduler.lastRuns.get('every_minute');
     assert.ok(run, 'function harus tercatat jalan');
     assert.equal(run.ok, true);
 
-    // req contract: verifikasi via result? runScheduled tidak menyimpan result
-    // value — verifikasi dengan function yang menulis hasil ke log:
+    // req contract: verifikasi dengan function yang menulis hasil ke log:
     const fn2 = createFunction(db, {
       name: 'log_time',
       code: `console.log('SCHEDPAYLOAD', req.scheduled, typeof req.time); return null;`,
@@ -149,30 +168,32 @@ describe('M15c: Scheduler', () => {
     assert.ok(fn2);
 
     scheduler.forceTick();
+    await waitFor(() => scheduler.lastRuns.has('log_time'));
     const run2 = scheduler.lastRuns.get('log_time');
     assert.ok(run2?.ok);
 
     // req contract: verifikasi payload scheduled via runner langsung
-    const direct = runFunctionCode(`return { s: req.scheduled, t: typeof req.time };`, {
+    const direct = await runFunctionCode(`return { s: req.scheduled, t: typeof req.time };`, {
       scheduledContext: { time: new Date().toISOString() },
     });
     assert.deepEqual(direct.result, { s: true, t: 'string' });
   });
 
-  test('M15c: anti double-fire — tick 2x di menit sama = 1 run', () => {
-    const before = listFunctions(db).find((f) => f.name === 'every_minute')!;
+  test('M15c: anti double-fire — tick 2x di menit sama = 1 run', async () => {
     scheduler.resetRunHistory();
 
     scheduler.forceTick();
+    await waitFor(() => scheduler.lastRuns.has('every_minute'));
     const run1 = scheduler.lastRuns.get('every_minute');
     assert.ok(run1);
 
-    scheduler.forceTick(); // menit sama
+    scheduler.forceTick();
+    await flushMicrotasks(); // menit sama
     const run2 = scheduler.lastRuns.get('every_minute');
     assert.deepEqual(run2, run1, 'run kedua harus tidak terjadi (objek sama)');
   });
 
-  test('M15c: disabled function dengan schedule → tidak jalan', () => {
+  test('M15c: disabled function dengan schedule → tidak jalan', async () => {
     createFunction(db, {
       name: 'disabled_cron',
       code: `return 'x';`,
@@ -181,11 +202,12 @@ describe('M15c: Scheduler', () => {
     });
     scheduler.resetRunHistory();
     scheduler.forceTick();
+    await flushMicrotasks();
 
     assert.equal(scheduler.lastRuns.get('disabled_cron'), undefined, 'disabled tidak boleh jalan');
   });
 
-  test('M15c: schedule yang tidak cocok menit ini → tidak jalan', () => {
+  test('M15c: schedule yang tidak cocok menit ini → tidak jalan', async () => {
     createFunction(db, {
       name: 'only_at_noon',
       code: `return 'x';`,
@@ -193,6 +215,7 @@ describe('M15c: Scheduler', () => {
     });
     scheduler.resetRunHistory();
     scheduler.forceTick();
+    await flushMicrotasks();
 
     assert.equal(scheduler.lastRuns.get('only_at_noon'), undefined);
   });

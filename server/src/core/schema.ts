@@ -92,7 +92,7 @@ export function initSchemaTable(db: DatabaseSync): void {
   if (!cols.some((c) => c.name === 'type')) {
     db.exec(`ALTER TABLE _collections ADD COLUMN type TEXT NOT NULL DEFAULT 'base'`);
   }
-  if (!cols.some((c) => c.name === 'viewquery')) {
+  if (!cols.some((c) => c.name.toLowerCase() === 'viewquery')) {
     db.exec(`ALTER TABLE _collections ADD COLUMN viewQuery TEXT`);
   }
 

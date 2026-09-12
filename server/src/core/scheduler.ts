@@ -92,26 +92,32 @@ class Scheduler {
   }
 
   private runScheduled(fn: StoredFunction, now: Date): void {
-    const result: FunctionRunResult = runFunctionCode(fn.code, {
+    // M18a: isolated-vm runner ASYNC — run di-background (scheduler tidak
+    // menunggu; anti double-fire sudah menandai SEBELUM run)
+    void runFunctionCode(fn.code, {
       timeoutMs: fn.timeoutMs,
       maxLogs: 50,
       scheduledContext: { time: now.toISOString() },
-    });
+    })
+      .then((result: FunctionRunResult) => {
+        this.lastRuns.set(fn.name, {
+          time: now.toISOString(),
+          ok: result.ok,
+          error: result.error,
+          durationMs: result.durationMs,
+        });
 
-    this.lastRuns.set(fn.name, {
-      time: now.toISOString(),
-      ok: result.ok,
-      error: result.error,
-      durationMs: result.durationMs,
-    });
-
-    if (!result.ok) {
-      console.error(`[cron:${fn.name}] FAILED (${result.durationMs}ms): ${result.error}`);
-    } else if (result.logs.length > 0) {
-      console.log(`[cron:${fn.name}] (${result.durationMs}ms) ${result.logs.join(' | ')}`);
-    } else {
-      console.log(`[cron:${fn.name}] ok (${result.durationMs}ms)`);
-    }
+        if (!result.ok) {
+          console.error(`[cron:${fn.name}] FAILED (${result.durationMs}ms): ${result.error}`);
+        } else if (result.logs.length > 0) {
+          console.log(`[cron:${fn.name}] (${result.durationMs}ms) ${result.logs.join(' | ')}`);
+        } else {
+          console.log(`[cron:${fn.name}] ok (${result.durationMs}ms)`);
+        }
+      })
+      .catch((err) => {
+        console.error(`[cron:${fn.name}] unexpected error:`, err);
+      });
   }
 
   // Untuk test: paksa tick manual (bukan menunggu 30s)

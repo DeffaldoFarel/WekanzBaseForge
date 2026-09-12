@@ -1,20 +1,31 @@
 // ============================================================================
-// M15a: FUNCTION RUNNER — sandbox node:vm
+// M18a: FUNCTION RUNNER — isolated-vm (PRODUCTION GRADE)
 //
-// Kode user dijalankan dalam V8 context TERPISAH:
-// - TIDAK ADA process / require / fs / os — dunia user terisolasi
-// - Yang lolos masuk HANYA yang kita berikan: req, console (tertangkap)
-// - timeout menghentikan kode sinkron yang macet (while(true)!)
-// - console.log tertangkap dan dibatasi (max N baris) — tidak mencemari
-//   log server & tidak jadi vektor membludaknya memori
+// Menggantikan node:vm (yang MENURUT DOKUMENTASI NODE bukan mekanisme
+// keamanan) dengan isolated-vm: V8 Isolate sungguhan — heap terpisah,
+// memory limit per-isolate, tidak bisa menyentuh host walau escape trick.
 //
-// Kejujuran keamanan (Node docs): node:vm BUKAN boundary keamanan untuk
-// kode HOSTILE. Untuk BaseForge: kode dari admin/developer itu sendiri
-// (bukan orang asing) — vm + timeout + no-host-access adalah isolasi
-// yang tepat sasaran, tanpa dependency berat (isolated-vm/docker).
+// POLA TRANSFER (penting!):
+// - Masuk  : ExternalCopy(value).copyInto()  — JSON-safe
+// - Keluar : result DI-SERIALIZE DI DALAM isolate (JSON.stringify) lalu
+//            dikirim sebagai STRING — lalu di-parse di host. Ini menghindari
+//            seluruh kompleksitas Reference/applySync untuk return value.
+// - Console: satu ivm.Callback __pushLog(level, serializedString) —
+//            pemanggilan cross-isolate paling sederhana & andal.
+//
+// KONTRAK TETAP SAMA (M15a/M15b/M15c):
+//   req (callable) = { body, query, auth }
+//   req (trigger)  = { action, collection, record, previous }
+//   req (scheduled)= { scheduled: true, time }
+//   return value → JSON-able; console tertangkap (max N baris)
+//
+// PENINGKATAN KEAMANAN vs node:vm:
+// - Heap V8 terpisah sungguhan (bukan context sharing)
+// - memoryLimit per isolate (OOM = error terkontrol, server aman)
+// - Timeout native isolate (lebih akurat)
 // ============================================================================
 
-import vm from 'node:vm';
+import ivm from 'isolated-vm';
 import type { RequestContext } from './query/sqlBuilder.js';
 
 export interface FunctionRunOptions {
@@ -23,16 +34,15 @@ export interface FunctionRunOptions {
   auth?: RequestContext['auth'];
   timeoutMs?: number; // default 2000ms
   maxLogs?: number; // default 100 baris console
-  // M15b: konteks trigger — kalau ada, req = ini (bukan body/query/auth)
+  memoryLimitMb?: number; // default 32MB per isolate
   triggerContext?: {
     action: 'create' | 'update' | 'delete';
     collection: string;
     record: Record<string, unknown>;
     previous?: Record<string, unknown> | null;
   };
-  // M15c: konteks scheduled run — req = { scheduled: true, time }
   scheduledContext?: {
-    time: string; // ISO timestamp
+    time: string;
   };
 }
 
@@ -43,91 +53,129 @@ export interface FunctionRunResult {
   logs: string[];
   durationMs: number;
   timedOut?: boolean;
+  oom?: boolean;
 }
 
-export function runFunctionCode(code: string, opts: FunctionRunOptions = {}): FunctionRunResult {
+// Bentuk req mengikuti kontrak: scheduled > trigger > callable
+function buildReq(opts: FunctionRunOptions): unknown {
+  if (opts.scheduledContext) {
+    return { scheduled: true, time: opts.scheduledContext.time };
+  }
+  if (opts.triggerContext) {
+    return opts.triggerContext;
+  }
+  return { body: opts.body ?? {}, query: opts.query ?? {}, auth: opts.auth ?? null };
+}
+
+// JSON-safe transfer:ExternalCopy menolak undefined/circular — normalisasi
+function safeForTransfer(value: unknown): unknown {
+  try {
+    return JSON.parse(JSON.stringify(value ?? null));
+  } catch {
+    return null;
+  }
+}
+
+// Runtime bootstrap di dalam isolate: console bridge + serializer.
+// console user → __pushLog(level, jsonString) → host Callback.
+const RUNTIME_PRELUDE = `
+  var __stringify = function(value) {
+    try { return JSON.stringify(value); } catch (e) { return String(value); }
+  };
+  var __emit = function(level, args) {
+    __pushLog(level, __stringify(Array.prototype.slice.call(args)));
+  };
+  var console = {
+    log:   function() { __emit('log', arguments); },
+    warn:  function() { __emit('warn', arguments); },
+    error: function() { __emit('error', arguments); },
+    info:  function() { __emit('info', arguments); }
+  };
+`;
+
+export async function runFunctionCode(
+  code: string,
+  opts: FunctionRunOptions = {}
+): Promise<FunctionRunResult> {
   const timeoutMs = opts.timeoutMs ?? 2000;
   const maxLogs = opts.maxLogs ?? 100;
-  const logs: string[] = [];
+  const memoryLimitMb = opts.memoryLimitMb ?? 32;
   const start = Date.now();
 
-  // ── Console sandbox: tangkap log ke array, buang ke stderr host jika overflow ──
-  const pushLog = (level: string, args: unknown[]) => {
-    if (logs.length >= maxLogs) {
-      if (logs.length === maxLogs) logs.push('... (log dipotong — melebihi batas)');
-      return;
+  const logs: string[] = [];
+  let logOverflowed = false;
+
+  const isolate = new ivm.Isolate({ memoryLimit: memoryLimitMb });
+  let disposed = false;
+  const dispose = () => {
+    if (!disposed) {
+      disposed = true;
+      isolate.dispose();
     }
-    const line = args
-      .map((a) => {
-        if (typeof a === 'string') return a;
-        try {
-          return JSON.stringify(a);
-        } catch {
-          return String(a);
-        }
-      })
-      .join(' ');
-    logs.push(`[${level}] ${line}`);
   };
-
-  const sandboxConsole = {
-    log: (...args: unknown[]) => pushLog('log', args),
-    warn: (...args: unknown[]) => pushLog('warn', args),
-    error: (...args: unknown[]) => pushLog('error', args),
-    info: (...args: unknown[]) => pushLog('info', args),
-  };
-
-  // ── Sandbox context — inilah SELURUH dunia yang dilihat kode user ──
-  // M15c: scheduledContext > triggerContext > callable (urutan prioritas)
-  let req: unknown;
-  if (opts.scheduledContext) {
-    req = { scheduled: true, time: opts.scheduledContext.time };
-  } else if (opts.triggerContext) {
-    req = opts.triggerContext;
-  } else {
-    req = { body: opts.body ?? {}, query: opts.query ?? {}, auth: opts.auth ?? null };
-  }
-
-  const sandbox = {
-    console: sandboxConsole,
-    req,
-    // Utilitas aman yang KITA izinkan (tidak membawa akses host):
-    JSON,
-    Math,
-    Date,
-    isNaN,
-    parseInt,
-    parseFloat,
-    String,
-    Number,
-    Boolean,
-    Array,
-    Object,
-  };
-  // vm.createContext: virtualisasi — globals host TIDAK terlihat dari dalam
-  const context = vm.createContext(sandbox);
-
-  // Bungkus IIFE supaya top-level return berfungsi
-  const wrapped = `(function(){\n"use strict";\n${code}\n})()`;
 
   try {
-    const result = vm.runInNewContext(wrapped, context, {
-      timeout: timeoutMs,
-      displayErrors: true,
+    const context = await isolate.createContext();
+    const jail = context.global;
+
+    // ── Console bridge: satu Callback untuk semua level ──
+    const pushLog = new ivm.Callback((level: string, serialized: string) => {
+      if (logs.length >= maxLogs) {
+        if (!logOverflowed) {
+          logOverflowed = true;
+          logs.push('... (log dipotong — melebihi batas)');
+        }
+        return;
+      }
+      logs.push(`[${level}] ${serialized}`);
     });
+    jail.setSync('__pushLog', pushLog);
+
+    // ── Runtime prelude (console, serializer) ──
+    await context.eval(RUNTIME_PRELUDE, { timeout: timeoutMs });
+
+    // ── Injeksi req via ExternalCopy ──
+    const req = safeForTransfer(buildReq(opts));
+    jail.setSync('req', new ivm.ExternalCopy(req).copyInto());
+
+    // ── Eksekusi: IIFE agar top-level return bekerja.
+    // Result DI-SERIALIZE DI DALAM isolate → string JSON → host parse.
+    // Ini menghindari Reference/transfer object secara menyeluruh.
+    const wrapped = `
+      (function(){
+        "use strict";
+        var __userResult = (function(){ ${code}\n })();
+        return __stringify(__userResult === undefined ? null : __userResult);
+      })()
+    `;
+
+    const serialized = (await context.eval(wrapped, { timeout: timeoutMs })) as string;
+
+    let result: unknown = null;
+    try {
+      result = JSON.parse(serialized);
+    } catch {
+      result = serialized; // fallback: kirim apa adanya (string)
+    }
 
     return { ok: true, result, logs, durationMs: Date.now() - start };
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    const timedOut = /Script execution timed out/i.test(message);
+    const rawMessage = err instanceof Error ? err.message : String(err);
+    const timedOut = /timed out/i.test(rawMessage);
+    const oom = /out of memory|memory limit/i.test(rawMessage);
     return {
       ok: false,
       error: timedOut
         ? `Function melebihi batas waktu ${timeoutMs}ms (infinite loop?)`
-        : message,
+        : oom
+          ? `Function melebihi batas memori ${memoryLimitMb}MB`
+          : rawMessage,
       logs,
       durationMs: Date.now() - start,
       timedOut,
+      oom,
     };
+  } finally {
+    dispose();
   }
 }

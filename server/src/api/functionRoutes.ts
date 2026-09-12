@@ -33,11 +33,12 @@ import { verifyToken } from '../auth/jwt.js';
 import { validateToken } from '../platform/adminAuth.js';
 
 // Helper: auth end user dari Bearer JWT (anonymous → auth: null)
-function resolveUserAuth(req: { headers: { authorization?: string } }): RequestContext['auth'] {
+// M18b: verifyToken ASYNC (jose) — helper jadi async juga
+async function resolveUserAuth(req: { headers: { authorization?: string } }): Promise<RequestContext['auth']> {
   const auth = req.headers.authorization;
   const bearer = auth?.startsWith('Bearer ') ? auth.slice(7) : null;
   if (!bearer || validateToken(bearer)) return null; // admin token → tidak dipakai sebagai user
-  const result = verifyToken(bearer);
+  const result = await verifyToken(bearer);
   if (result.valid && result.payload) {
     return { id: String(result.payload.sub ?? ''), email: String(result.payload.email ?? '') };
   }
@@ -188,7 +189,7 @@ export function createFunctionRouter(): Router {
   // EXECUTE — admin (selalu, + logs detail)
   // ═════════════════════════════════════════════════════════════════════
 
-  router.post('/api/admin/projects/:pid/functions/:name/execute', requireAdmin, (req, res) => {
+  router.post('/api/admin/projects/:pid/functions/:name/execute', requireAdmin, async (req, res) => {
     try {
       const db = getProjectDb(req.params.pid);
       const fn = getFunctionByName(db, req.params.name);
@@ -198,7 +199,7 @@ export function createFunctionRouter(): Router {
       }
 
       const body = (req.body ?? {}) as { body?: unknown; query?: Record<string, string> };
-      const result = runFunctionCode(fn.code, {
+      const result = await runFunctionCode(fn.code, {
         body: body.body ?? {},
         query: body.query ?? {},
         auth: null,
@@ -215,7 +216,7 @@ export function createFunctionRouter(): Router {
   // EXECUTE — public (END USERS; hanya function enabled)
   // ═════════════════════════════════════════════════════════════════════
 
-  router.post('/api/p/:pid/functions/:name/execute', (req, res) => {
+  router.post('/api/p/:pid/functions/:name/execute', async (req, res) => {
     try {
       const db = getProjectDb(req.params.pid);
       const fn = getFunctionByName(db, req.params.name);
@@ -229,10 +230,10 @@ export function createFunctionRouter(): Router {
       }
 
       const body = (req.body ?? {}) as { body?: unknown; query?: Record<string, string> };
-      const result = runFunctionCode(fn.code, {
+      const result = await runFunctionCode(fn.code, {
         body: body.body ?? {},
         query: body.query ?? {},
-        auth: resolveUserAuth(req),
+        auth: await resolveUserAuth(req),
         timeoutMs: fn.timeoutMs,
       });
 

@@ -25,18 +25,19 @@ import type { RequestContext } from '../core/query/sqlBuilder.js';
 export function createRealtimeRouter(): Router {
   const router = new Router();
 
-  // ── SSE stream ────────────────────────────────────────────────────────────
+  // ─── SSE stream ────────────────────────────────────────────────────────────
   // Koneksi terbuka sampai client putus. Auth dibaca SEKALI di sini.
-  router.get('/api/p/:pid/realtime', (req, res) => {
-    const auth = req.headers.authorization;
-    const bearer = auth?.startsWith('Bearer ') ? auth.slice(7) : null;
+  // M18b: verifyToken ASYNC (jose) — handler jadi async
+  router.get('/api/p/:pid/realtime', async (req, res) => {
+      const auth = req.headers.authorization;
+      const bearer = auth?.startsWith('Bearer ') ? auth.slice(7) : null;
 
-    let reqCtx: RequestContext | undefined;
-    if (bearer) {
-      if (validateToken(bearer)) {
-        reqCtx = undefined; // admin — bypass rules
-      } else {
-        const result = verifyToken(bearer);
+      let reqCtx: RequestContext | undefined;
+      if (bearer) {
+        if (validateToken(bearer)) {
+          reqCtx = undefined; // admin — bypass
+        } else {
+          const result = await verifyToken(bearer);
         reqCtx = result.valid && result.payload
           ? { auth: { id: String(result.payload.sub ?? ''), email: String(result.payload.email ?? '') } }
           : { auth: null };

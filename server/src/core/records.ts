@@ -77,17 +77,18 @@ function ruleFor(meta: CollectionMeta, op: keyof CollectionRules): string | null
 // Flow create: id dibuat dulu → file disimpan sebagai <id>_<filename> →
 // data field file = nama tersimpan → INSERT.
 
-export function multipartToRecordData(
+export async function multipartToRecordData(
   projectId: string,
   meta: CollectionMeta,
   recordId: string,
   body: Buffer,
   contentType: string
-): Record<string, unknown> {
+): Promise<Record<string, unknown>> {
   const boundary = extractBoundary(contentType);
   if (!boundary) throw new Error('Malformed multipart: boundary tidak ditemukan');
 
-  const { fields, files } = parseMultipart(body, boundary);
+  // M18c: busboy ASYNC
+  const { fields, files } = await parseMultipart(body, boundary);
   const data: Record<string, unknown> = { ...fields };
   const fmap = fieldMap(meta);
 

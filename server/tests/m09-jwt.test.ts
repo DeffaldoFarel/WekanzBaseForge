@@ -37,17 +37,17 @@ function freshDb(): DatabaseSync {
 // JWT DASAR
 // ════════════════════════════════════════════════════════════════════════════
 
-test('M09: signToken menghasilkan JWT 3 bagian', () => {
-  const token = signToken({ sub: 'u1', email: 'f@x.com' }, 900);
+test('M09: signToken menghasilkan JWT 3 bagian', async () => {
+  const token = await signToken({ sub: 'u1', email: 'f@x.com' }, 900);
   const parts = token.split('.');
 
   console.log('\n   📜 JWT:', token.slice(0, 60) + '...');
   assert.equal(parts.length, 3, 'JWT harus header.payload.signature');
 });
 
-test('M09: verify token sah → payload sesuai', () => {
-  const token = signToken({ sub: 'u1', email: 'farel@x.com' }, 900);
-  const result = verifyToken(token);
+test('M09: verify token sah → payload sesuai', async () => {
+  const token = await signToken({ sub: 'u1', email: 'farel@x.com' }, 900);
+  const result = await verifyToken(token);
 
   assert.ok(result.valid, 'token sah harus valid');
   if (result.valid) {
@@ -57,8 +57,8 @@ test('M09: verify token sah → payload sesuai', () => {
   }
 });
 
-test('M09: TAMPERING — payload dimodifikasi → DITOLAK', () => {
-  const token = signToken({ sub: 'u1', role: 'user' }, 900);
+test('M09: TAMPERING — payload dimodifikasi → DITOLAK', async () => {
+  const token = await signToken({ sub: 'u1', role: 'user' }, 900);
   const [header, payload, signature] = token.split('.');
 
   // Attacker coba jadi dirinya sendiri: ubah payload jadi admin
@@ -71,7 +71,7 @@ test('M09: TAMPERING — payload dimodifikasi → DITOLAK', () => {
     .replace(/=+$/, '');
 
   const forged = `${header}.${forgedPayload}.${signature}`;
-  const result = verifyToken(forged);
+  const result = await verifyToken(forged);
 
   console.log('\n   ⚔️  Token dipalsukan: sub tetap, role → admin');
   console.log('   🛡️  Hasil:', result.valid ? 'DITERIMA (BAHAYA!)' : 'DITOLAK (signature tidak cocok)');
@@ -80,32 +80,32 @@ test('M09: TAMPERING — payload dimodifikasi → DITOLAK', () => {
   assert.equal(result.valid ? '' : result.reason, 'bad-signature');
 });
 
-test('M09: signature dari SECRET berbeda → DITOLAK', () => {
+test('M09: signature dari SECRET berbeda → DITOLAK', async () => {
   // Token yang dibuat dengan secret berbeda (server lain / secret lama)
-  const token = signToken({ sub: 'u1' }, 900);
-  const result = verifyToken(token);
+  const token = await signToken({ sub: 'u1' }, 900);
+  const result = await verifyToken(token);
   assert.ok(result.valid); // secret sama → valid (sanity check)
   // ( Pengujian secret berbeda dilakukan via env di test terpisah
   //   karena secret dibaca saat pemanggilan. Struktur sudah siap. )
 });
 
-test('M09: token expired → ditolak dengan reason expired', () => {
+test('M09: token expired → ditolak dengan reason expired', async () => {
   // Buat token yang sudah expired (ttl negatif)
-  const token = signToken({ sub: 'u1' }, -10); // expired 10 detik lalu
-  const result = verifyToken(token);
+  const token = await signToken({ sub: 'u1' }, -10); // expired 10 detik lalu
+  const result = await verifyToken(token);
 
   assert.ok(!result.valid);
   assert.equal(result.valid ? '' : result.reason, 'expired');
 });
 
-test('M09: token salah format / signature palsu → ditolak', () => {
-  assert.equal(verifyToken('bukan-jwt').valid, false);
-  assert.equal(verifyToken('a.b').valid, false);          // kurang bagian
-  assert.equal(verifyToken('a.b.c.d.e').valid, false);    // kebanyakan bagian
+test('M09: token salah format / signature palsu → ditolak', async () => {
+  assert.equal((await verifyToken('bukan-jwt')).valid, false);
+  assert.equal((await verifyToken('a.b')).valid, false);          // kurang bagian
+  assert.equal((await verifyToken('a.b.c.d.e')).valid, false);    // kebanyakan bagian
 
   // 3 bagian tapi signature palsu → bad-signature (bukan malformed!)
   // Ini benar: formatnya valid, isi yang palsu.
-  const r = verifyToken('a.b.c');
+  const r = await verifyToken('a.b.c');
   assert.equal(r.valid, false);
   assert.equal(r.valid ? '' : r.reason, 'bad-signature');
 
@@ -116,11 +116,11 @@ test('M09: token salah format / signature palsu → ditolak', () => {
 // REFRESH TOKENS — persisten, hashed, revoke
 // ════════════════════════════════════════════════════════════════════════════
 
-test('M09: issueTokens menghasilkan access + refresh', () => {
+test('M09: issueTokens menghasilkan access + refresh', async () => {
   const db = freshDb();
   const user = createAuthUser(db, { email: 'farel@x.com', password: 'passwordRahasia123' });
 
-  const tokens = issueTokens(db, user);
+  const tokens = await issueTokens(db, user);
 
   assert.ok(tokens.accessToken, 'access token harus ada');
   assert.ok(tokens.refreshToken, 'refresh token harus ada');
@@ -128,17 +128,17 @@ test('M09: issueTokens menghasilkan access + refresh', () => {
   assert.equal(tokens.accessToken.split('.').length, 3, 'access harus JWT');
 
   // Access token langsung valid
-  const verified = verifyToken(tokens.accessToken);
+  const verified = await verifyToken(tokens.accessToken);
   assert.ok(verified.valid);
 
   db.close();
 });
 
-test('M09: refresh token tersimpan HASHED di DB (bukan plaintext)', () => {
+test('M09: refresh token tersimpan HASHED di DB (bukan plaintext)', async () => {
   const db = freshDb();
   const user = createAuthUser(db, { email: 'farel@x.com', password: 'passwordRahasia123' });
 
-  const tokens = issueTokens(db, user);
+  const tokens = await issueTokens(db, user);
 
   // Cek DB mentah
   const rows = db.prepare('SELECT token_hash FROM _auth_tokens').all() as { token_hash: string }[];
@@ -151,20 +151,20 @@ test('M09: refresh token tersimpan HASHED di DB (bukan plaintext)', () => {
   db.close();
 });
 
-test('M09: refreshAccessToken memberi access baru TANPA login ulang', () => {
+test('M09: refreshAccessToken memberi access baru TANPA login ulang', async () => {
   const db = freshDb();
   const user = createAuthUser(db, { email: 'farel@x.com', password: 'passwordRahasia123' });
 
-  const first = issueTokens(db, user);
+  const first = await issueTokens(db, user);
 
   // 15 menit kemudian: access expired → pakai refresh
-  const refreshed = refreshAccessToken(db, first.refreshToken);
+  const refreshed = await refreshAccessToken(db, first.refreshToken);
 
   assert.ok(refreshed !== null, 'refresh harus berhasil');
 
   // Access baru harus VALID (catatan: JWT dalam detik yang sama bisa
   // identik secara string — itu normal & deterministik. Yang penting valid!)
-  const verified = verifyToken(refreshed!.accessToken);
+  const verified = await verifyToken(refreshed!.accessToken);
   assert.ok(verified.valid, 'access baru harus valid');
   if (verified.valid) {
     assert.equal(verified.payload.sub, user.id);
@@ -180,54 +180,56 @@ test('M09: refreshAccessToken memberi access baru TANPA login ulang', () => {
   db.close();
 });
 
-test('M09: refresh token SALAH → null', () => {
+test('M09: refresh token SALAH → null', async () => {
   const db = freshDb();
   const user = createAuthUser(db, { email: 'farel@x.com', password: 'passwordRahasia123' });
-  issueTokens(db, user);
+  await issueTokens(db, user);
 
-  assert.equal(refreshAccessToken(db, 'token-hantu-yang-tidak-ada'), null);
-  assert.equal(refreshAccessToken(db, ''), null);
+  assert.equal(await refreshAccessToken(db, 'token-hantu-yang-tidak-ada'), null);
+  assert.equal(await refreshAccessToken(db, ''), null);
 
+  // M18b: runner async — beri kesempatan promise pending selesai sebelum close
+  await new Promise((r) => setImmediate(r));
   db.close();
 });
 
-test('M09: REVOKE — logout membuat refresh token tidak bisa dipakai', () => {
+test('M09: REVOKE — logout membuat refresh token tidak bisa dipakai', async () => {
   const db = freshDb();
   const user = createAuthUser(db, { email: 'farel@x.com', password: 'passwordRahasia123' });
 
-  const tokens = issueTokens(db, user);
+  const tokens = await issueTokens(db, user);
 
   // Logout (revoke)
   assert.equal(revokeRefreshToken(db, tokens.refreshToken), true);
 
   // Setelah revoke → refresh ditolak
-  assert.equal(refreshAccessToken(db, tokens.refreshToken), null);
+  assert.equal(await refreshAccessToken(db, tokens.refreshToken), null);
   console.log('\n   🚪 Setelah logout, refresh token mati ✓');
 
   db.close();
 });
 
-test('M09: revokeAllUserTokens — logout dari semua device', () => {
+test('M09: revokeAllUserTokens — logout dari semua device', async () => {
   const db = freshDb();
   const user = createAuthUser(db, { email: 'farel@x.com', password: 'passwordRahasia123' });
 
   // Login dari 3 "device"
-  const t1 = issueTokens(db, user);
-  const t2 = issueTokens(db, user);
-  const t3 = issueTokens(db, user);
+  const t1 = await issueTokens(db, user);
+  const t2 = await issueTokens(db, user);
+  const t3 = await issueTokens(db, user);
 
   const revoked = revokeAllUserTokens(db, user.id);
   console.log(`\n   📵 Revoke semua: ${revoked} token dimatikan`);
 
   assert.equal(revoked, 3);
-  assert.equal(refreshAccessToken(db, t1.refreshToken), null);
-  assert.equal(refreshAccessToken(db, t2.refreshToken), null);
-  assert.equal(refreshAccessToken(db, t3.refreshToken), null);
+  assert.equal(await refreshAccessToken(db, t1.refreshToken), null);
+  assert.equal(await refreshAccessToken(db, t2.refreshToken), null);
+  assert.equal(await refreshAccessToken(db, t3.refreshToken), null);
 
   db.close();
 });
 
-test('M09: TOKEN PERSISTEN — selamat dari restart server', () => {
+test('M09: TOKEN PERSISTEN — selamat dari restart server', async () => {
   const dbPath = path.join(TEST_DIR, `persist-${Date.now()}-${counter++}.db`);
 
   let refreshToken = '';
@@ -238,7 +240,8 @@ test('M09: TOKEN PERSISTEN — selamat dari restart server', () => {
     initAuthUsersTable(db);
     initAuthTokensTable(db);
     const user = createAuthUser(db, { email: 'p@x.com', password: 'passwordRahasia123' });
-    refreshToken = issueTokens(db, user).refreshToken;
+    const issued = await issueTokens(db, user);
+    refreshToken = issued.refreshToken;
     db.close(); // simulasi restart
   }
 
@@ -248,7 +251,7 @@ test('M09: TOKEN PERSISTEN — selamat dari restart server', () => {
     db2.exec('PRAGMA journal_mode = WAL');
     initAuthUsersTable(db2);
     initAuthTokensTable(db2);
-    const refreshed = refreshAccessToken(db2, refreshToken);
+    const refreshed = await refreshAccessToken(db2, refreshToken);
     assert.ok(refreshed !== null, 'refresh token harus selamat dari restart!');
     console.log('\n   💪 Token persisten: selamat dari restart server (beda dengan M00!)');
     db2.close();

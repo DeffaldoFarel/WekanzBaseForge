@@ -106,14 +106,14 @@ after(async () => {
 
 // ─── Sandbox unit tests ──────────────────────────────────────────────────────
 
-test('M15a: sandbox — process & require TIDAK ADA', () => {
-  const result = runFunctionCode(`return typeof process + '/' + typeof require;`);
+test('M15a: sandbox — process & require TIDAK ADA', async () => {
+  const result = await runFunctionCode(`return typeof process + '/' + typeof require;`);
   assert.ok(result.ok);
   assert.equal(result.result, 'undefined/undefined', 'host harus tak terlihat!');
 });
 
-test('M15a: sandbox — globalThis bersih dari fs/os', () => {
-  const result = runFunctionCode(`
+test('M15a: sandbox — globalThis bersih dari fs/os', async () => {
+  const result = await runFunctionCode(`
     const keys = Object.getOwnPropertyNames(globalThis);
     return keys.filter(k => ['fs','os','child_process','process','require','Buffer','global'].includes(k));
   `);
@@ -121,16 +121,16 @@ test('M15a: sandbox — globalThis bersih dari fs/os', () => {
   assert.deepEqual(result.result, [], 'tidak boleh ada host globals yang bocor');
 });
 
-test('M15a: infinite loop dihentikan timeout (server selamat!)', () => {
-  const result = runFunctionCode(`while(true) {}`, { timeoutMs: 300 });
+test('M15a: infinite loop dihentikan timeout (server selamat!)', async () => {
+  const result = await runFunctionCode(`while(true) {}`, { timeoutMs: 300 });
   assert.equal(result.ok, false);
   assert.equal(result.timedOut, true);
   assert.ok(/batas waktu/.test(result.error ?? ''));
   assert.ok(result.durationMs < 3000, 'timeout harus bekerja cepat');
 });
 
-test('M15a: console.log tertangkap & dibatasi', () => {
-  const result = runFunctionCode(`
+test('M15a: console.log tertangkap & dibatasi', async () => {
+  const result = await runFunctionCode(`
     for (let i = 0; i < 150; i++) console.log('baris', i);
     return 'selesai';
   `);
@@ -139,8 +139,8 @@ test('M15a: console.log tertangkap & dibatasi', () => {
   assert.ok(result.logs[100].includes('dipotong'));
 });
 
-test('M15a: req masuk, return keluar', () => {
-  const result = runFunctionCode(`
+test('M15a: req masuk, return keluar', async () => {
+  const result = await runFunctionCode(`
     const total = (req.body.harga || 0) * (req.body.qty || 0);
     console.log('hitung', total);
     return { total, dari: req.query.sumber ?? 'tidak diketahui', user: req.auth?.email ?? 'anon' };

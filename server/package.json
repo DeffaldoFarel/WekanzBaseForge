@@ -18,6 +18,9 @@
   ],
   "license": "MIT",
   "dependencies": {
+    "@fastify/busboy": "^3.2.2",
+    "isolated-vm": "^7.0.1",
+    "jose": "^6.2.12",
     "sharp": "^0.35.4"
   },
   "devDependencies": {

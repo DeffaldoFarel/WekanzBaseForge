@@ -88,7 +88,7 @@ export function createProjectAuthRouter(): Router {
   // ─── REGISTER ────────────────────────────────────────────────────────────
   // POST /api/p/:pid/auth/register { email, password, name? }
   // → auto-login (dapat tokens langsung — keputusan desain M09u)
-  router.post('/api/p/:pid/auth/register', (req, res) => {
+  router.post('/api/p/:pid/auth/register', async (req, res) => {
     const ip = clientIp(req);
 
     // Rate limit register juga (mencegah spam pendaftaran)
@@ -120,7 +120,7 @@ export function createProjectAuthRouter(): Router {
         name: body.name,
       });
 
-      const tokens = issueTokens(db, user);
+      const tokens = await issueTokens(db, user);
       sendAuthSuccess(res, user, tokens, 201);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Gagal mendaftar';
@@ -136,7 +136,7 @@ export function createProjectAuthRouter(): Router {
   // ─── LOGIN ───────────────────────────────────────────────────────────────
   // POST /api/p/:pid/auth/login { email, password }
   // Pesan error SERAGAM (anti user enumeration — M08)
-  router.post('/api/p/:pid/auth/login', (req, res) => {
+  router.post('/api/p/:pid/auth/login', async (req, res) => {
     const ip = clientIp(req);
 
     // Rate limit: 10 percobaan/menit per IP
@@ -175,13 +175,13 @@ export function createProjectAuthRouter(): Router {
       return;
     }
 
-    const tokens = issueTokens(db, user);
+    const tokens = await issueTokens(db, user);
     sendAuthSuccess(res, user, tokens, 200);
   });
 
   // ─── REFRESH ─────────────────────────────────────────────────────────────
   // POST /api/p/:pid/auth/refresh { refreshToken }
-  router.post('/api/p/:pid/auth/refresh', (req, res) => {
+  router.post('/api/p/:pid/auth/refresh', async (req, res) => {
     const db = getAuthDb(req.params.pid);
     if (!db) {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Project tidak ditemukan' } });
@@ -196,7 +196,7 @@ export function createProjectAuthRouter(): Router {
       return;
     }
 
-    const tokens = refreshAccessToken(db, body.refreshToken);
+    const tokens = await refreshAccessToken(db, body.refreshToken);
     if (!tokens) {
       res.status(401).json({
         error: { code: 'INVALID_REFRESH', message: 'Refresh token tidak valid atau kedaluwarsa' },
@@ -213,7 +213,7 @@ export function createProjectAuthRouter(): Router {
 
   // ─── ME ──────────────────────────────────────────────────────────────────
   // GET /api/p/:pid/auth/me (Authorization: Bearer <accessToken>)
-  router.get('/api/p/:pid/auth/me', (req, res) => {
+  router.get('/api/p/:pid/auth/me', async (req, res) => {
     const db = getAuthDb(req.params.pid);
     if (!db) {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Project tidak ditemukan' } });
@@ -228,10 +228,14 @@ export function createProjectAuthRouter(): Router {
       return;
     }
 
-    const result = verifyToken(token);
+    const result = await verifyToken(token);
     if (!result.valid) {
       const reason = result.reason === 'expired' ? 'Token kedaluwarsa' : 'Token tidak valid';
       res.status(401).json({ error: { code: 'UNAUTHORIZED', message: reason } });
+      return;
+    }
+    if (!result.payload) {
+      res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'Token tidak valid' } });
       return;
     }
 

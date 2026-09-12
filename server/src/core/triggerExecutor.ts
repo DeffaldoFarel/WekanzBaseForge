@@ -58,9 +58,9 @@ export function fireTriggers(
     const matched = fn.triggers.some((t) => t.collection === collection && t.actions.includes(action));
     if (!matched) continue;
 
-    // Disable triggers saat menjalankan function → fungsi yang menulis
-    // ke collection sama TIDAK memicu dirinya sendiri (anti infinite loop)
-    const result = runFunctionCode(fn.code, {
+    // M18a: isolated-vm ASYNC — trigger jalan di background (fire-and-forget).
+    // Operasi CRUD asli sudah selesai; hasil trigger dicatat via .then.
+    void runFunctionCode(fn.code, {
       timeoutMs: fn.timeoutMs,
       triggerContext: {
         action,
@@ -68,25 +68,28 @@ export function fireTriggers(
         record,
         previous: previous ?? null,
       },
-    });
-
-    if (!result.ok) {
-      console.error(
-        `[trigger:${fn.name}] ${collection}.${action} FAILED (${result.durationMs}ms): ${result.error}`
-      );
-    } else if (result.logs.length > 0) {
-      console.log(`[trigger:${fn.name}] ${collection}.${action} (${result.durationMs}ms) ${result.logs.join(' | ')}`);
-    } else {
-      console.log(`[trigger:${fn.name}] ${collection}.${action} ok (${result.durationMs}ms)`);
-    }
-
-    outcomes.push({
-      functionName: fn.name,
-      ran: true,
-      ok: result.ok,
-      error: result.error,
-      durationMs: result.durationMs,
-    });
+    })
+      .then((result: FunctionRunResult) => {
+        if (!result.ok) {
+          console.error(
+            `[trigger:${fn.name}] ${collection}.${action} FAILED (${result.durationMs}ms): ${result.error}`
+          );
+        } else if (result.logs.length > 0) {
+          console.log(`[trigger:${fn.name}] ${collection}.${action} (${result.durationMs}ms) ${result.logs.join(' | ')}`);
+        } else {
+          console.log(`[trigger:${fn.name}] ${collection}.${action} ok (${result.durationMs}ms)`);
+        }
+        outcomes.push({
+          functionName: fn.name,
+          ran: true,
+          ok: result.ok,
+          error: result.error,
+          durationMs: result.durationMs,
+        });
+      })
+      .catch((err) => {
+        console.error(`[trigger:${fn.name}] unexpected error:`, err);
+      });
   }
 
   return outcomes;

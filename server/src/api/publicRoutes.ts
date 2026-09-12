@@ -37,18 +37,19 @@ import { fireTriggersSafe } from '../core/triggerExecutor.js';
 // - Anonymous                      → reqCtx = { auth: null } (rules tetap jalan)
 
 // M14: siapkan data dari body JSON ATAU multipart (file upload)
-function prepareBodyData(
+// M18c: busboy ASYNC — helper jadi async
+async function prepareBodyData(
   req: { isMultipart?: boolean; rawBody?: Buffer; body: unknown; headers: { 'content-type'?: string } },
   db: DatabaseSync,
   projectId: string,
   collectionName: string,
   recordId: string // untuk create: id harus sudah dibuat dulu oleh caller
-): Record<string, unknown> {
+): Promise<Record<string, unknown>> {
   const reqExt = req as { isMultipart?: boolean; rawBody?: Buffer; body: unknown; headers: { 'content-type'?: string } };
   if (reqExt.isMultipart && reqExt.rawBody) {
     const meta = getCollectionByName(db, collectionName);
     if (!meta) throw new Error(`Collection '${collectionName}' tidak ditemukan`);
-    return multipartToRecordData(
+    return await multipartToRecordData(
       projectId,
       meta,
       recordId,
@@ -187,10 +188,10 @@ export function createPublicRouter(): Router {
   // ═══════════════════════════════════════════════════════════════════════
 
   // GET list
-  router.get('/api/p/:pid/collections/:name/records', (req, res) => {
+  router.get('/api/p/:pid/collections/:name/records', async (req, res) => {
     try {
       const db = getProjectDb(req.params.pid);
-      const reqCtx = resolveEndUserCtx(req); // admin → undefined (bypass)
+      const reqCtx = await resolveEndUserCtx(req); // admin → undefined (bypass)
       const result = listRecords(db, req.params.name, {
         filter: req.query.get('filter') ?? undefined,
         sort: req.query.get('sort') ?? undefined,
@@ -206,10 +207,10 @@ export function createPublicRouter(): Router {
   });
 
   // GET satu record (view)
-  router.get('/api/p/:pid/collections/:name/records/:id', (req, res) => {
+  router.get('/api/p/:pid/collections/:name/records/:id', async (req, res) => {
     try {
       const db = getProjectDb(req.params.pid);
-      const reqCtx = resolveEndUserCtx(req);
+      const reqCtx = await resolveEndUserCtx(req);
       const record = getRecord(db, req.params.name, req.params.id, reqCtx);
       if (!record) {
         res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Record tidak ditemukan' } });
@@ -222,10 +223,10 @@ export function createPublicRouter(): Router {
   });
 
   // POST create
-  router.post('/api/p/:pid/collections/:name/records', (req, res) => {
+  router.post('/api/p/:pid/collections/:name/records', async (req, res) => {
     try {
       const db = getProjectDb(req.params.pid);
-      const reqCtx = resolveEndUserCtx(req);
+      const reqCtx = await resolveEndUserCtx(req);
 
       // M14: multipart perlu recordId SEBELUM insert (nama file = <id>_<filename>).
       // Kita generate id di sini dan pass ke createRecord via data hack:
@@ -233,7 +234,7 @@ export function createPublicRouter(): Router {
       const meta = getCollectionByName(db, req.params.name);
       if (!meta) throw new Error(`Collection '${req.params.name}' tidak ditemukan`);
       const preId = generateId();
-      const body = prepareBodyData(req, db, req.params.pid, req.params.name, preId);
+      const body = await prepareBodyData(req, db, req.params.pid, req.params.name, preId);
 
       const record = createRecord(db, req.params.name, body, reqCtx, preId);
       // M13: broadcast ke realtime subscribers (setelah DB sukses)
@@ -247,16 +248,16 @@ export function createPublicRouter(): Router {
   });
 
   // PATCH update
-  router.patch('/api/p/:pid/collections/:name/records/:id', (req, res) => {
+  router.patch('/api/p/:pid/collections/:name/records/:id', async (req, res) => {
     try {
       const db = getProjectDb(req.params.pid);
-      const reqCtx = resolveEndUserCtx(req);
+      const reqCtx = await resolveEndUserCtx(req);
       const meta = getCollectionByName(db, req.params.name);
       if (!meta) throw new Error(`Collection '${req.params.name}' tidak ditemukan`);
 
       // M14: snapshot file lama SEBELUM update (untuk cleanup yang diganti)
       const oldRecord = getRecordRawPublic(db, req.params.name, req.params.id);
-      const body = prepareBodyData(req, db, req.params.pid, req.params.name, req.params.id);
+      const body = await prepareBodyData(req, db, req.params.pid, req.params.name, req.params.id);
 
       const record = updateRecord(db, req.params.name, req.params.id, body, reqCtx);
       if (!record) {
@@ -287,10 +288,10 @@ export function createPublicRouter(): Router {
   });
 
   // DELETE
-  router.delete('/api/p/:pid/collections/:name/records/:id', (req, res) => {
+  router.delete('/api/p/:pid/collections/:name/records/:id', async (req, res) => {
     try {
       const db = getProjectDb(req.params.pid);
-      const reqCtx = resolveEndUserCtx(req);
+      const reqCtx = await resolveEndUserCtx(req);
       const meta = getCollectionByName(db, req.params.name);
       const ok = deleteRecord(db, req.params.name, req.params.id, reqCtx);
       if (!ok) {
@@ -328,14 +329,15 @@ function getRecordRawPublic(
 }
 
 // ─── Helper: resolve JWT → RequestContext (untuk end user) ──────────────────
+// M18b: verifyToken ASYNC (jose) — helper jadi async
 
-function resolveEndUserCtx(req: { headers: { authorization?: string } }): RequestContext {
+async function resolveEndUserCtx(req: { headers: { authorization?: string } }): Promise<RequestContext> {
   const bearer = extractBearer(req.headers.authorization ?? null);
   if (bearer) {
     if (isAdminToken(bearer)) {
       return undefined as unknown as RequestContext; // admin → bypass (jangan dipakai)
     }
-    const result = verifyToken(bearer);
+    const result = await verifyToken(bearer);
     if (result.valid && result.payload) {
       return {
         auth: {

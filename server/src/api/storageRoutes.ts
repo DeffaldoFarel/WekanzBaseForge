@@ -61,7 +61,7 @@ export function createStorageRouter(): Router {
         if (validateToken(bearer)) {
           reqCtx = undefined; // admin — bypass
         } else {
-          const result = verifyToken(bearer);
+          const result = await verifyToken(bearer);
           reqCtx = result.valid && result.payload
             ? { auth: { id: String(result.payload.sub ?? ''), email: String(result.payload.email ?? '') } }
             : { auth: null };
