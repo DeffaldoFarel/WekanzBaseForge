@@ -10,9 +10,16 @@
     "start": "node dist/index.js",
     "test": "node --test --import tsx \"tests/**/*.test.ts\""
   },
-  "keywords": ["learning", "backend", "database", "sqlite"],
+  "keywords": [
+    "learning",
+    "backend",
+    "database",
+    "sqlite"
+  ],
   "license": "MIT",
-  "dependencies": {},
+  "dependencies": {
+    "sharp": "^0.35.4"
+  },
   "devDependencies": {
     "@types/node": "^22.13.10",
     "tsx": "^4.19.3",

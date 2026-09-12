@@ -19,6 +19,7 @@ import { readFile, storedFilenames } from '../core/storage.js';
 import { RequestContext } from '../core/query/sqlBuilder.js';
 import { verifyToken } from '../auth/jwt.js';
 import { validateToken } from '../platform/adminAuth.js';
+import { getThumb, isThumbable } from '../core/thumbs.js';
 
 // ─── Whitelist ekstensi → MIME ───────────────────────────────────────────────
 // Sengaja TIDAK ada .html/.svg/.js — ekstensi aktif selalu jadi download.
@@ -48,7 +49,7 @@ function mimeFor(filename: string): string {
 export function createStorageRouter(): Router {
   const router = new Router();
 
-  router.get('/api/files/:pid/:collection/:rid/:filename', (req, res) => {
+  router.get('/api/files/:pid/:collection/:rid/:filename', async (req, res) => {
     try {
       const { pid, collection, rid, filename } = req.params;
 
@@ -104,15 +105,34 @@ export function createStorageRouter(): Router {
         return;
       }
 
+      // ── M14b: ?thumb=WxH → generate/ambil thumbnail (lazy + cache) ──
+      const thumbSpec = req.query.get('thumb');
+      let serveData = data;
+      if (thumbSpec) {
+        if (!isThumbable(filename)) {
+          res.status(400).json({
+            error: { code: 'BAD_REQUEST', message: 'Thumbnail hanya untuk jpg/png/gif/webp' },
+          });
+          return;
+        }
+        try {
+          serveData = await getThumb(pid, rid, filename, thumbSpec, data);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : 'Gagal membuat thumbnail';
+          res.status(400).json({ error: { code: 'BAD_REQUEST', message } });
+          return;
+        }
+      }
+
       const mime = mimeFor(filename);
       res.raw.setHeader('Content-Type', mime);
-      res.raw.setHeader('Content-Length', String(data.length));
+      res.raw.setHeader('Content-Length', String(serveData.length));
       res.raw.setHeader('Cache-Control', 'public, max-age=3600');
       // Ekstensi tidak dikenal → paksa download (jangan render!)
       if (mime === 'application/octet-stream') {
         res.raw.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
       }
-      res.raw.end(data);
+      res.raw.end(serveData);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Internal error';
       res.status(500).json({ error: { code: 'INTERNAL', message } });
