@@ -23,6 +23,9 @@ const FIELD_TYPES = [
   "url",
   "autodate",
   "file", // M14: file upload
+  "editor", // M16b: rich text
+  "geoPoint", // M16b: {lat,lng}
+  "password", // M16b: hash-only (never returned)
 ];
 
 export default function DatabasePage() {

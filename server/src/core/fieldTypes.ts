@@ -19,7 +19,10 @@ export type FieldType =
   | 'select'    // B1: dropdown pilihan
   | 'autodate'  // B1: timestamp otomatis
   | 'url'       // B1: URL tervalidasi
-  | 'file';     // M14: file upload (nama file tersimpan; bytes di disk)
+  | 'file'      // M14: file upload (nama file tersimpan; bytes di disk)
+  | 'editor'    // M16b: rich text HTML (read-only di table view dashboard)
+  | 'geoPoint'  // M16b: { lat, lng } — validasi range
+  | 'password'; // M16b: hash-only field (never returned)
 
 export interface FieldDefinition {
   name: string;
@@ -110,6 +113,20 @@ export function fieldToSql(field: FieldDefinition): string {
     case 'file':
       // M14: menyimpan NAMA file tersimpan (bukan bytes!) — single TEXT,
       // multi TEXT berisi JSON array. File fisik ada di disk.
+      return `${col} TEXT${notNull}`;
+    case 'editor':
+      // M16b: rich text (HTML) — TEXT besar, tidak divalidasi isi (sanitasi
+      // dilakukan client saat render — server menyimpan apa adanya)
+      return `${col} TEXT${notNull}`;
+    case 'geoPoint': {
+      // M16b: { lat, lng } disimpan sebagai TEXT JSON — validasi range di
+      // validateValue. Bukan kolom terpisah: satu kolom, satu dokumen.
+      return `${col} TEXT${notNull}`;
+    }
+    case 'password':
+      // M16b: password END-USER field level (bukan auth users!) —
+      // disimpan SEBAGAI HASH scrypt (M08 reuse). Nilai asli tidak pernah
+      // tersimpan & tidak pernah dikembalikan (deserialize → undefined).
       return `${col} TEXT${notNull}`;
     case 'select':
     case 'url':
@@ -240,6 +257,36 @@ export function validateValue(field: FieldDefinition, value: unknown): string | 
       }
 
       return checkOne(value);
+    }
+    case 'editor': {
+      // M16b: string bebas (HTML/rich text) — boleh kosong jika tidak required
+      if (typeof value !== 'string') return `Field '${field.name}' must be a string (rich text)`;
+      return null;
+    }
+    case 'geoPoint': {
+      // M16b: { lat, lng } — lat -90..90, lng -180..180
+      if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+        return `Field '${field.name}' must be an object { lat, lng }`;
+      }
+      const geo = value as { lat?: unknown; lng?: unknown };
+      if (typeof geo.lat !== 'number' || typeof geo.lng !== 'number') {
+        return `Field '${field.name}' must have numeric lat and lng`;
+      }
+      if (geo.lat < -90 || geo.lat > 90) {
+        return `Field '${field.name}'.lat harus antara -90 dan 90 (dapat ${geo.lat})`;
+      }
+      if (geo.lng < -180 || geo.lng > 180) {
+        return `Field '${field.name}'.lng harus antara -180 dan 180 (dapat ${geo.lng})`;
+      }
+      return null;
+    }
+    case 'password': {
+      // M16b: input = password plain dari user (akan di-hash saat serialize).
+      // Validasi kekuatan minimum di sini (hash dilakukan di records.ts).
+      if (typeof value !== 'string') return `Field '${field.name}' must be a string`;
+      if (value.length < 8) return `Field '${field.name}' minimal 8 karakter`;
+      if (value.length > 128) return `Field '${field.name}' maksimal 128 karakter`;
+      return null;
     }
     default:
       return `Unknown type for field '${field.name}'`;

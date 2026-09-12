@@ -12,6 +12,7 @@ import { getProjectDb } from '../core/projectDbManager.js';
 import { requireAdmin, validateToken } from '../platform/adminAuth.js';
 import { verifyToken } from '../auth/jwt.js';
 import { updateCollectionRules, getCollectionByName, createViewCollection } from '../core/schema.js';
+import { exportCollection, importCollection } from '../core/collectionJson.js';
 import {
   listRecords,
   getRecord,
@@ -139,6 +140,43 @@ export function createPublicRouter(): Router {
         rules: body.rules,
       });
       res.status(201).json({ collection: meta });
+    } catch (err) {
+      handleErrorPublic(res, err);
+    }
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // ADMIN: IMPORT/EXPORT JSON (M16c)
+  // ═══════════════════════════════════════════════════════════════════════
+
+  // GET export → JSON file download
+  router.get('/api/admin/projects/:pid/collections/:name/export', requireAdmin, (req, res) => {
+    try {
+      const db = getProjectDb(req.params.pid);
+      const json = exportCollection(db, req.params.name);
+      res.raw.setHeader('Content-Type', 'application/json');
+      res.raw.setHeader(
+        'Content-Disposition',
+        `attachment; filename="${req.params.name}-export.json"`
+      );
+      res.raw.end(json);
+    } catch (err) {
+      handleErrorPublic(res, err);
+    }
+  });
+
+  // POST import ← JSON body (data + mode)
+  router.post('/api/admin/projects/:pid/collections/import', requireAdmin, (req, res) => {
+    try {
+      const db = getProjectDb(req.params.pid);
+      const body = (req.body ?? {}) as { data?: string | object; mode?: 'create' | 'replace' | 'merge' };
+      if (!body.data) {
+        res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'data (JSON export) wajib' } });
+        return;
+      }
+      const json = typeof body.data === 'string' ? body.data : JSON.stringify(body.data);
+      const result = importCollection(db, json, { mode: body.mode });
+      res.status(201).json(result);
     } catch (err) {
       handleErrorPublic(res, err);
     }

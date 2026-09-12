@@ -18,6 +18,7 @@ import { decideRule, evaluateRuleOnData, ForbiddenError, CollectionRules } from 
 import { parseMultipart, extractBoundary, MultipartFile } from './multipart.js';
 import { saveFile, deleteFile, deleteRecordFiles, storedFilenames } from './storage.js';
 import { isViewCollection } from './schema.js';
+import { hashPassword, verifyPassword } from '../auth/password.js';
 
 // M16a: error khusus write ke view collection
 export class ViewWriteError extends Error {
@@ -252,6 +253,15 @@ function serializeValue(field: FieldDefinition, value: unknown): unknown {
       }
       return value;
     }
+    case 'geoPoint': {
+      // M16b: { lat, lng } → TEXT JSON
+      return JSON.stringify(value);
+    }
+    case 'password': {
+      // M16b: HASH SAAT WRITE (M08 reuse) — plain never stored
+      // (string apa pun yang lolos validateValue → hash scrypt)
+      return hashPassword(value as string);
+    }
     default:
       return value;
   }
@@ -297,6 +307,18 @@ function deserializeRow(meta: CollectionMeta, row: Record<string, unknown>): For
           result[key] = [];
         }
       }
+    } else if (field.type === 'geoPoint' && typeof value === 'string') {
+      // M16b: { lat, lng } TEXT JSON → object
+      try {
+        result[key] = JSON.parse(value);
+      } catch {
+        result[key] = null;
+      }
+    } else if (field.type === 'password') {
+      // M16b: HASH TIDAK PERNAH DIKEMBALIKAN — field hilang dari response.
+      // (Bagi client: field ini write-only. Tidak ada verify endpoint untuk
+      // field-level password di M16b — kebutuhan verify = auth collection.)
+      delete result[key];
     }
   }
 
