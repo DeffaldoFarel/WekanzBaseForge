@@ -369,3 +369,85 @@ export function fileUrl(
 ): string {
   return `${API_URL}/api/files/${projectId}/${collection}/${recordId}/${encodeURIComponent(filename)}`;
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// M15u: FUNCTIONS API (CRUD + execute)
+// ════════════════════════════════════════════════════════════════════════════
+
+export interface FunctionTrigger {
+  collection: string;
+  actions: string[];
+}
+
+export interface StoredFunction {
+  id: string;
+  name: string;
+  code: string;
+  enabled: boolean;
+  timeoutMs: number;
+  triggers: FunctionTrigger[];
+  schedule: string | null;
+  created: string;
+  updated: string;
+}
+
+export async function listFunctions(projectId: string): Promise<StoredFunction[]> {
+  const res = await request<{ functions: StoredFunction[] }>(
+    `/api/admin/projects/${projectId}/functions`
+  );
+  return res.functions;
+}
+
+export async function createFunction(
+  projectId: string,
+  def: { name: string; code: string; enabled?: boolean; timeoutMs?: number; triggers?: FunctionTrigger[]; schedule?: string | null }
+): Promise<StoredFunction> {
+  const res = await request<{ function: StoredFunction }>(
+    `/api/admin/projects/${projectId}/functions`,
+    { method: 'POST', body: JSON.stringify(def) }
+  );
+  return res.function;
+}
+
+export async function updateFunction(
+  projectId: string,
+  name: string,
+  updates: { code?: string; enabled?: boolean; timeoutMs?: number; triggers?: FunctionTrigger[]; schedule?: string | null }
+): Promise<StoredFunction> {
+  const res = await request<{ function: StoredFunction }>(
+    `/api/admin/projects/${projectId}/functions/${name}`,
+    { method: 'PATCH', body: JSON.stringify(updates) }
+  );
+  return res.function;
+}
+
+export async function deleteFunction(projectId: string, name: string): Promise<void> {
+  await request(`/api/admin/projects/${projectId}/functions/${name}`, { method: 'DELETE' });
+}
+
+export interface FunctionExecResult {
+  ok: boolean;
+  result?: unknown;
+  error?: string;
+  logs: string[];
+  durationMs: number;
+  timedOut?: boolean;
+}
+
+export async function executeFunction(
+  projectId: string,
+  name: string,
+  body?: unknown
+): Promise<FunctionExecResult> {
+  return request<FunctionExecResult>(
+    `/api/admin/projects/${projectId}/functions/${name}/execute`,
+    { method: 'POST', body: JSON.stringify({ body: body ?? {} }) }
+  );
+}
+
+export async function listCollectionsForFunctions(
+  projectId: string
+): Promise<{ name: string }[]> {
+  const cols = await listCollections(projectId);
+  return cols.map((c) => ({ name: c.name }));
+}
