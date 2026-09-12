@@ -93,25 +93,38 @@ export function parse(tokens: Token[]): AstNode {
       return node;
     }
 
-    // Perbandingan: IDENT OPERATOR nilai
-    const fieldToken = expect('IDENT', 'nama field');
+    // M11: field bisa IDENT atau AT_IDENT (@request.auth.id)
+    const fieldToken = next();
+    let field: string;
+    if (fieldToken.type === 'IDENT') {
+      field = String(fieldToken.value);
+    } else if (fieldToken.type === 'AT_IDENT') {
+      field = String(fieldToken.value); // '@request.auth.id'
+    } else {
+      throw new Error(
+        `Parser error di token ke-${pos}: diharapkan nama field, dapat '${fieldToken.type}' (${String(fieldToken.value)})`
+      );
+    }
+
     const opToken = expect('OPERATOR', 'operator (=, !=, >, dsb.)');
     const valueToken = next();
 
+    // M11: nilai juga boleh AT_IDENT (@request di sisi kanan)
     if (
       valueToken.type !== 'STRING' &&
       valueToken.type !== 'NUMBER' &&
       valueToken.type !== 'BOOL' &&
-      valueToken.type !== 'NULL'
+      valueToken.type !== 'NULL' &&
+      valueToken.type !== 'AT_IDENT'
     ) {
       throw new Error(
-        `Parser error: nilai setelah '${String(opToken.value)}' harus berupa string, angka, true/false, atau null — dapat '${valueToken.type}'`
+        `Parser error: nilai setelah '${String(opToken.value)}' harus berupa string, angka, true/false, null, atau @request — dapat '${valueToken.type}'`
       );
     }
 
     return {
       kind: 'comparison',
-      field: String(fieldToken.value),
+      field,
       operator: String(opToken.value),
       value: valueToken.value,
     };

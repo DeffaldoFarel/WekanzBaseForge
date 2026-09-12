@@ -13,7 +13,8 @@ import { DatabaseSync } from 'node:sqlite';
 import { generateId } from './router.js';
 import { getCollectionByName, listCollections, CollectionMeta } from './schema.js';
 import { FieldDefinition, validateValue } from './fieldTypes.js';
-import { filterToSql } from './query/sqlBuilder.js';
+import { filterToSql, RequestContext } from './query/sqlBuilder.js';
+import { decideRule, evaluateRuleOnData, ForbiddenError, CollectionRules } from './rules.js';
 
 // ─── Tipe ────────────────────────────────────────────────────────────────────
 
@@ -26,6 +27,7 @@ export interface ListOptions {
   sort?: string; // '-streak,+created' → DESC, ASC
   page?: number;
   perPage?: number;
+  reqCtx?: RequestContext; // M11: identitas user untuk rules
 }
 
 export interface ListResult {
@@ -34,6 +36,17 @@ export interface ListResult {
   totalItems: number;
   totalPages: number;
   items: ForgeRecord[];
+}
+
+// ─── M11: RulesContext — operasi mana pun menerima konteks rules ────────────
+// undefined = konteks admin (bypass semua rule) — dipakai admin API M05u.
+// Dengan auth = end-user — rules dievaluasi.
+
+export type RulesCtx = RequestContext | undefined;
+
+// M11: pilih rule yang relevan + evaluasi
+function ruleFor(meta: CollectionMeta, op: keyof CollectionRules): string | null {
+  return meta.rules[op] ?? null;
 }
 
 // ─── Helper: ambil skema collection (gagal jelas kalau tidak ada) ────────────
@@ -148,10 +161,23 @@ function deserializeRow(meta: CollectionMeta, row: Record<string, unknown>): For
 export function createRecord(
   db: DatabaseSync,
   collection: string,
-  data: Record<string, unknown>
+  data: Record<string, unknown>,
+  reqCtx?: RequestContext
 ): ForgeRecord {
   const meta = mustGetCollection(db, collection);
   const fmap = fieldMap(meta);
+
+  // ── M11: createRule dievaluasi terhadap DATA yang dikirim ──
+  // Hanya untuk END USER — admin (reqCtx undefined) selalu bypass.
+  const cRule = ruleFor(meta, 'createRule');
+  if (reqCtx !== undefined) {
+    if (cRule === null) {
+      throw new ForbiddenError();
+    }
+    if (cRule.trim() !== '' && !evaluateRuleOnData(cRule, data, reqCtx)) {
+      throw new ForbiddenError();
+    }
+  }
 
   // ── Validasi setiap field yang dikirim user ──
   for (const [key, value] of Object.entries(data)) {
@@ -238,13 +264,36 @@ export function createRecordsBatch(
 export function getRecord(
   db: DatabaseSync,
   collection: string,
-  id: string
+  id: string,
+  reqCtx?: RequestContext
 ): ForgeRecord | null {
   const meta = mustGetCollection(db, collection);
+  const record = getRecordRaw(db, meta, collection, id);
+  if (!record) return null;
+
+  // ── M11: viewRule — hanya untuk END USER (admin bypass) ──
+  if (reqCtx !== undefined) {
+    const vRule = ruleFor(meta, 'viewRule');
+    if (vRule === null) return null; // admin-only view → "tidak terlihat"
+    if (vRule.trim() !== '' && !evaluateRuleOnData(vRule, record as Record<string, unknown>, reqCtx)) {
+      return null; // tidak lolos rule → null (bukan error — semantik PocketBase)
+    }
+  }
+
+  return record;
+}
+
+// M11: ambil record TANPA cek rules — untuk pemakaian INTERNAL
+// (createRecord balikin hasil, updateRecord/deleteRecord cek rule sendiri).
+function getRecordRaw(
+  db: DatabaseSync,
+  meta: CollectionMeta,
+  collection: string,
+  id: string
+): ForgeRecord | null {
   const row = db
     .prepare(`SELECT * FROM "${collection}" WHERE id = ?`)
     .get(id) as Record<string, unknown> | undefined;
-
   if (!row) return null;
   return deserializeRow(meta, row);
 }
@@ -255,13 +304,25 @@ export function updateRecord(
   db: DatabaseSync,
   collection: string,
   id: string,
-  data: Record<string, unknown>
+  data: Record<string, unknown>,
+  reqCtx?: RequestContext
 ): ForgeRecord | null {
   const meta = mustGetCollection(db, collection);
   const fmap = fieldMap(meta);
 
-  const existing = getRecord(db, collection, id);
+  const existing = getRecordRaw(db, meta, collection, id);
   if (!existing) return null;
+
+  // ── M11: updateRule — hanya END USER; record EXISTING harus lolos ──
+  const uRule = ruleFor(meta, 'updateRule');
+  if (reqCtx !== undefined) {
+    if (uRule === null) {
+      throw new ForbiddenError();
+    }
+    if (uRule.trim() !== '' && !evaluateRuleOnData(uRule, existing as Record<string, unknown>, reqCtx)) {
+      throw new ForbiddenError();
+    }
+  }
 
   // Validasi & bangun SET clause
   const setClauses: string[] = [`"updated" = strftime('%Y-%m-%dT%H:%M:%fZ','now')`];
@@ -356,9 +417,24 @@ function idsOf(value: unknown): string[] {
 export function deleteRecord(
   db: DatabaseSync,
   collection: string,
-  id: string
+  id: string,
+  reqCtx?: RequestContext
 ): boolean {
-  mustGetCollection(db, collection);
+  const meta = mustGetCollection(db, collection);
+
+  // ── M11: deleteRule — hanya END USER; record harus ada & lolos rule ──
+  const record = getRecordRaw(db, meta, collection, id);
+  if (!record) return false;
+
+  const dRule = ruleFor(meta, 'deleteRule');
+  if (reqCtx !== undefined) {
+    if (dRule === null) {
+      throw new ForbiddenError();
+    }
+    if (dRule.trim() !== '' && !evaluateRuleOnData(dRule, record as Record<string, unknown>, reqCtx)) {
+      throw new ForbiddenError();
+    }
+  }
 
   // ── D3: Tangani record lain yang merujuk ke record ini ──
   // Semua dibungkus SATU transaksi: kalau ada restrict yang melarang,
@@ -440,13 +516,35 @@ export function listRecords(
   const perPage = Math.min(500, Math.max(1, options.perPage ?? 20));
 
   // ── WHERE dari filter (memakai query parser M04!) ──
-  let whereSql = '';
+  let whereParts: string[] = [];
   const params: unknown[] = [];
+
+  // ── M11: listRule — rule jadi WHERE TAMBAHAN sebelum filter user ──
+  // Urutan penting: rule dulu (keamanan), filter user belakangan.
+  // Hanya END USER (reqCtx !== undefined) — admin bypass.
+  const lRule = ruleFor(meta, 'listRule');
+  if (options.reqCtx !== undefined) {
+    if (lRule === null) {
+      // End user + admin-only → tidak ada baris sama sekali
+      return { page, perPage, totalItems: 0, totalPages: 1, items: [] };
+    }
+    if (lRule.trim() !== '') {
+      const decided = decideRule(lRule, options.reqCtx, meta.fields);
+      if (decided.mode === 'filter' && decided.sql) {
+        whereParts.push(`(${decided.sql})`);
+        params.push(...(decided.params ?? []));
+      }
+      // mode 'public' tidak menambah apa-apa
+    }
+  }
+
   if (options.filter && options.filter.trim().length > 0) {
-    const { where, params: filterParams } = filterToSql(options.filter, meta.fields);
-    whereSql = `WHERE ${where}`;
+    const { where, params: filterParams } = filterToSql(options.filter, meta.fields, options.reqCtx);
+    whereParts.push(`(${where})`);
     params.push(...filterParams);
   }
+
+  const whereSql = whereParts.length > 0 ? `WHERE ${whereParts.join(' AND ')}` : '';
 
   // ── ORDER BY dari sort ──
   let orderSql = 'ORDER BY "created" DESC'; // default: terbaru dulu

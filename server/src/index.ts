@@ -13,6 +13,7 @@ import { initPlatformDb } from './core/platformDb.js';
 import { createAdminRouter } from './api/adminRoutes.js';
 import { createDatabaseRouter } from './api/databaseRoutes.js';
 import { createProjectAuthRouter } from './api/authRoutes.js';
+import { createPublicRouter } from './api/publicRoutes.js';
 import { Router, type Middleware } from './core/router.js';
 
 const PORT = parseInt(process.env.PORT ?? '5100', 10);
@@ -50,13 +51,14 @@ async function main(): Promise<void> {
   console.log('📦 Platform DB ready');
 
   // Susun router: gabungkan routes platform (M00) + database admin (M05u)
-  // + project auth (M09u)
+  // + project auth (M09u) + public records + rules admin (M11)
   const router = new Router();
   router.use(loggerMiddleware);
   router.use(corsMiddleware);
   router.merge(createAdminRouter());
   router.merge(createDatabaseRouter());
   router.merge(createProjectAuthRouter());
+  router.merge(createPublicRouter());
 
   // Buat HTTP server. Perhatikan betapa tipisnya lapisan ini:
   // server = terima koneksi → serahkan ke router → router memanggil handler.

@@ -14,6 +14,7 @@
 
 export type TokenType =
   | 'IDENT'      // nama field: streak, title, user
+  | 'AT_IDENT'   // M11: @request.auth.id — referensi konteks request
   | 'NUMBER'     // angka: 5, 3.14, -10
   | 'STRING'     // string: "ola", 'x'
   | 'BOOL'       // true, false
@@ -131,6 +132,16 @@ export function tokenize(input: string): Token[] {
     }
 
     // ── Identifier / keyword (true, false, null) ──
+    // M11: '@' mengawali AT_IDENT — referensi konteks request, mis. @request.auth.id
+    if (ch === '@') {
+      const start = i;
+      i++; // lewati '@'
+      while (i < input.length && /[a-zA-Z0-9_.]/.test(input[i])) i++;
+      const word = input.slice(start, i); // termasuk '@'
+      tokens.push({ type: 'AT_IDENT', value: word, pos: start });
+      continue;
+    }
+
     if (/[a-zA-Z_]/.test(ch)) {
       const start = i;
       // identifier bisa berisi huruf, angka, underscore, TITIK (untuk relasi nanti)

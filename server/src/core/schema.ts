@@ -12,6 +12,7 @@
 
 import { DatabaseSync } from 'node:sqlite';
 import { generateId } from './router.js';
+import { CollectionRules, DEFAULT_RULES, validateRuleFields } from './rules.js';
 import {
   FieldDefinition,
   fieldToSql,
@@ -25,6 +26,7 @@ export interface CollectionDefinition {
   name: string;
   fields: FieldDefinition[];
   indexes?: IndexDefinition[];
+  rules?: Partial<CollectionRules>; // M11: opsional, default semua null (admin-only)
 }
 
 // Definisi index — M06
@@ -38,6 +40,7 @@ export interface CollectionMeta {
   name: string;
   fields: FieldDefinition[];
   indexes: IndexDefinition[];
+  rules: CollectionRules; // M11: API rules per collection
   created: string;
   updated: string;
 }
@@ -47,6 +50,7 @@ interface CollectionRow {
   name: string;
   fields: string; // JSON string di DB
   indexes: string; // JSON string di DB — M06
+  rules: string | null; // JSON string di DB — M11 (null = belum ada kolomnya di DB lama)
   created: string;
   updated: string;
 }
@@ -74,6 +78,11 @@ export function initSchemaTable(db: DatabaseSync): void {
     db.exec(`ALTER TABLE _collections ADD COLUMN indexes TEXT NOT NULL DEFAULT '[]'`);
   }
 
+  // M11: kolom rules (JSON dengan 5 rule per collection)
+  if (!cols.some((c) => c.name === 'rules')) {
+    db.exec(`ALTER TABLE _collections ADD COLUMN rules TEXT`); // NULL = semua rule null (admin-only default)
+  }
+
   // ── D5: tabel _migrations — mencatat setiap perubahan skema ──
   // Schema-as-data (M03) sekarang juga punya HISTORY-as-data.
   db.exec(`
@@ -89,7 +98,7 @@ export function initSchemaTable(db: DatabaseSync): void {
 
 // ─── D5: Migration recording ─────────────────────────────────────────────────
 
-export type MigrationAction = 'create' | 'add_column' | 'rebuild' | 'drop';
+export type MigrationAction = 'create' | 'add_column' | 'rebuild' | 'drop' | 'update_rules';
 
 export interface MigrationRecord {
   id: string;
@@ -249,9 +258,17 @@ export function defineCollection(
   // Inilah "schema as data": skema disimpan sebagai BARIS DATA.
   const id = generateId();
   const indexes = def.indexes ?? [];
+  const rules: CollectionRules = { ...DEFAULT_RULES, ...(def.rules ?? {}) };
+  // M11: validasi field rule terhadap skema (typo rule tidak boleh diam)
+  for (const [key, rule] of Object.entries(rules)) {
+    if (typeof rule === 'string' && rule.trim() !== '') {
+      const err = validateRuleFields(rule, def.fields);
+      if (err) throw new Error(`${key}: ${err}`);
+    }
+  }
   db.prepare(
-    'INSERT INTO _collections (id, name, fields, indexes) VALUES (?, ?, ?, ?)'
-  ).run(id, def.name, JSON.stringify(def.fields), JSON.stringify(indexes));
+    'INSERT INTO _collections (id, name, fields, indexes, rules) VALUES (?, ?, ?, ?, ?)'
+  ).run(id, def.name, JSON.stringify(def.fields), JSON.stringify(indexes), JSON.stringify(rules));
 
   // ── Generate & eksekusi CREATE TABLE untuk tabel ASLI ──
   const sql = generateCreateTableSql(def);
@@ -355,6 +372,39 @@ export function deleteCollection(db: DatabaseSync, name: string): boolean {
   recordMigration(db, name, 'drop', { fields: existing.fields });
 
   return true;
+}
+
+// ─── M11: UPDATE RULES — kebijakan keamanan adalah data, jadi bisa diubah ───
+// Tanpa menyentuh tabel asli — rules hidup di meta, dievaluasi saat request.
+
+export function updateCollectionRules(
+  db: DatabaseSync,
+  name: string,
+  rules: Partial<CollectionRules>
+): CollectionMeta {
+  const existing = getCollectionByName(db, name);
+  if (!existing) {
+    throw new Error(`Collection '${name}' not found`);
+  }
+
+  // Validasi field di rule terhadap skema
+  for (const [key, rule] of Object.entries(rules)) {
+    if (typeof rule === 'string' && rule.trim() !== '') {
+      const err = validateRuleFields(rule, existing.fields);
+      if (err) throw new Error(`${key}: ${err}`);
+    }
+  }
+
+  const merged: CollectionRules = { ...existing.rules, ...rules };
+  db.prepare(
+    `UPDATE _collections SET rules = ?,
+     updated = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE name = ?`
+  ).run(JSON.stringify(merged), name);
+
+  // D5: catat migrasi
+  recordMigration(db, name, 'update_rules', { rules: merged });
+
+  return getCollectionByName(db, name)!;
 }
 
 // ─── D4: REBUILD COLLECTION — ubah skema tanpa kehilangan data ──────────────
@@ -546,7 +596,18 @@ function rowToMeta(row: CollectionRow): CollectionMeta {
     name: row.name,
     fields: JSON.parse(row.fields) as FieldDefinition[],
     indexes: JSON.parse(row.indexes ?? '[]') as IndexDefinition[],
+    rules: parseRules(row.rules),
     created: row.created,
     updated: row.updated,
   };
+}
+
+// M11: parse rules dari DB; null/invalid → DEFAULT_RULES (aman)
+function parseRules(raw: string | null | undefined): CollectionRules {
+  if (!raw) return { ...DEFAULT_RULES };
+  try {
+    return { ...DEFAULT_RULES, ...(JSON.parse(raw) as Partial<CollectionRules>) };
+  } catch {
+    return { ...DEFAULT_RULES };
+  }
 }

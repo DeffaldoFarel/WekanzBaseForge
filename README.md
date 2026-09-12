@@ -72,12 +72,12 @@ BaseForge (1 instalasi)
 - [x] B2 — Backup & restore (VACUUM INTO) ✅
 - [x] B3 — Duplikasi collection + batch API ✅
 
-### 🔐 Auth (per project) — SEDANG BERJALAN
+### 🔐 Auth (per project) — ✅ FASE SELESAI (email/password)
 - [x] M08 — Password hashing (scrypt) ✅
 - [x] M09 — JWT + sessions + refresh tokens ✅
 - [x] M09u — Auth API endpoints (register/login/refresh/me/logout + rate limit) ✅
+- [x] M11 — API rules (row-level security) ✅ — FASE AUTH TUNTAS!
 - [ ] M10 — OAuth2 (Google) — DITUNDA (email/password dulu)
-- [ ] M11 — API rules (row-level security)
 - [ ] M10u 🖥️ — Dashboard: user management + rules editor
 
 ### ⚡ Functions (per project)
