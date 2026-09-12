@@ -81,7 +81,7 @@ BaseForge (1 instalasi)
 - [ ] M10 — OAuth2 (Google) — DITUNDA (email/password dulu)
 
 ### ⚡ Functions (per project)
-- [ ] M15a — Code editor + vm isolation
+- [x] M15a — Callable functions (node:vm sandbox + timeout + CRUD + execute) ✅
 - [ ] M15b — Database triggers
 - [ ] M15c — Scheduler (cron)
 - [ ] M15u 🖥️ — Dashboard: function editor + logs
