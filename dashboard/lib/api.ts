@@ -108,6 +108,8 @@ export interface FieldDef {
     values?: string[]; // untuk type 'select'
     onCreate?: boolean; // untuk type 'autodate'
     onUpdate?: boolean;
+    maxSize?: number; // M14: untuk type 'file'
+    mime?: string; // M14u: accept attribute untuk input file
   };
 }
 
@@ -284,4 +286,86 @@ export async function updateRules(
     { method: 'PATCH', body: JSON.stringify(rules) }
   );
   return res.rules;
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// M14u: FILE UPLOAD API (multipart via FormData) + URL helper
+// ════════════════════════════════════════════════════════════════════════════
+
+export interface UploadResult {
+  record: Record<string, unknown>;
+}
+
+// Upload record dengan file (multipart). fields berisi pasangan nama→nilai
+// untuk field teks; files berisi pasangan fieldName→File (dari <input type=file>).
+// Untuk multi-file (maxSelect>1), kumpulkan sebagai array di satu key.
+export async function createRecordWithFiles(
+  projectId: string,
+  collection: string,
+  fields: Record<string, unknown>,
+  files: Record<string, File | File[]>
+): Promise<Record<string, unknown>> {
+  const fd = new FormData();
+  for (const [k, v] of Object.entries(fields)) {
+    if (v === null || v === undefined) continue;
+    fd.append(k, typeof v === 'object' ? JSON.stringify(v) : String(v));
+  }
+  for (const [fieldName, f] of Object.entries(files)) {
+    if (Array.isArray(f)) {
+      for (const one of f) fd.append(fieldName, one);
+    } else {
+      fd.append(fieldName, f);
+    }
+  }
+
+  const token = getToken();
+  const res = await fetch(`${API_URL}/api/p/${projectId}/collections/${collection}/records`, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: fd, // JANGAN set Content-Type — browser yang isi boundary!
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data?.error?.message ?? `Upload gagal: ${res.status}`);
+  return (data as UploadResult).record;
+}
+
+export async function updateRecordWithFiles(
+  projectId: string,
+  collection: string,
+  id: string,
+  fields: Record<string, unknown>,
+  files: Record<string, File | File[]>
+): Promise<Record<string, unknown>> {
+  const fd = new FormData();
+  for (const [k, v] of Object.entries(fields)) {
+    if (v === null || v === undefined) continue;
+    fd.append(k, typeof v === 'object' ? JSON.stringify(v) : String(v));
+  }
+  for (const [fieldName, f] of Object.entries(files)) {
+    if (Array.isArray(f)) {
+      for (const one of f) fd.append(fieldName, one);
+    } else {
+      fd.append(fieldName, f);
+    }
+  }
+
+  const token = getToken();
+  const res = await fetch(`${API_URL}/api/p/${projectId}/collections/${collection}/records/${id}`, {
+    method: 'PATCH',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: fd,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data?.error?.message ?? `Update gagal: ${res.status}`);
+  return (data as UploadResult).record;
+}
+
+// URL untuk mengakses file yang sudah tersimpan
+export function fileUrl(
+  projectId: string,
+  collection: string,
+  recordId: string,
+  filename: string
+): string {
+  return `${API_URL}/api/files/${projectId}/${collection}/${recordId}/${encodeURIComponent(filename)}`;
 }

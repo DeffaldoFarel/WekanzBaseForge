@@ -88,8 +88,8 @@ BaseForge (1 instalasi)
 
 ### 📁 Storage (per project)
 - [x] M14a — Upload/serving per project ✅ (multipart dari nol + field file + serving aman)
+- [x] M14u 🖥️ — Dashboard: file browser (upload modal + thumbnail + link) ✅
 - [ ] M14b — Image processing (Sharp)
-- [ ] M14u 🖥️ — Dashboard: file browser
 
 ### 📡 Tambahan
 - [ ] M13 — Realtime subscriptions (WebSocket)

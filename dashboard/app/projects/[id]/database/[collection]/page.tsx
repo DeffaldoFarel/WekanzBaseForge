@@ -11,6 +11,9 @@ import {
   deleteRecord,
   getRules,
   updateRules,
+  createRecordWithFiles,
+  updateRecordWithFiles,
+  fileUrl,
   type CollectionInfo,
   type FieldDef,
   type CollectionRules as Rules,
@@ -279,9 +282,42 @@ export default function CollectionDataPage() {
                 <tbody>
                   {result.items.map((rec) => (
                     <tr key={String(rec.id)} onClick={() => setEditing(rec)}>
-                      {allColumns.map((col) => (
-                        <td key={col}>{formatCell(rec[col])}</td>
-                      ))}
+                      {allColumns.map((col) => {
+                        const fieldMeta = collection?.fields.find((f) => f.name === col);
+                        // M14u: render file field sebagai link/preview
+                        if (fieldMeta?.type === "file") {
+                          const files = Array.isArray(rec[col])
+                            ? (rec[col] as string[])
+                            : rec[col]
+                              ? [String(rec[col])]
+                              : [];
+                          if (files.length === 0) return <td key={col}>—</td>;
+                          return (
+                            <td key={col}>
+                              {files.map((fn) => {
+                                const isImage = /\.(png|jpe?g|gif|webp|avif)$/i.test(fn);
+                                const url = fileUrl(projectId, collectionName, String(rec.id), fn);
+                                return (
+                                  <div key={fn} style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                                    {isImage && (
+                                      // eslint-disable-next-line @next/next/no-img-element
+                                      <img
+                                        src={url}
+                                        alt={fn}
+                                        style={{ width: 32, height: 32, objectFit: "cover", borderRadius: 4 }}
+                                      />
+                                    )}
+                                    <a href={url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>
+                                      📎 {fn.length > 18 ? fn.slice(0, 18) + "…" : fn}
+                                    </a>
+                                  </div>
+                                );
+                              })}
+                            </td>
+                          );
+                        }
+                        return <td key={col}>{formatCell(rec[col])}</td>;
+                      })}
                       <td onClick={(e) => e.stopPropagation()}>
                         <button
                           className="btn-icon"
@@ -324,16 +360,26 @@ export default function CollectionDataPage() {
       {(showNew || editing) && collection && (
         <RecordModal
           collection={collection}
+          projectId={projectId}
+          collectionName={collectionName}
           initial={editing ?? undefined}
           onClose={() => {
             setShowNew(false);
             setEditing(null);
           }}
-          onSave={async (data) => {
+          onSave={async (data, files) => {
             if (editing) {
-              await updateRecord(projectId, collectionName, String(editing.id), data);
+              if (files && Object.keys(files).length > 0) {
+                await updateRecordWithFiles(projectId, collectionName, String(editing.id), data, files);
+              } else {
+                await updateRecord(projectId, collectionName, String(editing.id), data);
+              }
             } else {
-              await createRecord(projectId, collectionName, data);
+              if (files && Object.keys(files).length > 0) {
+                await createRecordWithFiles(projectId, collectionName, data, files);
+              } else {
+                await createRecord(projectId, collectionName, data);
+              }
             }
             setShowNew(false);
             setEditing(null);
@@ -349,14 +395,18 @@ export default function CollectionDataPage() {
 
 function RecordModal({
   collection,
+  projectId,
+  collectionName,
   initial,
   onClose,
   onSave,
 }: {
   collection: CollectionInfo;
+  projectId: string;
+  collectionName: string;
   initial?: Record<string, unknown>;
   onClose: () => void;
-  onSave: (data: Record<string, unknown>) => Promise<void>;
+  onSave: (data: Record<string, unknown>, files?: Record<string, File | File[]>) => Promise<void>;
 }) {
   const [values, setValues] = useState<Record<string, unknown>>(() => {
     const v: Record<string, unknown> = {};
@@ -365,6 +415,7 @@ function RecordModal({
     }
     return v;
   });
+  const [fileValues, setFileValues] = useState<Record<string, File | File[]>>({});
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
 
@@ -372,7 +423,14 @@ function RecordModal({
     setSaving(true);
     setErr("");
     try {
-      await onSave(values);
+      // Field file yang punya File baru dikirim via multipart; field file
+      // TANPA file baru (nilai lama) dijadikan string agar tidak tertimpa null
+      const dataWithoutFiles: Record<string, unknown> = {};
+      for (const f of collection.fields) {
+        if (f.type === "file" && fileValues[f.name]) continue; // dikirim sebagai file
+        dataWithoutFiles[f.name] = values[f.name];
+      }
+      await onSave(dataWithoutFiles, fileValues);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Gagal menyimpan");
       setSaving(false);
@@ -392,8 +450,17 @@ function RecordModal({
             </label>
             <FieldInput
               field={f}
+              projectId={projectId}
+              collectionName={collectionName}
+              recordId={initial ? String(initial.id) : undefined}
               value={values[f.name]}
               onChange={(val) => setValues({ ...values, [f.name]: val })}
+              onFileChange={(file) => {
+                const next = { ...fileValues };
+                if (file === undefined) delete next[f.name];
+                else next[f.name] = file;
+                setFileValues(next);
+              }}
             />
           </div>
         ))}
@@ -415,12 +482,20 @@ function RecordModal({
 
 function FieldInput({
   field,
+  projectId,
+  collectionName,
+  recordId,
   value,
   onChange,
+  onFileChange,
 }: {
   field: FieldDef;
+  projectId?: string;
+  collectionName?: string;
+  recordId?: string;
   value: unknown;
   onChange: (v: unknown) => void;
+  onFileChange?: (f: File | File[] | undefined) => void;
 }) {
   switch (field.type) {
     case "bool":
@@ -470,6 +545,64 @@ function FieldInput({
           ⏱ Diisi otomatis oleh sistem
         </div>
       );
+    case "file": {
+      // M14u: upload via <input type=file>; preview untuk file yang sudah ada
+      const isMulti = (field.options?.maxSelect ?? 1) > 1;
+      const existing = Array.isArray(value)
+        ? (value as string[])
+        : value
+          ? [String(value)]
+          : [];
+
+      return (
+        <div>
+          <input
+            type="file"
+            multiple={isMulti}
+            accept={field.options?.mime ?? undefined}
+            onChange={(e) => {
+              const fl = e.target.files;
+              if (!fl || fl.length === 0) {
+                onFileChange?.(undefined);
+                return;
+              }
+              onFileChange?.(isMulti ? Array.from(fl) : fl[0]);
+            }}
+          />
+          {existing.length > 0 && (
+            <div style={{ marginTop: "0.4rem", fontSize: "0.82rem" }}>
+              <span className="muted">File saat ini: </span>
+              {existing.map((fn) => {
+                const url =
+                  projectId && collectionName && recordId
+                    ? fileUrl(projectId, collectionName, recordId, fn)
+                    : null;
+                const isImage = /\.(png|jpe?g|gif|webp|avif)$/i.test(fn);
+                return (
+                  <div key={fn} style={{ marginTop: "0.25rem" }}>
+                    {isImage && url ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={url}
+                        alt={fn}
+                        style={{ maxWidth: 120, maxHeight: 80, display: "block", borderRadius: 4 }}
+                      />
+                    ) : null}
+                    {url ? (
+                      <a href={url} target="_blank" rel="noreferrer">
+                        📎 {fn}
+                      </a>
+                    ) : (
+                      <span>📎 {fn}</span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      );
+    }
     case "json":
       return (
         <textarea

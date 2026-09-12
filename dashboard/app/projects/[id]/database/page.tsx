@@ -22,6 +22,7 @@ const FIELD_TYPES = [
   "select",
   "url",
   "autodate",
+  "file", // M14: file upload
 ];
 
 export default function DatabasePage() {
