@@ -35,14 +35,61 @@ BaseForge (1 instalasi)
 
 | Komponen | Pilihan | Alasan |
 |----------|---------|--------|
-| Bahasa | TypeScript (Node.js 22) | Fokus ke konsep, bukan belajar bahasa |
-| Mesin database | SQLite via `better-sqlite3` | Strategi PocketBase: mesin teruji 25 thn, kita bangun lapisan di atasnya |
-| HTTP server | `node:http` → router buatan sendiri | Belajar cara kerja framework |
-| Dashboard | Next.js + Tailwind + shadcn/ui | Stack yang sudah dikuasai |
-| Hashing (M08) | `argon2` | Standar modern |
-| JWT (M09) | `jose` | Minimal & modern |
-| Functions (M15) | `node:vm` | Isolasi kode user |
-| Test | `node:test` | Bawaan Node |
+| Bahasa | TypeScript (Node.js >= 22.5) | Fokus ke konsep, bukan belajar bahasa |
+| Mesin database | Built-in `node:sqlite` | Engine C SQLite teruji 25 thn tanpa native addon eksternal |
+| HTTP server | `node:http` → router buatan sendiri | Belajar arsitektur internal web server |
+| Dashboard | Next.js 15 + React 19 + Tailwind | Console multi-project ala Firebase |
+| Hashing (M08) | `scrypt` via `node:crypto` | OpenSSL teraudit, tahan GPU brute force |
+| JWT (M09, M18b) | `jose` | WebCrypto-standard, alg whitelist enforcement |
+| Multipart (M14, M18c) | `@fastify/busboy` | Streaming, memory-safe untuk upload file |
+| Functions (M15, M18a) | `isolated-vm` | Isolate V8 sungguhan, memory cap & async timeout |
+| Rate Limiter (M18d) | `ioredis` + Lua (fallback memory) | Atomic fixed-window, persistent, multi-instance ready |
+| Test | `node:test` + `tsx` | Test runner bawaan Node, 289 tests |
+
+## 🚀 Quick Start
+
+### 📋 Prasyarat
+* **Node.js >= 22.5.0** (wajib, karena BaseForge memakai built-in `node:sqlite`)
+* **npm >= 10**
+
+### 1. Clone & Install
+```bash
+git clone https://github.com/DeffaldoFarel/WekanzBaseForge.git
+cd WekanzBaseForge
+
+# Install dependencies untuk server dan dashboard sekaligus (via npm workspaces)
+npm install
+```
+
+### 2. Jalankan Service
+
+Buka 2 terminal (atau jalankan di background):
+
+**Terminal 1 — Core Server (Backend API):**
+```bash
+npm run dev:server
+# → Berjalan di http://localhost:5100
+# → Health check: http://localhost:5100/api/health
+```
+
+**Terminal 2 — Admin Dashboard (Web UI):**
+```bash
+npm run dev:dashboard
+# → Dashboard berjalan di http://localhost:7701
+```
+
+### 3. Login Dashboard
+Buka browser ke **http://localhost:7701**:
+* **Email:** `admin@baseforge.local`
+* **Password:** `admin123`
+
+*(Kredensial di atas adalah nilai default development. Database lokal dan direktori `data/` akan dibuat otomatis saat pertama kali server dinyalakan).*
+
+### 4. Menjalankan Test Suite
+```bash
+npm test
+# Menjalankan 289 unit & integration tests (semua suite hijau)
+```
 
 ## 🗺️ Roadmap (per milestone)
 

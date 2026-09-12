@@ -1,0 +1,21 @@
+{
+  "name": "wekanz-baseforge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "BaseForge - Multi-project backend platform (SQL DB, Auth, Functions, Storage, Realtime, Dashboard)",
+  "workspaces": [
+    "server",
+    "dashboard"
+  ],
+  "scripts": {
+    "dev:server": "npm --workspace=server run dev",
+    "dev:dashboard": "npm --workspace=dashboard run dev",
+    "build:server": "npm --workspace=server run build",
+    "build:dashboard": "npm --workspace=dashboard run build",
+    "test": "npm --workspace=server test"
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "license": "MIT"
+}

@@ -8,7 +8,10 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "test": "node --test --import tsx \"tests/**/*.test.ts\""
+    "test": "node --test --test-timeout=15000 --import tsx \"tests/**/*.test.ts\""
+  },
+  "engines": {
+    "node": ">=22.5.0"
   },
   "keywords": [
     "learning",
