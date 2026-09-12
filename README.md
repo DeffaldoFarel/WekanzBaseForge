@@ -91,6 +91,19 @@ npm test
 # Menjalankan 289 unit & integration tests (semua suite hijau)
 ```
 
+## 📚 Dokumentasi Lengkap
+
+Untuk panduan mendalam tentang penggunaan BaseForge sebagai BaaS (Backend-as-a-Service) pada aplikasi Anda, silakan baca dokumentasi resmi di folder `docs/`:
+
+* 📖 [**Portal Dokumentasi Utama**](docs/README.md)
+* 🚀 [**Panduan Memulai & Konfigurasi (.env)**](docs/getting-started.md)
+* 📡 [**REST API Reference (Auth, Records CRUD, Query Filter, Files, & Thumbnails)**](docs/api-reference.md)
+* 🔒 [**API Rules & Keamanan Row-Level (RLS)**](docs/api-rules.md)
+* ⚡ [**Serverless Functions, Database Triggers, & Scheduler Cron**](docs/functions.md)
+* 📡 [**Realtime Subscriptions (Server-Sent Events)**](docs/realtime.md)
+* 🖥️ [**Panduan Deployment Produksi (Linux Systemd, Caddy HTTPS, & Redis)**](docs/deployment.md)
+* 🧠 [**Jurnal Belajar Arsitektur (Milestone M00 – M18)**](docs/learnings/README.md)
+
 ## 🗺️ Roadmap (per milestone)
 
 ### 🏗️ Fondasi Platform
