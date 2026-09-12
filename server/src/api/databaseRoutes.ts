@@ -20,6 +20,7 @@ import {
   deleteCollection,
   duplicateCollection,
   updateCollection,
+  rebuildCollection,
 } from '../core/schema.js';
 import {
   createRecord,
@@ -111,6 +112,22 @@ export function createDatabaseRouter(): Router {
         return;
       }
       const updated = updateCollection(db, req.params.name, { fields: body.fields });
+      res.json({ collection: updated });
+    } catch (err) {
+      handleError(res, err);
+    }
+  });
+
+  // PUT /api/admin/projects/:pid/collections/:name — full schema edit (rebuild table: ubah/hapus/tambah kolom)
+  router.put('/api/admin/projects/:pid/collections/:name', requireAdmin, (req, res) => {
+    try {
+      const db = getProjectDb(req.params.pid);
+      const body = req.body as { fields?: FieldDefinition[] } | undefined;
+      if (!Array.isArray(body?.fields)) {
+        res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'fields harus berupa array' } });
+        return;
+      }
+      const updated = rebuildCollection(db, req.params.name, { fields: body.fields });
       res.json({ collection: updated });
     } catch (err) {
       handleError(res, err);

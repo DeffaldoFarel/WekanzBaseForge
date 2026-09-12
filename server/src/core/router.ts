@@ -85,6 +85,9 @@ export class Router {
   post(pattern: string, ...args: [...Middleware[], Handler]): void {
     this.addRouteArgs('POST', pattern, args);
   }
+  put(pattern: string, ...args: [...Middleware[], Handler]): void {
+    this.addRouteArgs('PUT', pattern, args);
+  }
   patch(pattern: string, ...args: [...Middleware[], Handler]): void {
     this.addRouteArgs('PATCH', pattern, args);
   }

@@ -162,6 +162,18 @@ export async function updateCollection(
   return data.collection;
 }
 
+export async function rebuildCollectionSchema(
+  projectId: string,
+  name: string,
+  def: { fields: FieldDef[] }
+): Promise<CollectionInfo> {
+  const data = await request<{ collection: CollectionInfo }>(
+    `/api/admin/projects/${projectId}/collections/${name}`,
+    { method: 'PUT', body: JSON.stringify(def) }
+  );
+  return data.collection;
+}
+
 export async function duplicateCollection(
   projectId: string,
   name: string,

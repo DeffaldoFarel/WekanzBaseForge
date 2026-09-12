@@ -7,6 +7,7 @@ import {
   listCollections,
   createCollection,
   updateCollection,
+  rebuildCollectionSchema,
   deleteCollection,
   duplicateCollection,
   exportCollection,
@@ -95,9 +96,10 @@ export default function AdvancedDatabaseStudioPage() {
     { name: "title", type: "text", required: true },
   ]);
 
-  // Add Field to Existing Collection Modal
-  const [showAddField, setShowAddField] = useState(false);
-  const [addFieldDef, setAddFieldDef] = useState<FieldDef>({ name: "", type: "text", required: false });
+  // Schema Editor State (M16 / D4 Rebuild)
+  const [fieldsDraft, setFieldsDraft] = useState<FieldDef[]>([]);
+  const [schemaSaving, setSchemaSaving] = useState(false);
+  const [schemaError, setSchemaError] = useState("");
 
   // Rules Editor State
   const [rules, setRules] = useState<Rules | null>(null);
@@ -119,6 +121,9 @@ export default function AdvancedDatabaseStudioPage() {
       setCollections(data);
       const current = data.find((c) => c.name === collectionName);
       setCollection(current ?? null);
+      if (current) {
+        setFieldsDraft(JSON.parse(JSON.stringify(current.fields)));
+      }
       return data;
     } catch (e) {
       setError(e instanceof Error ? e.message : "Gagal memuat collections");
@@ -290,16 +295,22 @@ export default function AdvancedDatabaseStudioPage() {
     }
   }
 
-  async function handleAddField() {
-    if (!addFieldDef.name.trim() || !collection) return;
+  async function handleSaveSchema() {
+    if (!collection) return;
+    setSchemaSaving(true);
+    setSchemaError("");
     try {
-      const updatedFields = [...collection.fields, addFieldDef];
-      await updateCollection(projectId, collectionName, { fields: updatedFields });
-      setShowAddField(false);
-      setAddFieldDef({ name: "", type: "text", required: false });
+      const validFields = fieldsDraft.filter((f) => f.name.trim().length > 0);
+      const updated = await rebuildCollectionSchema(projectId, collectionName, { fields: validFields });
+      setCollection(updated);
+      setFieldsDraft(JSON.parse(JSON.stringify(updated.fields)));
+      alert("Skema koleksi berhasil diperbarui via Table Rebuild!");
       await loadAllCollections();
+      await loadRecords();
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Gagal menambah field");
+      setSchemaError(e instanceof Error ? e.message : "Gagal memperbarui skema");
+    } finally {
+      setSchemaSaving(false);
     }
   }
 
@@ -670,57 +681,259 @@ export default function AdvancedDatabaseStudioPage() {
           </div>
         )}
 
-        {/* ─── TAB 2: SCHEMA & FIELDS ─── */}
+        {/* ─── TAB 2: SCHEMA & FIELDS (FULL EDITABLE SCHEMA BUILDER) ─── */}
         {activeTab === "schema" && (
           <div className="card">
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.25rem" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.25rem", flexWrap: "wrap", gap: "0.5rem" }}>
               <div>
-                <h3 style={{ margin: 0 }}>Fields Skema ({collection?.fields.length})</h3>
+                <h3 style={{ margin: 0 }}>Schema Editor — "{collectionName}"</h3>
                 <p className="muted" style={{ fontSize: "0.85rem", margin: "0.25rem 0 0" }}>
-                  Definisi kolom dan tipe data SQLite yang dikonfigurasi pada koleksi ini.
+                  Ubah tipe kolom, tambah, atau hapus field. Perubahan dijalankan via SQLite Table Rebuild (data tetap selamat!).
                 </p>
               </div>
-              <button className="btn" onClick={() => setShowAddField(true)}>
-                + Add New Field
-              </button>
+              <div style={{ display: "flex", gap: "0.5rem" }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => {
+                    setFieldsDraft([
+                      ...fieldsDraft,
+                      { name: "", type: "text", required: false, unique: false },
+                    ]);
+                  }}
+                >
+                  + Add Field
+                </button>
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={handleSaveSchema}
+                  disabled={schemaSaving}
+                >
+                  {schemaSaving ? "Menyimpan Skema…" : "💾 Save Schema Changes"}
+                </button>
+              </div>
             </div>
 
+            {schemaError && <div className="error-text" style={{ marginBottom: "1rem" }}>{schemaError}</div>}
+
             <div style={{ display: "grid", gap: "0.75rem" }}>
-              {collection?.fields.map((f) => (
-                <div key={f.name} className="field-card" style={{ background: "var(--panel)" }}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
-                      <strong style={{ fontSize: "0.95rem" }}>{f.name}</strong>
-                      <span className="type-badge">{f.type}</span>
-                      {f.required && <span className="badge badge-accent">Required</span>}
-                      {f.unique && <span className="badge badge-purple">Unique</span>}
-                      {f.options?.fulltext && <span className="badge badge-blue">FTS5 Indexed</span>}
-                    </div>
+              {fieldsDraft.map((f, i) => (
+                <div key={i} className="field-card" style={{ background: "var(--panel-2)" }}>
+                  <div className="field-card-header">
+                    <input
+                      className="input"
+                      placeholder="nama field"
+                      value={f.name}
+                      onChange={(e) => {
+                        const updated = [...fieldsDraft];
+                        updated[i].name = e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "");
+                        setFieldsDraft(updated);
+                      }}
+                      style={{ flex: 2, fontWeight: 600 }}
+                    />
+
+                    <select
+                      className="input"
+                      value={f.type}
+                      onChange={(e) => {
+                        const updated = [...fieldsDraft];
+                        updated[i].type = e.target.value;
+                        setFieldsDraft(updated);
+                      }}
+                      style={{ flex: 1.5 }}
+                    >
+                      {FIELD_TYPES.map((t) => (
+                        <option key={t} value={t}>{t}</option>
+                      ))}
+                    </select>
+
+                    <label style={{ display: "flex", alignItems: "center", gap: "0.3rem", fontSize: "0.82rem", whiteSpace: "nowrap", cursor: "pointer" }}>
+                      <input
+                        type="checkbox"
+                        checked={!!f.required}
+                        onChange={(e) => {
+                          const updated = [...fieldsDraft];
+                          updated[i].required = e.target.checked;
+                          setFieldsDraft(updated);
+                        }}
+                      />
+                      Req
+                    </label>
+
+                    <label style={{ display: "flex", alignItems: "center", gap: "0.3rem", fontSize: "0.82rem", whiteSpace: "nowrap", cursor: "pointer" }}>
+                      <input
+                        type="checkbox"
+                        checked={!!f.unique}
+                        onChange={(e) => {
+                          const updated = [...fieldsDraft];
+                          updated[i].unique = e.target.checked;
+                          setFieldsDraft(updated);
+                        }}
+                      />
+                      Unique
+                    </label>
+
+                    <button
+                      type="button"
+                      className="btn-icon"
+                      onClick={() => {
+                        if (confirm(`Hapus kolom "${f.name || 'baru'}"? Kolom ini akan dihapus saat skema disimpan.`)) {
+                          setFieldsDraft(fieldsDraft.filter((_, idx) => idx !== i));
+                        }
+                      }}
+                      title="Hapus kolom"
+                    >
+                      ✕
+                    </button>
                   </div>
 
-                  {/* Opsi Tipe Khusus */}
-                  {f.type === "select" && f.options?.values && (
-                    <div style={{ marginTop: "0.5rem", fontSize: "0.82rem", display: "flex", gap: "0.4rem", alignItems: "center" }}>
-                      <span className="muted">Pilihan:</span>
-                      {f.options.values.map((v) => (
-                        <span key={v} className="badge badge-gray">{v}</span>
-                      ))}
+                  {/* Type Specific Options */}
+                  {f.type === "select" && (
+                    <div className="field-card-options">
+                      <label>Allowed Values (pisahkan dengan koma):</label>
+                      <input
+                        className="input"
+                        placeholder="draft, active, archived"
+                        value={f.options?.values?.join(", ") || ""}
+                        onChange={(e) => {
+                          const updated = [...fieldsDraft];
+                          updated[i].options = {
+                            ...updated[i].options,
+                            values: e.target.value.split(",").map((s) => s.trim()).filter(Boolean),
+                          };
+                          setFieldsDraft(updated);
+                        }}
+                      />
                     </div>
                   )}
 
                   {f.type === "relation" && (
-                    <div style={{ marginTop: "0.5rem", fontSize: "0.82rem" }} className="muted">
-                      Target: <strong style={{ color: "var(--text)" }}>{f.options?.collectionId || "any"}</strong> · Cascade: {f.options?.cascadeDelete || "setNull"} · MaxSelect: {f.options?.maxSelect || 1}
+                    <div className="field-card-options" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.75rem" }}>
+                      <div>
+                        <label>Target Collection:</label>
+                        <select
+                          className="input"
+                          value={f.options?.collectionId || ""}
+                          onChange={(e) => {
+                            const updated = [...fieldsDraft];
+                            updated[i].options = { ...updated[i].options, collectionId: e.target.value };
+                            setFieldsDraft(updated);
+                          }}
+                        >
+                          <option value="">— pilih collection —</option>
+                          {collections.map((c) => (
+                            <option key={c.name} value={c.name}>{c.name}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label>Cascade Delete:</label>
+                        <select
+                          className="input"
+                          value={f.options?.cascadeDelete || "setNull"}
+                          onChange={(e) => {
+                            const updated = [...fieldsDraft];
+                            updated[i].options = { ...updated[i].options, cascadeDelete: e.target.value };
+                            setFieldsDraft(updated);
+                          }}
+                        >
+                          <option value="setNull">setNull (ubah jadi null)</option>
+                          <option value="cascade">cascade (ikut terhapus)</option>
+                          <option value="restrict">restrict (tolak hapus)</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label>Max Select:</label>
+                        <input
+                          type="number"
+                          className="input"
+                          value={f.options?.maxSelect ?? 1}
+                          onChange={(e) => {
+                            const updated = [...fieldsDraft];
+                            updated[i].options = { ...updated[i].options, maxSelect: Number(e.target.value) || 1 };
+                            setFieldsDraft(updated);
+                          }}
+                        />
+                      </div>
                     </div>
                   )}
 
                   {f.type === "file" && (
-                    <div style={{ marginTop: "0.5rem", fontSize: "0.82rem" }} className="muted">
-                      Max Size: {((f.options?.maxSize ?? 5242880) / (1024 * 1024)).toFixed(0)} MB · Max Files: {f.options?.maxSelect || 1}
+                    <div className="field-card-options" style={{ display: "flex", gap: "1rem" }}>
+                      <div style={{ flex: 1 }}>
+                        <label>Max Files (maxSelect):</label>
+                        <input
+                          type="number"
+                          className="input"
+                          value={f.options?.maxSelect ?? 1}
+                          onChange={(e) => {
+                            const updated = [...fieldsDraft];
+                            updated[i].options = { ...updated[i].options, maxSelect: Number(e.target.value) || 1 };
+                            setFieldsDraft(updated);
+                          }}
+                        />
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <label>Max Size (MB):</label>
+                        <input
+                          type="number"
+                          className="input"
+                          value={((f.options?.maxSize ?? 5242880) / (1024 * 1024)).toFixed(0)}
+                          onChange={(e) => {
+                            const updated = [...fieldsDraft];
+                            updated[i].options = {
+                              ...updated[i].options,
+                              maxSize: (Number(e.target.value) || 5) * 1024 * 1024,
+                            };
+                            setFieldsDraft(updated);
+                          }}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {f.type === "text" && (
+                    <div className="field-card-options">
+                      <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer" }}>
+                        <input
+                          type="checkbox"
+                          checked={!!f.options?.fulltext}
+                          onChange={(e) => {
+                            const updated = [...fieldsDraft];
+                            updated[i].options = { ...updated[i].options, fulltext: e.target.checked };
+                            setFieldsDraft(updated);
+                          }}
+                        />
+                        <span>Aktifkan FTS5 Full-Text Search Index pada field ini</span>
+                      </label>
                     </div>
                   )}
                 </div>
               ))}
+            </div>
+
+            <div style={{ marginTop: "1.5rem", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => {
+                  setFieldsDraft([
+                    ...fieldsDraft,
+                    { name: "", type: "text", required: false, unique: false },
+                  ]);
+                }}
+              >
+                + Add Field
+              </button>
+              <button
+                type="button"
+                className="btn"
+                onClick={handleSaveSchema}
+                disabled={schemaSaving}
+              >
+                {schemaSaving ? "Menyimpan Skema…" : "💾 Save Schema Changes"}
+              </button>
             </div>
           </div>
         )}
@@ -938,50 +1151,6 @@ export default function AdvancedDatabaseStudioPage() {
             <div className="form-actions">
               <button className="btn btn-secondary" onClick={() => setShowDuplicateCol(false)}>Batal</button>
               <button className="btn" onClick={handleDuplicateCollection}>Duplikasi Sekarang</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ─── MODAL: ADD FIELD TO EXISTING COLLECTION ─── */}
-      {showAddField && (
-        <div className="modal-overlay" onClick={() => setShowAddField(false)}>
-          <div className="modal-box card" onClick={(e) => e.stopPropagation()}>
-            <h3 style={{ marginBottom: "1rem" }}>Add Field to "{collectionName}"</h3>
-            <div className="field">
-              <label>Field Name</label>
-              <input
-                className="input"
-                placeholder="misal: status, count, avatar"
-                value={addFieldDef.name}
-                onChange={(e) => setAddFieldDef({ ...addFieldDef, name: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "") })}
-              />
-            </div>
-            <div className="field">
-              <label>Field Type</label>
-              <select
-                className="input"
-                value={addFieldDef.type}
-                onChange={(e) => setAddFieldDef({ ...addFieldDef, type: e.target.value })}
-              >
-                {FIELD_TYPES.map((t) => (
-                  <option key={t} value={t}>{t}</option>
-                ))}
-              </select>
-            </div>
-            <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.85rem", cursor: "pointer", marginBottom: "1.25rem" }}>
-              <input
-                type="checkbox"
-                checked={!!addFieldDef.required}
-                onChange={(e) => setAddFieldDef({ ...addFieldDef, required: e.target.checked })}
-              />
-              <span>Required (wajib diisi)</span>
-            </label>
-            <div className="form-actions">
-              <button className="btn btn-secondary" onClick={() => setShowAddField(false)}>Batal</button>
-              <button className="btn" onClick={handleAddField} disabled={!addFieldDef.name.trim()}>
-                Tambah Kolom via ALTER TABLE
-              </button>
             </div>
           </div>
         </div>
