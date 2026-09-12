@@ -1,10 +1,16 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   listCollections,
+  createCollection,
+  updateCollection,
+  deleteCollection,
+  duplicateCollection,
+  exportCollection,
+  importCollection,
   listRecords,
   createRecord,
   updateRecord,
@@ -18,99 +24,170 @@ import {
   type FieldDef,
   type CollectionRules as Rules,
   type ListResult,
-} from "../../../../../lib/api";
+} from "@/lib/api";
 
-export default function CollectionDataPage() {
+const FIELD_TYPES = [
+  "text",
+  "number",
+  "bool",
+  "email",
+  "date",
+  "json",
+  "relation",
+  "select",
+  "url",
+  "autodate",
+  "file",
+  "editor",
+  "geoPoint",
+  "password",
+];
+
+const DEFAULT_RULES: Rules = {
+  listRule: null,
+  viewRule: null,
+  createRule: null,
+  updateRule: null,
+  deleteRule: null,
+};
+
+const SORT_OPTIONS = [
+  { value: "-created", label: "Created (Newest first)" },
+  { value: "created", label: "Created (Oldest first)" },
+  { value: "-updated", label: "Updated (Newest first)" },
+  { value: "updated", label: "Updated (Oldest first)" },
+];
+
+export default function AdvancedDatabaseStudioPage() {
   const params = useParams();
+  const router = useRouter();
   const projectId = params.id as string;
   const collectionName = params.collection as string;
 
+  // ─── Studio State ──────────────────────────────────────────────────────────
+  const [collections, setCollections] = useState<CollectionInfo[]>([]);
+  const [colFilter, setColFilter] = useState("");
   const [collection, setCollection] = useState<CollectionInfo | null>(null);
+  const [activeTab, setActiveTab] = useState<"records" | "schema" | "rules" | "io">("records");
+
+  // Records Table State
   const [result, setResult] = useState<ListResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-
-  const [filter, setFilter] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterQuery, setFilterQuery] = useState("");
+  const [sortQuery, setSortQuery] = useState("-created");
   const [page, setPage] = useState(1);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
-  const [editing, setEditing] = useState<Record<string, unknown> | null>(null);
-  const [showNew, setShowNew] = useState(false);
+  // Modals
+  const [editingRecord, setEditingRecord] = useState<Record<string, unknown> | null>(null);
+  const [showNewRecord, setShowNewRecord] = useState(false);
+  const [rawJsonView, setRawJsonView] = useState<Record<string, unknown> | null>(null);
+  const [showDuplicateCol, setShowDuplicateCol] = useState(false);
+  const [duplicateName, setDuplicateName] = useState("");
+  const [duplicateWithData, setDuplicateWithData] = useState(true);
 
-  // ── M10u: Rules editor state ──
+  // New Collection Modal
+  const [showNewCol, setShowNewCol] = useState(false);
+  const [newColName, setNewColName] = useState("");
+  const [newColFields, setNewColFields] = useState<FieldDef[]>([
+    { name: "title", type: "text", required: true },
+  ]);
+
+  // Add Field to Existing Collection Modal
+  const [showAddField, setShowAddField] = useState(false);
+  const [addFieldDef, setAddFieldDef] = useState<FieldDef>({ name: "", type: "text", required: false });
+
+  // Rules Editor State
   const [rules, setRules] = useState<Rules | null>(null);
-  const [showRules, setShowRules] = useState(false);
   const [rulesDraft, setRulesDraft] = useState<Rules | null>(null);
   const [rulesSaving, setRulesSaving] = useState(false);
   const [rulesError, setRulesError] = useState("");
 
-  const RULE_LABELS: { key: keyof Rules; label: string; hint: string }[] = [
-    { key: "listRule", label: "List", hint: "siapa boleh melihat daftar record" },
-    { key: "viewRule", label: "View", hint: "siapa boleh melihat 1 record" },
-    { key: "createRule", label: "Create", hint: "siapa boleh membuat record" },
-    { key: "updateRule", label: "Update", hint: "siapa boleh mengubah" },
-    { key: "deleteRule", label: "Delete", hint: "siapa boleh menghapus" },
-  ];
+  // Import / Export State
+  const [importJsonText, setImportJsonText] = useState("");
+  const [importMode, setImportMode] = useState<"create" | "replace" | "merge">("create");
+  const [importing, setImporting] = useState(false);
+  const [ioMessage, setIoMessage] = useState("");
 
-  const loadCollection = useCallback(async () => {
-    const cols = await listCollections(projectId);
-    const found = cols.find((c) => c.name === collectionName);
-    setCollection(found ?? null);
-    return found;
+  // ─── Data Loaders ──────────────────────────────────────────────────────────
+
+  const loadAllCollections = useCallback(async () => {
+    try {
+      const data = await listCollections(projectId);
+      setCollections(data);
+      const current = data.find((c) => c.name === collectionName);
+      setCollection(current ?? null);
+      return data;
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Gagal memuat collections");
+      return [];
+    }
   }, [projectId, collectionName]);
 
   const loadRecords = useCallback(async () => {
-    const data = await listRecords(projectId, collectionName, {
-      filter: filter || undefined,
-      page,
-      perPage: 10,
-    });
-    setResult(data);
-  }, [projectId, collectionName, filter, page]);
-
-  async function load() {
+    if (!collectionName) return;
     try {
       setLoading(true);
-      await loadCollection();
-      await loadRecords();
+      const data = await listRecords(projectId, collectionName, {
+        search: searchQuery.trim() || undefined,
+        filter: filterQuery.trim() || undefined,
+        sort: sortQuery || undefined,
+        page,
+        perPage: 15,
+      });
+      setResult(data);
+      setSelectedIds(new Set());
       setError("");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Gagal memuat");
+      setError(e instanceof Error ? e.message : "Gagal memuat records");
     } finally {
       setLoading(false);
     }
-  }
+  }, [projectId, collectionName, searchQuery, filterQuery, sortQuery, page]);
 
   useEffect(() => {
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId, collectionName, page]);
+    loadAllCollections();
+  }, [loadAllCollections]);
 
-  // ── M10u: muat rules saat collection berubah ──
   useEffect(() => {
-    getRules(projectId, collectionName)
-      .then(setRules)
-      .catch(() => setRules(null));
+    loadRecords();
+  }, [loadRecords]);
+
+  // Muat rules saat berpindah tab atau collection
+  useEffect(() => {
+    if (collectionName) {
+      getRules(projectId, collectionName)
+        .then((r) => {
+          setRules(r);
+          setRulesDraft(r);
+        })
+        .catch(() => setRules(null));
+    }
   }, [projectId, collectionName]);
 
-  async function saveRules() {
-    if (!rulesDraft) return;
-    setRulesSaving(true);
-    setRulesError("");
-    try {
-      const saved = await updateRules(projectId, collectionName, rulesDraft);
-      setRules(saved);
-      setRulesDraft(null);
-    } catch (e) {
-      setRulesError(e instanceof Error ? e.message : "Gagal menyimpan rules");
-    } finally {
-      setRulesSaving(false);
+  // ─── Handlers ──────────────────────────────────────────────────────────────
+
+  async function handleSearch(e: React.FormEvent) {
+    e.preventDefault();
+    setPage(1);
+    await loadRecords();
+  }
+
+  function handleSelectAll(e: React.ChangeEvent<HTMLInputElement>) {
+    if (e.target.checked && result) {
+      setSelectedIds(new Set(result.items.map((it) => String(it.id))));
+    } else {
+      setSelectedIds(new Set());
     }
   }
 
-  async function applyFilter(e?: React.FormEvent) {
-    e?.preventDefault();
-    setPage(1);
-    await loadRecords();
+  function handleToggleRow(id: string) {
+    const next = new Set(selectedIds);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setSelectedIds(next);
   }
 
   async function handleDeleteRecord(id: string) {
@@ -119,320 +196,1040 @@ export default function CollectionDataPage() {
       await deleteRecord(projectId, collectionName, id);
       await loadRecords();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Gagal menghapus");
+      alert(e instanceof Error ? e.message : "Gagal menghapus");
     }
   }
 
-  // Semua kolom yang ditampilkan: field user + sistem
-  const allColumns = collection
-    ? ["id", ...collection.fields.map((f) => f.name), "created"]
-    : [];
+  async function handleBulkDelete() {
+    if (selectedIds.size === 0) return;
+    if (!confirm(`Hapus ${selectedIds.size} record yang dipilih?`)) return;
+    try {
+      for (const id of Array.from(selectedIds)) {
+        await deleteRecord(projectId, collectionName, id);
+      }
+      setSelectedIds(new Set());
+      await loadRecords();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Gagal menghapus beberapa record");
+    }
+  }
+
+  async function handleDeleteCollection() {
+    if (!confirm(`HAPUS KOLEKSI "${collectionName}" BESERTA SELURUH DATA & FILE DI DALAMNYA?`)) return;
+    try {
+      await deleteCollection(projectId, collectionName);
+      const remaining = collections.filter((c) => c.name !== collectionName);
+      if (remaining.length > 0) {
+        router.push(`/projects/${projectId}/database/${encodeURIComponent(remaining[0].name)}`);
+      } else {
+        router.push(`/projects/${projectId}/database`);
+      }
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Gagal menghapus collection");
+    }
+  }
+
+  async function handleDuplicateCollection() {
+    if (!duplicateName.trim()) return;
+    try {
+      await duplicateCollection(projectId, collectionName, duplicateName.trim(), duplicateWithData);
+      setShowDuplicateCol(false);
+      setDuplicateName("");
+      const updated = await loadAllCollections();
+      router.push(`/projects/${projectId}/database/${encodeURIComponent(duplicateName.trim())}`);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Gagal menduplikasi collection");
+    }
+  }
+
+  async function handleExportJson() {
+    try {
+      const json = await exportCollection(projectId, collectionName);
+      const blob = new Blob([json], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${collectionName}-export.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Gagal mengekspor data");
+    }
+  }
+
+  async function handleImportJson() {
+    if (!importJsonText.trim()) return;
+    setImporting(true);
+    setIoMessage("");
+    try {
+      const parsed = JSON.parse(importJsonText);
+      const res = await importCollection(projectId, parsed, importMode);
+      setIoMessage(`Berhasil import ${res.recordCount} records!`);
+      setImportJsonText("");
+      await loadRecords();
+      await loadAllCollections();
+    } catch (e) {
+      setIoMessage(e instanceof Error ? e.message : "Gagal mengimpor JSON");
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  async function handleSaveRules() {
+    if (!rulesDraft) return;
+    setRulesSaving(true);
+    setRulesError("");
+    try {
+      const saved = await updateRules(projectId, collectionName, rulesDraft);
+      setRules(saved);
+      alert("API Rules berhasil diperbarui!");
+    } catch (e) {
+      setRulesError(e instanceof Error ? e.message : "Gagal menyimpan rules");
+    } finally {
+      setRulesSaving(false);
+    }
+  }
+
+  async function handleAddField() {
+    if (!addFieldDef.name.trim() || !collection) return;
+    try {
+      const updatedFields = [...collection.fields, addFieldDef];
+      await updateCollection(projectId, collectionName, { fields: updatedFields });
+      setShowAddField(false);
+      setAddFieldDef({ name: "", type: "text", required: false });
+      await loadAllCollections();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Gagal menambah field");
+    }
+  }
+
+  async function handleCreateNewCollection() {
+    if (!newColName.trim()) return;
+    try {
+      const fields = newColFields.filter((f) => f.name.trim().length > 0);
+      const created = await createCollection(projectId, { name: newColName.trim(), fields });
+      setShowNewCol(false);
+      setNewColName("");
+      setNewColFields([{ name: "title", type: "text", required: true }]);
+      await loadAllCollections();
+      router.push(`/projects/${projectId}/database/${encodeURIComponent(created.name)}`);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Gagal membuat collection");
+    }
+  }
+
+  const filteredCollections = collections.filter((c) =>
+    c.name.toLowerCase().includes(colFilter.toLowerCase())
+  );
 
   return (
-    <div className="page">
-      <Link href={`/projects/${projectId}/database`} className="nav-back">
-        ← Kembali ke Database
-      </Link>
+    <div className="studio-layout">
+      {/* ─── SIDEBAR MASTER COLLECTIONS ─── */}
+      <aside className="studio-sidebar">
+        <div style={{ marginBottom: "0.85rem" }}>
+          <Link href={`/projects/${projectId}`} className="nav-back" style={{ fontSize: "0.82rem" }}>
+            ← Project Home
+          </Link>
+          <div className="studio-sidebar-header">
+            <span>Collections ({collections.length})</span>
+            <button
+              className="btn btn-secondary"
+              style={{ padding: "0.25rem 0.55rem", fontSize: "0.78rem" }}
+              onClick={() => setShowNewCol(true)}
+              title="Buat koleksi baru"
+            >
+              + New
+            </button>
+          </div>
 
-      <div className="header-row">
-        <div>
-          <h1 style={{ fontSize: "1.5rem" }}>📦 {collectionName}</h1>
-          <p className="muted" style={{ fontSize: "0.9rem", marginTop: "0.25rem" }}>
-            {collection ? `${collection.fields.length} fields · ${result?.totalItems ?? 0} records` : "…"}
-          </p>
+          <input
+            className="input"
+            placeholder="Cari koleksi..."
+            value={colFilter}
+            onChange={(e) => setColFilter(e.target.value)}
+            style={{ fontSize: "0.8rem", padding: "0.4rem 0.65rem", marginBottom: "0.5rem" }}
+          />
         </div>
-        <button className="btn" onClick={() => setShowNew(true)}>
-          + New Record
-        </button>
-      </div>
 
-      {/* Schema mini */}
-      {collection && (
-        <div className="card" style={{ marginTop: "0.5rem", padding: "0.75rem 1rem" }}>
-          <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center" }}>
-            <span className="muted" style={{ fontSize: "0.8rem" }}>Fields:</span>
-            {collection.fields.map((f) => (
-              <span key={f.name} className="type-badge">
-                {f.name}: {f.type}
-                {f.required && <span className="req-badge"> *</span>}
-              </span>
-            ))}
+        <div className="studio-sidebar-list">
+          {filteredCollections.map((c) => {
+            const isActive = c.name === collectionName;
+            const isView = c.type === "view";
+            return (
+              <Link
+                key={c.name}
+                href={`/projects/${projectId}/database/${encodeURIComponent(c.name)}`}
+                className={`studio-col-link ${isActive ? "active" : ""}`}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: "0.45rem", overflow: "hidden" }}>
+                  <span>{isView ? "👁️" : "📦"}</span>
+                  <span style={{ textOverflow: "ellipsis", overflow: "hidden", whiteSpace: "nowrap" }}>
+                    {c.name}
+                  </span>
+                </div>
+                <span className="badge badge-gray" style={{ fontSize: "0.7rem", padding: "0.1rem 0.4rem" }}>
+                  {c.recordCount ?? 0}
+                </span>
+              </Link>
+            );
+          })}
+        </div>
+      </aside>
+
+      {/* ─── MAIN CONTENT STUDIO ─── */}
+      <main className="studio-main">
+        {/* Header Koleksi */}
+        <div className="header-row" style={{ marginBottom: "1rem" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+            <span style={{ fontSize: "1.6rem" }}>{collection?.type === "view" ? "👁️" : "📦"}</span>
+            <div>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                <h1 style={{ fontSize: "1.4rem", margin: 0 }}>{collectionName}</h1>
+                <span className="badge badge-accent" style={{ textTransform: "uppercase" }}>
+                  {collection?.type === "view" ? "SQL View" : "Base Collection"}
+                </span>
+              </div>
+              <p className="muted" style={{ fontSize: "0.82rem", margin: "0.2rem 0 0" }}>
+                {collection?.fields.length ?? 0} fields · {collection?.recordCount ?? 0} records
+              </p>
+            </div>
+          </div>
+
+          <div style={{ display: "flex", gap: "0.5rem" }}>
+            <button
+              className="btn btn-secondary"
+              style={{ fontSize: "0.82rem", padding: "0.45rem 0.8rem" }}
+              onClick={() => {
+                setDuplicateName(`${collectionName}_copy`);
+                setShowDuplicateCol(true);
+              }}
+              title="Duplikasi struktur atau data collection ini"
+            >
+              📑 Duplicate
+            </button>
+            <button
+              className="btn btn-secondary"
+              style={{ fontSize: "0.82rem", padding: "0.45rem 0.8rem" }}
+              onClick={handleExportJson}
+              title="Download backup JSON"
+            >
+              📥 Export JSON
+            </button>
+            <button
+              className="btn btn-danger"
+              style={{ fontSize: "0.82rem", padding: "0.45rem 0.8rem" }}
+              onClick={handleDeleteCollection}
+            >
+              🗑️ Delete
+            </button>
+          </div>
+        </div>
+
+        {/* Studio Sub-Tabs */}
+        <div className="studio-tabs">
+          <button
+            className={`studio-tab ${activeTab === "records" ? "active" : ""}`}
+            onClick={() => setActiveTab("records")}
+          >
+            📊 Records ({result?.totalItems ?? 0})
+          </button>
+          <button
+            className={`studio-tab ${activeTab === "schema" ? "active" : ""}`}
+            onClick={() => setActiveTab("schema")}
+          >
+            📐 Schema & Fields ({collection?.fields.length ?? 0})
+          </button>
+          <button
+            className={`studio-tab ${activeTab === "rules" ? "active" : ""}`}
+            onClick={() => setActiveTab("rules")}
+          >
+            🔒 API Rules
+          </button>
+          <button
+            className={`studio-tab ${activeTab === "io" ? "active" : ""}`}
+            onClick={() => setActiveTab("io")}
+          >
+            💾 Export / Import
+          </button>
+        </div>
+
+        {error && <div className="error-text" style={{ marginBottom: "1rem" }}>{error}</div>}
+
+        {/* ─── TAB 1: RECORDS (DATA BROWSER) ─── */}
+        {activeTab === "records" && (
+          <div>
+            {/* Search, Filter & Action Toolbar */}
+            <div className="studio-toolbar">
+              <form onSubmit={handleSearch} className="studio-search-group">
+                <input
+                  className="input"
+                  placeholder="🔎 Search (?search=... FTS5)"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  style={{ fontSize: "0.85rem" }}
+                />
+                <input
+                  className="input"
+                  placeholder="Filter: status = 'active' && streak > 5"
+                  value={filterQuery}
+                  onChange={(e) => setFilterQuery(e.target.value)}
+                  style={{ fontSize: "0.85rem", flex: 1.5 }}
+                />
+                <button type="submit" className="btn btn-secondary" style={{ padding: "0.55rem 0.9rem" }}>
+                  Filter
+                </button>
+                {(searchQuery || filterQuery) && (
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => {
+                      setSearchQuery("");
+                      setFilterQuery("");
+                      setPage(1);
+                    }}
+                  >
+                    Reset
+                  </button>
+                )}
+              </form>
+
+              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                <select
+                  className="input"
+                  value={sortQuery}
+                  onChange={(e) => setSortQuery(e.target.value)}
+                  style={{ fontSize: "0.85rem", width: "auto" }}
+                >
+                  {SORT_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+
+                {selectedIds.size > 0 && (
+                  <button className="btn btn-danger" onClick={handleBulkDelete} style={{ fontSize: "0.85rem" }}>
+                    🗑️ Hapus ({selectedIds.size})
+                  </button>
+                )}
+
+                <button
+                  className="btn"
+                  onClick={() => {
+                    setEditingRecord(null);
+                    setShowNewRecord(true);
+                  }}
+                  style={{ fontSize: "0.85rem", whiteSpace: "nowrap" }}
+                >
+                  + New Record
+                </button>
+              </div>
+            </div>
+
+            {/* Records Data Table */}
+            <div className="table-container">
+              {loading ? (
+                <div style={{ padding: "2.5rem", textAlign: "center" }} className="muted">
+                  Memuat data records…
+                </div>
+              ) : !result || result.items.length === 0 ? (
+                <div className="empty-state">
+                  <div className="big">📄</div>
+                  <p>Tidak ada record yang cocok.</p>
+                </div>
+              ) : (
+                <div className="table-wrap" style={{ margin: 0 }}>
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th style={{ width: "36px" }}>
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.size === result.items.length && result.items.length > 0}
+                            onChange={handleSelectAll}
+                          />
+                        </th>
+                        <th style={{ width: "140px" }}>ID</th>
+                        {collection?.fields.map((f) => (
+                          <th key={f.name}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}>
+                              <span>{f.name}</span>
+                              <span className="type-badge" style={{ fontSize: "0.68rem" }}>{f.type}</span>
+                            </div>
+                          </th>
+                        ))}
+                        <th style={{ width: "150px" }}>Created</th>
+                        <th style={{ width: "90px", textAlign: "right" }}>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {result.items.map((row) => {
+                        const id = String(row.id);
+                        const isSelected = selectedIds.has(id);
+                        return (
+                          <tr key={id} style={{ background: isSelected ? "rgba(249, 115, 22, 0.08)" : undefined }}>
+                            <td onClick={(e) => e.stopPropagation()}>
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={() => handleToggleRow(id)}
+                              />
+                            </td>
+                            <td style={{ color: "var(--accent)", fontWeight: 600 }}>{id}</td>
+                            {collection?.fields.map((f) => {
+                              const val = row[f.name];
+                              return (
+                                <td key={f.name}>
+                                  <RenderTableCell
+                                    field={f}
+                                    value={val}
+                                    record={row}
+                                    projectId={projectId}
+                                    collectionName={collectionName}
+                                    onViewJson={() => setRawJsonView(row)}
+                                  />
+                                </td>
+                              );
+                            })}
+                            <td className="muted" style={{ fontSize: "0.78rem" }}>
+                              {String(row.created || "").slice(0, 19).replace("T", " ")}
+                            </td>
+                            <td style={{ textAlign: "right", whiteSpace: "nowrap" }} onClick={(e) => e.stopPropagation()}>
+                              <button
+                                className="btn-icon"
+                                style={{ marginRight: "0.3rem" }}
+                                onClick={() => {
+                                  setEditingRecord(row);
+                                  setShowNewRecord(true);
+                                }}
+                                title="Edit record"
+                              >
+                                ✏️
+                              </button>
+                              <button
+                                className="btn-icon"
+                                style={{ marginRight: "0.3rem" }}
+                                onClick={() => {
+                                  // Duplicate record
+                                  const clone = { ...row };
+                                  delete clone.id;
+                                  delete clone.created;
+                                  delete clone.updated;
+                                  setEditingRecord(clone);
+                                  setShowNewRecord(true);
+                                }}
+                                title="Duplicate record"
+                              >
+                                📑
+                              </button>
+                              <button
+                                className="btn-icon"
+                                style={{ marginRight: "0.3rem" }}
+                                onClick={() => setRawJsonView(row)}
+                                title="View Raw JSON"
+                              >
+                                🔍
+                              </button>
+                              <button
+                                className="btn-icon"
+                                onClick={() => handleDeleteRecord(id)}
+                                title="Delete record"
+                              >
+                                ✕
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* Pagination Controls */}
+            {result && result.totalPages > 1 && (
+              <div className="pagination">
+                <button
+                  className="btn btn-secondary"
+                  disabled={page <= 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                >
+                  ← Previous
+                </button>
+                <span className="page-info">
+                  Halaman {page} dari {result.totalPages} ({result.totalItems} records)
+                </span>
+                <button
+                  className="btn btn-secondary"
+                  disabled={page >= result.totalPages}
+                  onClick={() => setPage((p) => p + 1)}
+                >
+                  Next →
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ─── TAB 2: SCHEMA & FIELDS ─── */}
+        {activeTab === "schema" && (
+          <div className="card">
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.25rem" }}>
+              <div>
+                <h3 style={{ margin: 0 }}>Fields Skema ({collection?.fields.length})</h3>
+                <p className="muted" style={{ fontSize: "0.85rem", margin: "0.25rem 0 0" }}>
+                  Definisi kolom dan tipe data SQLite yang dikonfigurasi pada koleksi ini.
+                </p>
+              </div>
+              <button className="btn" onClick={() => setShowAddField(true)}>
+                + Add New Field
+              </button>
+            </div>
+
+            <div style={{ display: "grid", gap: "0.75rem" }}>
+              {collection?.fields.map((f) => (
+                <div key={f.name} className="field-card" style={{ background: "var(--panel)" }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+                      <strong style={{ fontSize: "0.95rem" }}>{f.name}</strong>
+                      <span className="type-badge">{f.type}</span>
+                      {f.required && <span className="badge badge-accent">Required</span>}
+                      {f.unique && <span className="badge badge-purple">Unique</span>}
+                      {f.options?.fulltext && <span className="badge badge-blue">FTS5 Indexed</span>}
+                    </div>
+                  </div>
+
+                  {/* Opsi Tipe Khusus */}
+                  {f.type === "select" && f.options?.values && (
+                    <div style={{ marginTop: "0.5rem", fontSize: "0.82rem", display: "flex", gap: "0.4rem", alignItems: "center" }}>
+                      <span className="muted">Pilihan:</span>
+                      {f.options.values.map((v) => (
+                        <span key={v} className="badge badge-gray">{v}</span>
+                      ))}
+                    </div>
+                  )}
+
+                  {f.type === "relation" && (
+                    <div style={{ marginTop: "0.5rem", fontSize: "0.82rem" }} className="muted">
+                      Target: <strong style={{ color: "var(--text)" }}>{f.options?.collectionId || "any"}</strong> · Cascade: {f.options?.cascadeDelete || "setNull"} · MaxSelect: {f.options?.maxSelect || 1}
+                    </div>
+                  )}
+
+                  {f.type === "file" && (
+                    <div style={{ marginTop: "0.5rem", fontSize: "0.82rem" }} className="muted">
+                      Max Size: {((f.options?.maxSize ?? 5242880) / (1024 * 1024)).toFixed(0)} MB · Max Files: {f.options?.maxSelect || 1}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ─── TAB 3: API RULES ─── */}
+        {activeTab === "rules" && (
+          <div className="card">
+            <div style={{ marginBottom: "1.25rem" }}>
+              <h3 style={{ margin: 0 }}>API Rules (Row-Level Security)</h3>
+              <p className="muted" style={{ fontSize: "0.85rem", marginTop: "0.25rem" }}>
+                Atur otorisasi siapa yang boleh membaca, menulis, mengubah, dan menghapus data pada koleksi ini.
+              </p>
+            </div>
+
+            {rulesError && <div className="error-text" style={{ marginBottom: "1rem" }}>{rulesError}</div>}
+
+            <div style={{ display: "grid", gap: "1rem" }}>
+              {(
+                [
+                  { key: "listRule", label: "List Rule", hint: "Siapa boleh melihat daftar record (GET .../records)" },
+                  { key: "viewRule", label: "View Rule", hint: "Siapa boleh melihat 1 record spesifik (GET .../records/:id)" },
+                  { key: "createRule", label: "Create Rule", hint: "Siapa boleh menambah record baru (POST .../records)" },
+                  { key: "updateRule", label: "Update Rule", hint: "Siapa boleh mengubah record (PATCH .../records/:id)" },
+                  { key: "deleteRule", label: "Delete Rule", hint: "Siapa boleh menghapus record (DELETE .../records/:id)" },
+                ] as const
+              ).map((r) => {
+                const val = rulesDraft ? rulesDraft[r.key] : null;
+                const isLocked = val === null || val === undefined;
+                const isPublic = val === "";
+                const isCustom = !isLocked && !isPublic;
+
+                return (
+                  <div key={r.key} style={{ background: "var(--panel-2)", padding: "1rem", borderRadius: "8px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.35rem" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                        <strong>{r.label}</strong>
+                        {isLocked && <span className="badge badge-accent">🔒 Admin Only (null)</span>}
+                        {isPublic && <span className="badge badge-green">🌐 Publik ("")</span>}
+                        {isCustom && <span className="badge badge-blue">🧮 Custom Rule</span>}
+                      </div>
+                      <div style={{ display: "flex", gap: "0.3rem" }}>
+                        <button
+                          type="button"
+                          className="btn btn-secondary"
+                          style={{ padding: "0.2rem 0.5rem", fontSize: "0.75rem" }}
+                          onClick={() => setRulesDraft((prev) => ({ ...(prev || DEFAULT_RULES), [r.key]: null }))}
+                        >
+                          🔒 Kunci (null)
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-secondary"
+                          style={{ padding: "0.2rem 0.5rem", fontSize: "0.75rem" }}
+                          onClick={() => setRulesDraft((prev) => ({ ...(prev || DEFAULT_RULES), [r.key]: "" }))}
+                        >
+                          🌐 Buka ("")
+                        </button>
+                      </div>
+                    </div>
+                    <p className="muted" style={{ fontSize: "0.78rem", marginBottom: "0.5rem" }}>{r.hint}</p>
+                    <input
+                      className="input"
+                      placeholder="null (admin only), atau ekspresi: user = @request.auth.id"
+                      value={val === null || val === undefined ? "" : val}
+                      onChange={(e) => {
+                        const nextVal = e.target.value === "" ? null : e.target.value;
+                        setRulesDraft((prev) => ({ ...(prev || DEFAULT_RULES), [r.key]: nextVal }));
+                      }}
+                      style={{ fontFamily: "ui-monospace, monospace", fontSize: "0.85rem" }}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+
+            <div style={{ marginTop: "1.5rem", display: "flex", justifyContent: "flex-end" }}>
+              <button className="btn" onClick={handleSaveRules} disabled={rulesSaving}>
+                {rulesSaving ? "Menyimpan Rules…" : "Simpan Perubahan Rules"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ─── TAB 4: EXPORT / IMPORT ─── */}
+        {activeTab === "io" && (
+          <div className="card">
+            <h3 style={{ marginBottom: "0.5rem" }}>Backup & Migrasi Data (JSON)</h3>
+            <p className="muted" style={{ fontSize: "0.85rem", marginBottom: "1.5rem" }}>
+              Ekspor seluruh skema dan baris data ke format JSON mandiri, atau impor dari backup sebelumnya.
+            </p>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.5rem" }}>
+              {/* Export Box */}
+              <div style={{ background: "var(--panel-2)", padding: "1.25rem", borderRadius: "10px" }}>
+                <h4 style={{ marginBottom: "0.5rem" }}>📥 Export Koleksi</h4>
+                <p className="muted" style={{ fontSize: "0.82rem", marginBottom: "1rem" }}>
+                  Unduh file <code>{collectionName}-export.json</code> yang berisi seluruh definisi field beserta semua baris record di dalamnya.
+                </p>
+                <button className="btn" onClick={handleExportJson}>
+                  Unduh File JSON Export
+                </button>
+              </div>
+
+              {/* Import Box */}
+              <div style={{ background: "var(--panel-2)", padding: "1.25rem", borderRadius: "10px" }}>
+                <h4 style={{ marginBottom: "0.5rem" }}>📤 Import JSON Data</h4>
+                <div className="field">
+                  <label>Mode Import:</label>
+                  <select
+                    className="input"
+                    value={importMode}
+                    onChange={(e) => setImportMode(e.target.value as "create" | "replace" | "merge")}
+                    style={{ fontSize: "0.85rem" }}
+                  >
+                    <option value="create">create — buat baru (gagal jika sudah ada)</option>
+                    <option value="replace">replace — hapus semua data lama & ganti</option>
+                    <option value="merge">merge — upsert berdasarkan ID record</option>
+                  </select>
+                </div>
+
+                <div className="field">
+                  <label>Paste Isi JSON Export:</label>
+                  <textarea
+                    className="input"
+                    rows={4}
+                    placeholder='{"collection": {"name": "..."}, "records": [...]}'
+                    value={importJsonText}
+                    onChange={(e) => setImportJsonText(e.target.value)}
+                    style={{ fontFamily: "ui-monospace, monospace", fontSize: "0.8rem" }}
+                  />
+                </div>
+
+                {ioMessage && (
+                  <div style={{ fontSize: "0.82rem", marginBottom: "0.75rem", color: ioMessage.includes("Berhasil") ? "var(--green)" : "var(--red)" }}>
+                    {ioMessage}
+                  </div>
+                )}
+
+                <button className="btn" onClick={handleImportJson} disabled={importing || !importJsonText.trim()}>
+                  {importing ? "Mengimpor…" : "Mulai Import JSON"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </main>
+
+      {/* ─── MODAL: RECORD FORM (CREATE / EDIT) ─── */}
+      {showNewRecord && (
+        <RecordFormModal
+          collection={collection!}
+          initialData={editingRecord}
+          projectId={projectId}
+          onClose={() => {
+            setShowNewRecord(false);
+            setEditingRecord(null);
+          }}
+          onSuccess={() => {
+            setShowNewRecord(false);
+            setEditingRecord(null);
+            loadRecords();
+          }}
+        />
+      )}
+
+      {/* ─── MODAL: VIEW RAW JSON ─── */}
+      {rawJsonView && (
+        <div className="modal-overlay" onClick={() => setRawJsonView(null)}>
+          <div className="modal-box-lg card" onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+              <h3 style={{ margin: 0 }}>Record Raw JSON ({String(rawJsonView.id || "")})</h3>
+              <div style={{ display: "flex", gap: "0.5rem" }}>
+                <button
+                  className="btn btn-secondary"
+                  style={{ fontSize: "0.8rem", padding: "0.3rem 0.7rem" }}
+                  onClick={() => {
+                    navigator.clipboard.writeText(JSON.stringify(rawJsonView, null, 2));
+                    alert("JSON berhasil di-copy ke clipboard!");
+                  }}
+                >
+                  📋 Copy JSON
+                </button>
+                <button className="btn-icon" onClick={() => setRawJsonView(null)}>✕</button>
+              </div>
+            </div>
+            <pre style={{ background: "var(--panel-2)", padding: "1rem", borderRadius: "8px", overflowX: "auto", fontSize: "0.82rem", color: "var(--accent)" }}>
+              {JSON.stringify(rawJsonView, null, 2)}
+            </pre>
           </div>
         </div>
       )}
 
-      {/* M10u: API Rules (keamanan per collection) */}
-      <div className="card" style={{ marginTop: "0.5rem", padding: "0.75rem 1rem" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.5rem" }}>
-          <span style={{ fontSize: "0.85rem", fontWeight: 600 }}>🔐 API Rules</span>
-          <div style={{ display: "flex", gap: "0.4rem" }}>
-            <button
-              className="btn btn-secondary"
-              onClick={() => {
-                setShowRules(!showRules);
-                setRulesDraft(null);
-                setRulesError("");
-              }}
-            >
-              {showRules ? "Tutup" : "Edit"}
-            </button>
-            {showRules && rulesDraft && (
-              <button className="btn btn-primary" onClick={saveRules} disabled={rulesSaving}>
-                {rulesSaving ? "Menyimpan…" : "Simpan rules"}
-              </button>
-            )}
+      {/* ─── MODAL: DUPLICATE COLLECTION ─── */}
+      {showDuplicateCol && (
+        <div className="modal-overlay" onClick={() => setShowDuplicateCol(false)}>
+          <div className="modal-box card" onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ marginBottom: "1rem" }}>Duplicate Collection "{collectionName}"</h3>
+            <div className="field">
+              <label>Nama Collection Baru</label>
+              <input
+                className="input"
+                value={duplicateName}
+                onChange={(e) => setDuplicateName(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ""))}
+                placeholder="nama_koleksi_baru"
+              />
+            </div>
+            <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.88rem", cursor: "pointer", marginBottom: "1.25rem" }}>
+              <input
+                type="checkbox"
+                checked={duplicateWithData}
+                onChange={(e) => setDuplicateWithData(e.target.checked)}
+              />
+              <span>Sertakan seluruh data record (withData)</span>
+            </label>
+            <div className="form-actions">
+              <button className="btn btn-secondary" onClick={() => setShowDuplicateCol(false)}>Batal</button>
+              <button className="btn" onClick={handleDuplicateCollection}>Duplikasi Sekarang</button>
+            </div>
           </div>
         </div>
+      )}
 
-        {!showRules ? (
-          rules && (
-            <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap", marginTop: "0.5rem" }}>
-              {RULE_LABELS.map(({ key, label }) => {
-                const v = rules[key];
-                const badge = v === null ? "🔒 Admin" : v.trim() === "" ? "🌐 Publik" : "🧮 Rule";
-                return (
-                  <span key={key} className="type-badge" title={`${label}: ${String(v ?? "null")}`}>
-                    {label}: {badge}
-                  </span>
-                );
-              })}
+      {/* ─── MODAL: ADD FIELD TO EXISTING COLLECTION ─── */}
+      {showAddField && (
+        <div className="modal-overlay" onClick={() => setShowAddField(false)}>
+          <div className="modal-box card" onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ marginBottom: "1rem" }}>Add Field to "{collectionName}"</h3>
+            <div className="field">
+              <label>Field Name</label>
+              <input
+                className="input"
+                placeholder="misal: status, count, avatar"
+                value={addFieldDef.name}
+                onChange={(e) => setAddFieldDef({ ...addFieldDef, name: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "") })}
+              />
             </div>
-          )
-        ) : (
-          <div style={{ marginTop: "0.6rem" }}>
-            <p className="muted" style={{ fontSize: "0.78rem", marginBottom: "0.6rem" }}>
-              Kosongkan = publik (siapa pun). Hapus isi & tulis <code>null</code> = admin-only.
-              Gunakan <code>@request.auth.id</code> untuk identitas user yang login.
-              Contoh: <code>user = @request.auth.id</code>
-            </p>
-            {(rulesDraft ?? rules) &&
-              RULE_LABELS.map(({ key, label, hint }) => {
-                const draft = rulesDraft ?? rules!;
-                const val = draft[key];
-                return (
-                  <div key={key} style={{ marginBottom: "0.5rem" }}>
-                    <label style={{ display: "block", fontSize: "0.8rem", marginBottom: "0.2rem" }}>
-                      <strong>{label}</strong> <span className="muted">— {hint}</span>
-                    </label>
-                    <div style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
+            <div className="field">
+              <label>Field Type</label>
+              <select
+                className="input"
+                value={addFieldDef.type}
+                onChange={(e) => setAddFieldDef({ ...addFieldDef, type: e.target.value })}
+              >
+                {FIELD_TYPES.map((t) => (
+                  <option key={t} value={t}>{t}</option>
+                ))}
+              </select>
+            </div>
+            <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.85rem", cursor: "pointer", marginBottom: "1.25rem" }}>
+              <input
+                type="checkbox"
+                checked={!!addFieldDef.required}
+                onChange={(e) => setAddFieldDef({ ...addFieldDef, required: e.target.checked })}
+              />
+              <span>Required (wajib diisi)</span>
+            </label>
+            <div className="form-actions">
+              <button className="btn btn-secondary" onClick={() => setShowAddField(false)}>Batal</button>
+              <button className="btn" onClick={handleAddField} disabled={!addFieldDef.name.trim()}>
+                Tambah Kolom via ALTER TABLE
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── MODAL: NEW COLLECTION ─── */}
+      {showNewCol && (
+        <div className="modal-overlay" onClick={() => setShowNewCol(false)}>
+          <div className="modal-box-lg card" onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.25rem" }}>
+              <h3 style={{ margin: 0 }}>New Collection</h3>
+              <button className="btn-icon" onClick={() => setShowNewCol(false)}>✕</button>
+            </div>
+
+            <div className="field">
+              <label>Nama Collection</label>
+              <input
+                className="input"
+                placeholder="misal: products, orders, articles"
+                value={newColName}
+                onChange={(e) => setNewColName(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ""))}
+                autoFocus
+              />
+            </div>
+
+            <div className="field" style={{ marginTop: "1.5rem" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
+                <label style={{ margin: 0, fontWeight: 600 }}>Fields ({newColFields.length})</label>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => setNewColFields([...newColFields, { name: "", type: "text", required: false }])}
+                  style={{ padding: "0.3rem 0.7rem", fontSize: "0.8rem" }}
+                >
+                  + Add Field
+                </button>
+              </div>
+
+              {newColFields.map((f, i) => (
+                <div className="field-card" key={i}>
+                  <div className="field-card-header">
+                    <input
+                      className="input"
+                      placeholder="nama field"
+                      value={f.name}
+                      onChange={(e) => {
+                        const updated = [...newColFields];
+                        updated[i].name = e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "");
+                        setNewColFields(updated);
+                      }}
+                      style={{ flex: 2 }}
+                    />
+                    <select
+                      className="input"
+                      value={f.type}
+                      onChange={(e) => {
+                        const updated = [...newColFields];
+                        updated[i].type = e.target.value;
+                        setNewColFields(updated);
+                      }}
+                      style={{ flex: 1.5 }}
+                    >
+                      {FIELD_TYPES.map((t) => (
+                        <option key={t} value={t}>{t}</option>
+                      ))}
+                    </select>
+                    <label style={{ display: "flex", alignItems: "center", gap: "0.3rem", fontSize: "0.82rem", whiteSpace: "nowrap" }}>
                       <input
-                        className="input"
-                        style={{ flex: 1, fontFamily: "var(--mono, monospace)", fontSize: "0.8rem" }}
-                        placeholder="(null = admin-only) atau rule, misal: user = @request.auth.id"
-                        value={val === null ? "null" : val}
+                        type="checkbox"
+                        checked={!!f.required}
                         onChange={(e) => {
-                          const text = e.target.value;
-                          // "null" (persis, lowercase) → null (admin-only);
-                          // string lain (termasuk kosong) → rule publik/kosong
-                          const parsed: string | null = text.trim() === "null" ? null : text;
-                          setRulesDraft({
-                            ...(rulesDraft ?? rules!),
-                            [key]: parsed,
-                          });
+                          const updated = [...newColFields];
+                          updated[i].required = e.target.checked;
+                          setNewColFields(updated);
                         }}
                       />
-                    </div>
+                      Req
+                    </label>
+                    <label style={{ display: "flex", alignItems: "center", gap: "0.3rem", fontSize: "0.82rem", whiteSpace: "nowrap" }}>
+                      <input
+                        type="checkbox"
+                        checked={!!f.unique}
+                        onChange={(e) => {
+                          const updated = [...newColFields];
+                          updated[i].unique = e.target.checked;
+                          setNewColFields(updated);
+                        }}
+                      />
+                      Unique
+                    </label>
+                    {newColFields.length > 1 && (
+                      <button
+                        type="button"
+                        className="btn-icon"
+                        onClick={() => setNewColFields(newColFields.filter((_, idx) => idx !== i))}
+                      >
+                        ✕
+                      </button>
+                    )}
                   </div>
-                );
-              })}
-            {rulesError && <div className="error-text">{rulesError}</div>}
-            <p className="muted" style={{ fontSize: "0.75rem", marginTop: "0.4rem" }}>
-              💡 Trik: ketik <code>null</code> (huruf kecil) untuk admin-only, string kosong untuk publik.
-            </p>
-          </div>
-        )}
-      </div>
-
-      {/* Filter bar (M04 parser bekerja di sini!) */}
-      <form className="filter-bar" onSubmit={applyFilter}>
-        <input
-          className="input"
-          placeholder='filter, misal: streak > 5 && title ~ "olah"'
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-        />
-        <button type="submit" className="btn btn-secondary">
-          Apply
-        </button>
-      </form>
-
-      {error && <div className="error-text">{error}</div>}
-
-      {/* Data table */}
-      <div className="card" style={{ marginTop: "1rem" }}>
-        {loading ? (
-          <p className="muted">Memuat records…</p>
-        ) : !result || result.items.length === 0 ? (
-          <div className="empty-state">
-            <div className="big">🗂️</div>
-            <p>Tidak ada records{filter ? " yang cocok dengan filter" : ""}.</p>
-          </div>
-        ) : (
-          <>
-            <div className="table-wrap">
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    {allColumns.map((col) => (
-                      <th key={col}>{col}</th>
-                    ))}
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {result.items.map((rec) => (
-                    <tr key={String(rec.id)} onClick={() => setEditing(rec)}>
-                      {allColumns.map((col) => {
-                        const fieldMeta = collection?.fields.find((f) => f.name === col);
-                        // M14u: render file field sebagai link/preview
-                        if (fieldMeta?.type === "file") {
-                          const files = Array.isArray(rec[col])
-                            ? (rec[col] as string[])
-                            : rec[col]
-                              ? [String(rec[col])]
-                              : [];
-                          if (files.length === 0) return <td key={col}>—</td>;
-                          return (
-                            <td key={col}>
-                              {files.map((fn) => {
-                                const isImage = /\.(png|jpe?g|gif|webp|avif)$/i.test(fn);
-                                const url = fileUrl(projectId, collectionName, String(rec.id), fn);
-                                return (
-                                  <div key={fn} style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
-                                    {isImage && (
-                                      // eslint-disable-next-line @next/next/no-img-element
-                                      <img
-                                        src={url}
-                                        alt={fn}
-                                        style={{ width: 32, height: 32, objectFit: "cover", borderRadius: 4 }}
-                                      />
-                                    )}
-                                    <a href={url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>
-                                      📎 {fn.length > 18 ? fn.slice(0, 18) + "…" : fn}
-                                    </a>
-                                  </div>
-                                );
-                              })}
-                            </td>
-                          );
-                        }
-                        return <td key={col}>{formatCell(rec[col])}</td>;
-                      })}
-                      <td onClick={(e) => e.stopPropagation()}>
-                        <button
-                          className="btn-icon"
-                          onClick={() => handleDeleteRecord(String(rec.id))}
-                        >
-                          ✕
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                </div>
+              ))}
             </div>
 
-            {/* Pagination */}
-            <div className="pagination">
-              <button
-                className="btn btn-secondary"
-                disabled={page <= 1}
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-              >
-                ◀ Prev
-              </button>
-              <span className="page-info">
-                Page {result.page} of {result.totalPages} ({result.totalItems} items)
-              </span>
-              <button
-                className="btn btn-secondary"
-                disabled={page >= result.totalPages}
-                onClick={() => setPage((p) => p + 1)}
-              >
-                Next ▶
+            <div className="form-actions">
+              <button className="btn btn-secondary" onClick={() => setShowNewCol(false)}>Batal</button>
+              <button className="btn" onClick={handleCreateNewCollection} disabled={!newColName.trim()}>
+                Buat Collection
               </button>
             </div>
-          </>
-        )}
-      </div>
-
-      {/* Modal: New / Edit Record */}
-      {(showNew || editing) && collection && (
-        <RecordModal
-          collection={collection}
-          projectId={projectId}
-          collectionName={collectionName}
-          initial={editing ?? undefined}
-          onClose={() => {
-            setShowNew(false);
-            setEditing(null);
-          }}
-          onSave={async (data, files) => {
-            if (editing) {
-              if (files && Object.keys(files).length > 0) {
-                await updateRecordWithFiles(projectId, collectionName, String(editing.id), data, files);
-              } else {
-                await updateRecord(projectId, collectionName, String(editing.id), data);
-              }
-            } else {
-              if (files && Object.keys(files).length > 0) {
-                await createRecordWithFiles(projectId, collectionName, data, files);
-              } else {
-                await createRecord(projectId, collectionName, data);
-              }
-            }
-            setShowNew(false);
-            setEditing(null);
-            await loadRecords();
-          }}
-        />
+          </div>
+        </div>
       )}
     </div>
   );
 }
 
-// ─── Modal untuk buat/edit record ────────────────────────────────────────────
+// ─── HELPER: CELL RENDERING ──────────────────────────────────────────────────
 
-function RecordModal({
-  collection,
+function RenderTableCell({
+  field,
+  value,
+  record,
   projectId,
   collectionName,
-  initial,
-  onClose,
-  onSave,
+  onViewJson,
 }: {
-  collection: CollectionInfo;
+  field: FieldDef;
+  value: unknown;
+  record: Record<string, unknown>;
   projectId: string;
   collectionName: string;
-  initial?: Record<string, unknown>;
-  onClose: () => void;
-  onSave: (data: Record<string, unknown>, files?: Record<string, File | File[]>) => Promise<void>;
+  onViewJson: () => void;
 }) {
-  const [values, setValues] = useState<Record<string, unknown>>(() => {
-    const v: Record<string, unknown> = {};
-    for (const f of collection.fields) {
-      v[f.name] = initial?.[f.name] ?? defaultForType(f);
-    }
-    return v;
-  });
-  const [fileValues, setFileValues] = useState<Record<string, File | File[]>>({});
-  const [saving, setSaving] = useState(false);
-  const [err, setErr] = useState("");
+  if (value === null || value === undefined) {
+    return <span className="muted" style={{ fontStyle: "italic", fontSize: "0.8rem" }}>null</span>;
+  }
 
-  async function handleSave() {
+  if (field.type === "bool") {
+    return value ? (
+      <span className="badge badge-green">✓ true</span>
+    ) : (
+      <span className="badge badge-gray">✕ false</span>
+    );
+  }
+
+  if (field.type === "file") {
+    const filename = String(value);
+    const url = fileUrl(projectId, collectionName, String(record.id), filename);
+    const isImg = /\.(png|jpe?g|gif|webp|avif)$/i.test(filename);
+
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+        {isImg && url ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={`${url}?thumb=100x100`}
+            alt={filename}
+            style={{ width: 26, height: 26, borderRadius: 4, objectFit: "cover" }}
+          />
+        ) : null}
+        <a href={url} target="_blank" rel="noreferrer" style={{ color: "var(--accent)" }}>
+          📎 {filename.slice(0, 18)}
+        </a>
+      </div>
+    );
+  }
+
+  if (field.type === "json") {
+    return (
+      <button
+        type="button"
+        className="badge badge-gray"
+        onClick={onViewJson}
+        style={{ cursor: "pointer", fontFamily: "ui-monospace, monospace" }}
+      >
+        {typeof value === "object" ? JSON.stringify(value).slice(0, 24) + "…" : String(value)}
+      </button>
+    );
+  }
+
+  if (field.type === "password") {
+    return <span className="muted">•••••••• (hash)</span>;
+  }
+
+  return <span>{String(value).slice(0, 36)}</span>;
+}
+
+// ─── HELPER: RECORD FORM MODAL ───────────────────────────────────────────────
+
+function RecordFormModal({
+  collection,
+  initialData,
+  projectId,
+  onClose,
+  onSuccess,
+}: {
+  collection: CollectionInfo;
+  initialData: Record<string, unknown> | null;
+  projectId: string;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const isEdit = !!initialData?.id;
+  const [formData, setFormData] = useState<Record<string, unknown>>(() => {
+    if (initialData) {
+      const copy = { ...initialData };
+      return copy;
+    }
+    const empty: Record<string, unknown> = {};
+    for (const f of collection.fields) {
+      if (f.type === "bool") empty[f.name] = false;
+      else if (f.type === "number") empty[f.name] = null;
+      else empty[f.name] = "";
+    }
+    return empty;
+  });
+
+  const [files, setFiles] = useState<Record<string, File | File[]>>({});
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
     setSaving(true);
-    setErr("");
+    setError("");
+
     try {
-      // Field file yang punya File baru dikirim via multipart; field file
-      // TANPA file baru (nilai lama) dijadikan string agar tidak tertimpa null
-      const dataWithoutFiles: Record<string, unknown> = {};
-      for (const f of collection.fields) {
-        if (f.type === "file" && fileValues[f.name]) continue; // dikirim sebagai file
-        dataWithoutFiles[f.name] = values[f.name];
+      const hasFiles = Object.keys(files).length > 0;
+
+      if (hasFiles) {
+        if (isEdit) {
+          await updateRecordWithFiles(projectId, collection.name, String(initialData!.id), formData, files);
+        } else {
+          await createRecordWithFiles(projectId, collection.name, formData, files);
+        }
+      } else {
+        if (isEdit) {
+          await updateRecord(projectId, collection.name, String(initialData!.id), formData);
+        } else {
+          await createRecord(projectId, collection.name, formData);
+        }
       }
-      await onSave(dataWithoutFiles, fileValues);
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : "Gagal menyimpan");
+
+      onSuccess();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Gagal menyimpan record");
+    } finally {
       setSaving(false);
     }
   }
@@ -440,213 +1237,108 @@ function RecordModal({
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-box card" onClick={(e) => e.stopPropagation()}>
-        <h3>{initial ? "Edit Record" : "New Record"}</h3>
-
-        {collection.fields.map((f) => (
-          <div className="field" key={f.name}>
-            <label>
-              {f.name} <span className="type-badge">{f.type}</span>
-              {f.required && <span className="req-badge"> *</span>}
-            </label>
-            <FieldInput
-              field={f}
-              projectId={projectId}
-              collectionName={collectionName}
-              recordId={initial ? String(initial.id) : undefined}
-              value={values[f.name]}
-              onChange={(val) => setValues({ ...values, [f.name]: val })}
-              onFileChange={(file) => {
-                const next = { ...fileValues };
-                if (file === undefined) delete next[f.name];
-                else next[f.name] = file;
-                setFileValues(next);
-              }}
-            />
-          </div>
-        ))}
-
-        {err && <div className="error-text">{err}</div>}
-
-        <div className="form-actions">
-          <button className="btn btn-secondary" onClick={onClose}>
-            Batal
-          </button>
-          <button className="btn" onClick={handleSave} disabled={saving}>
-            {saving ? "Menyimpan…" : "Simpan"}
-          </button>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.25rem" }}>
+          <h3 style={{ margin: 0 }}>{isEdit ? `Edit Record (${initialData.id})` : "New Record"}</h3>
+          <button className="btn-icon" onClick={onClose}>✕</button>
         </div>
+
+        {error && <div className="error-text" style={{ marginBottom: "1rem" }}>{error}</div>}
+
+        <form onSubmit={handleSubmit}>
+          {collection.fields.map((f) => (
+            <div key={f.name} className="field">
+              <label style={{ display: "flex", justifyContent: "space-between" }}>
+                <span>{f.name} {f.required && <span style={{ color: "var(--red)" }}>*</span>}</span>
+                <span className="type-badge" style={{ fontSize: "0.7rem" }}>{f.type}</span>
+              </label>
+
+              {f.type === "bool" ? (
+                <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer" }}>
+                  <input
+                    type="checkbox"
+                    checked={formData[f.name] === true}
+                    onChange={(e) => setFormData({ ...formData, [f.name]: e.target.checked })}
+                  />
+                  <span>{formData[f.name] === true ? "True" : "False"}</span>
+                </label>
+              ) : f.type === "select" ? (
+                <select
+                  className="input"
+                  value={String(formData[f.name] ?? "")}
+                  onChange={(e) => setFormData({ ...formData, [f.name]: e.target.value || null })}
+                >
+                  <option value="">— pilih opsi —</option>
+                  {(f.options?.values || []).map((v) => (
+                    <option key={v} value={v}>{v}</option>
+                  ))}
+                </select>
+              ) : f.type === "file" ? (
+                <div>
+                  <input
+                    type="file"
+                    className="input"
+                    onChange={(e) => {
+                      const fl = e.target.files;
+                      if (fl && fl.length > 0) {
+                        setFiles({ ...files, [f.name]: fl[0] });
+                      }
+                    }}
+                  />
+                  {Boolean(initialData?.[f.name]) && (
+                    <div className="muted" style={{ fontSize: "0.8rem", marginTop: "0.3rem" }}>
+                      File saat ini: {String(initialData![f.name])}
+                    </div>
+                  )}
+                </div>
+              ) : f.type === "json" ? (
+                <textarea
+                  className="input"
+                  rows={3}
+                  value={
+                    typeof formData[f.name] === "object"
+                      ? JSON.stringify(formData[f.name], null, 2)
+                      : String(formData[f.name] ?? "")
+                  }
+                  onChange={(e) => {
+                    try {
+                      setFormData({ ...formData, [f.name]: JSON.parse(e.target.value) });
+                    } catch {
+                      setFormData({ ...formData, [f.name]: e.target.value });
+                    }
+                  }}
+                  style={{ fontFamily: "ui-monospace, monospace", fontSize: "0.82rem" }}
+                />
+              ) : f.type === "autodate" ? (
+                <div className="muted" style={{ fontSize: "0.82rem", fontStyle: "italic" }}>
+                  ⏱ Diisi otomatis oleh sistem
+                </div>
+              ) : (
+                <input
+                  className="input"
+                  type={f.type === "number" ? "number" : f.type === "password" ? "password" : "text"}
+                  value={formData[f.name] === null || formData[f.name] === undefined ? "" : String(formData[f.name])}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      [f.name]: f.type === "number" ? (e.target.value === "" ? null : Number(e.target.value)) : e.target.value,
+                    })
+                  }
+                  required={f.required}
+                />
+              )}
+            </div>
+          ))}
+
+          <div className="form-actions">
+            <button type="button" className="btn btn-secondary" onClick={onClose}>
+              Batal
+            </button>
+            <button type="submit" className="btn" disabled={saving}>
+              {saving ? "Menyimpan…" : isEdit ? "Update Record" : "Create Record"}
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   );
-}
-
-function FieldInput({
-  field,
-  projectId,
-  collectionName,
-  recordId,
-  value,
-  onChange,
-  onFileChange,
-}: {
-  field: FieldDef;
-  projectId?: string;
-  collectionName?: string;
-  recordId?: string;
-  value: unknown;
-  onChange: (v: unknown) => void;
-  onFileChange?: (f: File | File[] | undefined) => void;
-}) {
-  switch (field.type) {
-    case "bool":
-      return (
-        <label style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-          <input
-            type="checkbox"
-            checked={value === true}
-            onChange={(e) => onChange(e.target.checked)}
-          />
-          <span className="muted" style={{ fontSize: "0.85rem" }}>
-            {value === true ? "true" : "false"}
-          </span>
-        </label>
-      );
-    case "number":
-      return (
-        <input
-          type="number"
-          className="input"
-          value={value === null || value === undefined ? "" : String(value)}
-          onChange={(e) => onChange(e.target.value === "" ? null : Number(e.target.value))}
-        />
-      );
-    case "select": {
-      // Dropdown dari options.values
-      const allowed = field.options?.values ?? [];
-      return (
-        <select
-          className="input"
-          value={value === null || value === undefined ? "" : String(value)}
-          onChange={(e) => onChange(e.target.value === "" ? null : e.target.value)}
-        >
-          <option value="">— pilih —</option>
-          {allowed.map((v) => (
-            <option key={v} value={v}>
-              {v}
-            </option>
-          ))}
-        </select>
-      );
-    }
-    case "autodate":
-      // Diisi otomatis oleh sistem — tampilkan sebagai info, tidak bisa diedit
-      return (
-        <div className="muted" style={{ fontSize: "0.85rem", fontStyle: "italic" }}>
-          ⏱ Diisi otomatis oleh sistem
-        </div>
-      );
-    case "file": {
-      // M14u: upload via <input type=file>; preview untuk file yang sudah ada
-      const isMulti = (field.options?.maxSelect ?? 1) > 1;
-      const existing = Array.isArray(value)
-        ? (value as string[])
-        : value
-          ? [String(value)]
-          : [];
-
-      return (
-        <div>
-          <input
-            type="file"
-            multiple={isMulti}
-            accept={field.options?.mime ?? undefined}
-            onChange={(e) => {
-              const fl = e.target.files;
-              if (!fl || fl.length === 0) {
-                onFileChange?.(undefined);
-                return;
-              }
-              onFileChange?.(isMulti ? Array.from(fl) : fl[0]);
-            }}
-          />
-          {existing.length > 0 && (
-            <div style={{ marginTop: "0.4rem", fontSize: "0.82rem" }}>
-              <span className="muted">File saat ini: </span>
-              {existing.map((fn) => {
-                const url =
-                  projectId && collectionName && recordId
-                    ? fileUrl(projectId, collectionName, recordId, fn)
-                    : null;
-                const isImage = /\.(png|jpe?g|gif|webp|avif)$/i.test(fn);
-                return (
-                  <div key={fn} style={{ marginTop: "0.25rem" }}>
-                    {isImage && url ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={url}
-                        alt={fn}
-                        style={{ maxWidth: 120, maxHeight: 80, display: "block", borderRadius: 4 }}
-                      />
-                    ) : null}
-                    {url ? (
-                      <a href={url} target="_blank" rel="noreferrer">
-                        📎 {fn}
-                      </a>
-                    ) : (
-                      <span>📎 {fn}</span>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      );
-    }
-    case "json":
-      return (
-        <textarea
-          className="input"
-          rows={3}
-          style={{ fontFamily: "ui-monospace, monospace" }}
-          value={typeof value === "string" ? value : JSON.stringify(value ?? null)}
-          onChange={(e) => {
-            try {
-              onChange(JSON.parse(e.target.value));
-            } catch {
-              onChange(e.target.value);
-            }
-          }}
-        />
-      );
-    default:
-      return (
-        <input
-          className="input"
-          value={value === null || value === undefined ? "" : String(value)}
-          onChange={(e) => onChange(e.target.value)}
-        />
-      );
-  }
-}
-
-function defaultForType(f: FieldDef): unknown {
-  switch (f.type) {
-    case "bool":
-      return false;
-    case "number":
-      return null;
-    case "json":
-      return null;
-    default:
-      return "";
-  }
-}
-
-function formatCell(val: unknown): string {
-  if (val === null || val === undefined) return "—";
-  if (typeof val === "boolean") return val ? "true" : "false";
-  if (typeof val === "object") return JSON.stringify(val);
-  const s = String(val);
-  return s.length > 40 ? s.slice(0, 40) + "…" : s;
 }

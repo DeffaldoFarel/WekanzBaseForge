@@ -110,11 +110,14 @@ export interface FieldDef {
     onUpdate?: boolean;
     maxSize?: number; // M14: untuk type 'file'
     mime?: string; // M14u: accept attribute untuk input file
+    fulltext?: boolean; // M17b: FTS5 fulltext search index
   };
 }
 
 export interface CollectionInfo {
   name: string;
+  type?: 'base' | 'view';
+  viewQuery?: string | null;
   fields: FieldDef[];
   indexes: { name: string; fields: string[] }[];
   recordCount?: number;
@@ -147,6 +150,51 @@ export async function createCollection(
   return data.collection;
 }
 
+export async function updateCollection(
+  projectId: string,
+  name: string,
+  def: { fields: FieldDef[] }
+): Promise<CollectionInfo> {
+  const data = await request<{ collection: CollectionInfo }>(
+    `/api/admin/projects/${projectId}/collections/${name}`,
+    { method: 'PATCH', body: JSON.stringify(def) }
+  );
+  return data.collection;
+}
+
+export async function duplicateCollection(
+  projectId: string,
+  name: string,
+  newName: string,
+  withData = false
+): Promise<CollectionInfo> {
+  const data = await request<{ collection: CollectionInfo }>(
+    `/api/admin/projects/${projectId}/collections/${name}/duplicate`,
+    { method: 'POST', body: JSON.stringify({ newName, withData }) }
+  );
+  return data.collection;
+}
+
+export async function exportCollection(projectId: string, name: string): Promise<string> {
+  const token = getToken();
+  const res = await fetch(`${API_URL}/api/admin/projects/${projectId}/collections/${name}/export`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) throw new Error('Failed to export collection');
+  return res.text();
+}
+
+export async function importCollection(
+  projectId: string,
+  data: string | object,
+  mode: 'create' | 'replace' | 'merge' = 'create'
+): Promise<{ success: boolean; collection: string; recordCount: number }> {
+  return request<{ success: boolean; collection: string; recordCount: number }>(
+    `/api/admin/projects/${projectId}/collections/import`,
+    { method: 'POST', body: JSON.stringify({ data, mode }) }
+  );
+}
+
 export async function deleteCollection(projectId: string, name: string): Promise<void> {
   await request(`/api/admin/projects/${projectId}/collections/${name}`, { method: 'DELETE' });
 }
@@ -154,11 +202,13 @@ export async function deleteCollection(projectId: string, name: string): Promise
 export async function listRecords(
   projectId: string,
   collection: string,
-  opts: { filter?: string; sort?: string; page?: number; perPage?: number } = {}
+  opts: { filter?: string; sort?: string; page?: number; perPage?: number; search?: string; expand?: string } = {}
 ): Promise<ListResult> {
   const params = new URLSearchParams();
   if (opts.filter) params.set('filter', opts.filter);
   if (opts.sort) params.set('sort', opts.sort);
+  if (opts.search) params.set('search', opts.search);
+  if (opts.expand) params.set('expand', opts.expand);
   if (opts.page) params.set('page', String(opts.page));
   if (opts.perPage) params.set('perPage', String(opts.perPage));
   const qs = params.toString();

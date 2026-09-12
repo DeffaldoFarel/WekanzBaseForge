@@ -19,6 +19,7 @@ import {
   listCollections,
   deleteCollection,
   duplicateCollection,
+  updateCollection,
 } from '../core/schema.js';
 import {
   createRecord,
@@ -100,6 +101,22 @@ export function createDatabaseRouter(): Router {
     }
   });
 
+  // PATCH /api/admin/projects/:pid/collections/:name — update fields (tambah kolom baru)
+  router.patch('/api/admin/projects/:pid/collections/:name', requireAdmin, (req, res) => {
+    try {
+      const db = getProjectDb(req.params.pid);
+      const body = req.body as { fields?: FieldDefinition[] } | undefined;
+      if (!Array.isArray(body?.fields)) {
+        res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'fields harus berupa array' } });
+        return;
+      }
+      const updated = updateCollection(db, req.params.name, { fields: body.fields });
+      res.json({ collection: updated });
+    } catch (err) {
+      handleError(res, err);
+    }
+  });
+
   // DELETE /api/admin/projects/:pid/collections/:name — hapus collection
   router.delete('/api/admin/projects/:pid/collections/:name', requireAdmin, (req, res) => {
     try {
@@ -127,6 +144,8 @@ export function createDatabaseRouter(): Router {
       const result = listRecords(db, req.params.name, {
         filter: req.query.get('filter') ?? undefined,
         sort: req.query.get('sort') ?? undefined,
+        search: req.query.get('search') ?? undefined,
+        expand: req.query.get('expand') ?? undefined,
         page: req.query.get('page') ? parseInt(req.query.get('page')!, 10) : 1,
         perPage: req.query.get('perPage') ? parseInt(req.query.get('perPage')!, 10) : 20,
       });
