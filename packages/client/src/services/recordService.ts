@@ -1,0 +1,127 @@
+import { BaseService } from './baseService.js';
+import type { BaseForge } from '../client.js';
+import type {
+  RecordModel,
+  ListResult,
+  ListOptions,
+  GetOneOptions,
+} from '../types.js';
+import { ClientResponseError } from '../types.js';
+
+export class RecordService extends BaseService {
+  readonly collectionName: string;
+
+  constructor(client: BaseForge, collectionName: string) {
+    super(client);
+    this.collectionName = collectionName;
+  }
+
+  /** Path dasar endpoint koleksi */
+  protected get basePath(): string {
+    return `api/p/${this.client.projectId}/collections/${this.collectionName}/records`;
+  }
+
+  /**
+   * Mengambil daftar record dengan pagination, sorting, filtering, & expand
+   */
+  async getList<T = RecordModel>(
+    page = 1,
+    perPage = 20,
+    options: ListOptions = {}
+  ): Promise<ListResult<T>> {
+    const params: Record<string, unknown> = {
+      page,
+      perPage,
+      sort: options.sort,
+      filter: options.filter,
+      search: options.search,
+      expand: options.expand,
+    };
+
+    return this.request<ListResult<T>>(this.basePath, {
+      method: 'GET',
+      params,
+      headers: options.headers,
+    });
+  }
+
+  /**
+   * Mengambil SELURUH record dalam koleksi (otomatis mem-page hingga selesai)
+   */
+  async getFullList<T = RecordModel>(
+    batchSize = 200,
+    options: Omit<ListOptions, 'page' | 'perPage'> = {}
+  ): Promise<T[]> {
+    let page = 1;
+    const allItems: T[] = [];
+
+    while (true) {
+      const res = await this.getList<T>(page, batchSize, options);
+      allItems.push(...res.items);
+      if (res.page >= res.totalPages || res.items.length === 0) {
+        break;
+      }
+      page++;
+    }
+
+    return allItems;
+  }
+
+  /**
+   * Mengambil record pertama yang cocok dengan filter yang diberikan
+   */
+  async getFirstListItem<T = RecordModel>(
+    filter: string,
+    options: Omit<ListOptions, 'filter' | 'page' | 'perPage'> = {}
+  ): Promise<T> {
+    const res = await this.getList<T>(1, 1, { ...options, filter });
+    if (!res.items || res.items.length === 0) {
+      throw new ClientResponseError(404, `No record found matching filter: "${filter}"`, null, 'NOT_FOUND');
+    }
+    return res.items[0];
+  }
+
+  /**
+   * Mengambil satu baris record berdasarkan ID
+   */
+  async getOne<T = RecordModel>(id: string, options: GetOneOptions = {}): Promise<T> {
+    const res = await this.request<{ record: T }>(`${this.basePath}/${encodeURIComponent(id)}`, {
+      method: 'GET',
+      params: { expand: options.expand },
+      headers: options.headers,
+    });
+    return res.record;
+  }
+
+  /**
+   * Membuat record baru (menerima JSON object atau FormData untuk upload file)
+   */
+  async create<T = RecordModel>(data: Record<string, unknown> | FormData): Promise<T> {
+    const res = await this.request<{ record: T }>(this.basePath, {
+      method: 'POST',
+      body: data as BodyInit,
+    });
+    return res.record;
+  }
+
+  /**
+   * Mengubah record yang sudah ada
+   */
+  async update<T = RecordModel>(id: string, data: Record<string, unknown> | FormData): Promise<T> {
+    const res = await this.request<{ record: T }>(`${this.basePath}/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: data as BodyInit,
+    });
+    return res.record;
+  }
+
+  /**
+   * Menghapus record berdasarkan ID
+   */
+  async delete(id: string): Promise<boolean> {
+    await this.request(`${this.basePath}/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+    return true;
+  }
+}

@@ -12,11 +12,12 @@ Dokumentasi ini disusun untuk membantu developer membangun aplikasi dengan BaseF
 |---|---|
 | [**1. Getting Started**](./getting-started.md) | Prasyarat, instalasi, struktur proyek, konfigurasi environment (`.env`), dan kredensial bawaan. |
 | [**2. REST API Reference**](./api-reference.md) | Dokumentasi endpoint lengkap untuk aplikasi klien: Auth, CRUD Records, filter query, nested expand relasi, pencarian FTS5, dan file upload. |
-| [**3. API Rules (Security)**](./api-rules.md) | Konfigurasi keamanan Row-Level Security (RLS) berbasis ekspresi `@request.auth` dan aturan per-koleksi. |
-| [**4. Realtime Subscriptions**](./realtime.md) | Panduan langganan event data secara live melalui Server-Sent Events (SSE). |
-| [**5. Serverless Functions**](./functions.md) | Menulis fungsi kustom di sandbox V8 isolate (`isolated-vm`), triggers otomatis database, dan scheduler cron. |
-| [**6. Deployment & Production**](./deployment.md) | Panduan deploy ke server VPS menggunakan Linux Systemd, reverse proxy HTTPS Caddy, dan konfigurasi Redis. |
-| [**7. Architectural Learnings**](./learnings/README.md) | Jurnal teknis internal dan catatan pembelajaran milestone (M00 s/d M18). |
+| [**3. Client SDK (TypeScript)**](../packages/client/README.md) | SDK resmi `@wekanz/baseforge` untuk React, Next.js, Vue, React Native, dan Node.js. |
+| [**4. API Rules (Security)**](./api-rules.md) | Konfigurasi keamanan Row-Level Security (RLS) berbasis ekspresi `@request.auth` dan aturan per-koleksi. |
+| [**5. Realtime Subscriptions**](./realtime.md) | Panduan langganan event data secara live melalui Server-Sent Events (SSE). |
+| [**6. Serverless Functions**](./functions.md) | Menulis fungsi kustom di sandbox V8 isolate (`isolated-vm`), triggers otomatis database, dan scheduler cron. |
+| [**7. Deployment & Production**](./deployment.md) | Panduan deploy ke server VPS menggunakan Linux Systemd, reverse proxy HTTPS Caddy, dan konfigurasi Redis. |
+| [**8. Architectural Learnings**](./learnings/README.md) | Jurnal teknis internal dan catatan pembelajaran milestone (M00 s/d M18). |
 
 ---
 

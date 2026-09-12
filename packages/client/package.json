@@ -1,0 +1,39 @@
+{
+  "name": "@wekanz/baseforge",
+  "version": "0.1.0",
+  "description": "Official lightweight TypeScript/JavaScript SDK for WekanzBaseForge BaaS platform",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "node --test --import tsx tests/**/*.test.ts"
+  },
+  "keywords": [
+    "baseforge",
+    "baas",
+    "sdk",
+    "client",
+    "typescript",
+    "pocketbase",
+    "sqlite"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2"
+  }
+}

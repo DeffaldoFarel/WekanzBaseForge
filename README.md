@@ -97,6 +97,7 @@ Untuk panduan mendalam tentang penggunaan BaseForge sebagai BaaS (Backend-as-a-S
 
 * 📖 [**Portal Dokumentasi Utama**](docs/README.md)
 * 🚀 [**Panduan Memulai & Konfigurasi (.env)**](docs/getting-started.md)
+* 📦 [**Client SDK TypeScript (`@wekanz/baseforge`)**](packages/client/README.md)
 * 📡 [**REST API Reference (Auth, Records CRUD, Query Filter, Files, & Thumbnails)**](docs/api-reference.md)
 * 🔒 [**API Rules & Keamanan Row-Level (RLS)**](docs/api-rules.md)
 * ⚡ [**Serverless Functions, Database Triggers, & Scheduler Cron**](docs/functions.md)
@@ -204,12 +205,17 @@ WekanzBaseForge/
 │       ├── login/
 │       ├── projects/       ← daftar project (seperti Firebase home)
 │       └── projects/[id]/  ← detail project (per layanan)
+├── packages/
+│   └── client/             ← Official TypeScript Client SDK (@wekanz/baseforge)
+│       ├── src/
+│       └── README.md
 ├── data/                   ← semua data (seperti pb_data)
 │   ├── platform.db         ← admin accounts + project registry
 │   └── projects/<id>/
 │       ├── data.db         ← SQLite per project
 │       └── files/          ← storage per project
-├── docs/learnings/         ← jurnal "aha!" per milestone
+├── docs/                   ← Dokumentasi resmi BaaS & panduan deployment
+│   └── learnings/          ← jurnal "aha!" per milestone
 └── README.md
 ```
 
