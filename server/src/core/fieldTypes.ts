@@ -15,7 +15,10 @@ export type FieldType =
   | 'email'
   | 'date'
   | 'json'
-  | 'relation';
+  | 'relation'
+  | 'select'    // B1: dropdown pilihan
+  | 'autodate'  // B1: timestamp otomatis
+  | 'url';      // B1: URL tervalidasi
 
 export interface FieldDefinition {
   name: string;
@@ -29,6 +32,11 @@ export interface FieldDefinition {
     maxSelect?: number;
     /** D3: strategi saat record tujuan dihapus. Default 'setNull'. */
     cascadeDelete?: 'cascade' | 'setNull' | 'restrict';
+    /** B1 (select): daftar nilai yang diizinkan */
+    values?: string[];
+    /** B1 (autodate): update otomatis saat create/update */
+    onCreate?: boolean;
+    onUpdate?: boolean;
   };
 }
 
@@ -96,6 +104,13 @@ export function fieldToSql(field: FieldDefinition): string {
     case 'relation':
       // Menyimpan id record dari collection lain (detail di M12)
       return `${col} TEXT${notNull}`;
+    case 'select':
+    case 'url':
+      // B1: disimpan sebagai TEXT, validasi di aplikasi
+      return `${col} TEXT${notNull}`;
+    case 'autodate':
+      // B1: timestamp ISO otomatis (diisi oleh records.ts, bukan user)
+      return `${col} TEXT${notNull}`;
     default:
       throw new Error(`Unknown field type: ${field.type}`);
   }
@@ -132,6 +147,33 @@ export function validateValue(field: FieldDefinition, value: unknown): string | 
         return `Field '${field.name}' must be a valid email`;
       return null;
     }
+    case 'url': {
+      // B1: validasi format URL http/https
+      if (typeof value !== 'string') return `Field '${field.name}' must be a string`;
+      try {
+        const u = new URL(value);
+        if (u.protocol !== 'http:' && u.protocol !== 'https:') {
+          return `Field '${field.name}' must be an http/https URL`;
+        }
+        return null;
+      } catch {
+        return `Field '${field.name}' must be a valid URL`;
+      }
+    }
+    case 'select': {
+      // B1: nilai harus salah satu dari options.values
+      if (typeof value !== 'string') return `Field '${field.name}' must be a string`;
+      const allowed = field.options?.values ?? [];
+      if (allowed.length > 0 && !allowed.includes(value)) {
+        return `Field '${field.name}' must be one of: ${allowed.join(', ')}`;
+      }
+      return null;
+    }
+    case 'autodate':
+      // B1: autodate diisi otomatis oleh sistem — nilai dari user diabaikan/ditolak
+      // (di-handle records.ts). Di sini kita hanya terima string atau null.
+      if (typeof value !== 'string') return `Field '${field.name}' must be a date string`;
+      return null;
     case 'json':
       // Apapun boleh, asal bisa di-serialize
       try {

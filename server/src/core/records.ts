@@ -176,7 +176,17 @@ export function createRecord(
   const placeholders: string[] = ['?'];
   const params: unknown[] = [id];
 
+  const now = new Date().toISOString();
+
   for (const field of meta.fields) {
+    // B1: autodate diisi otomatis saat create (jika onCreate aktif)
+    if (field.type === 'autodate' && field.options?.onCreate) {
+      columns.push(`"${field.name}"`);
+      placeholders.push('?');
+      params.push(now);
+      continue;
+    }
+
     if (field.name in data) {
       columns.push(`"${field.name}"`);
       placeholders.push('?');
@@ -192,6 +202,31 @@ export function createRecord(
   }
 
   return getRecord(db, collection, id)!;
+}
+
+// ─── B3.2: BATCH CREATE — insert banyak record dalam SATU transaksi ─────────
+// Jauh lebih cepat dari createRecord berulang (ingat M02: transaksi = 230x!)
+// dan atomik: satu gagal → semua batal (tidak ada setengah jadi).
+
+export function createRecordsBatch(
+  db: DatabaseSync,
+  collection: string,
+  recordsData: Record<string, unknown>[]
+): ForgeRecord[] {
+  mustGetCollection(db, collection);
+
+  const created: ForgeRecord[] = [];
+  db.exec('BEGIN');
+  try {
+    for (const data of recordsData) {
+      created.push(createRecord(db, collection, data));
+    }
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
+  return created;
 }
 
 // ─── READ ONE ────────────────────────────────────────────────────────────────
@@ -227,6 +262,16 @@ export function updateRecord(
   // Validasi & bangun SET clause
   const setClauses: string[] = [`"updated" = strftime('%Y-%m-%dT%H:%M:%fZ','now')`];
   const params: unknown[] = [];
+
+  const now = new Date().toISOString();
+
+  // B1: autodate dengan onUpdate → perbarui otomatis
+  for (const field of meta.fields) {
+    if (field.type === 'autodate' && field.options?.onUpdate) {
+      setClauses.push(`"${field.name}" = ?`);
+      params.push(now);
+    }
+  }
 
   for (const [key, value] of Object.entries(data)) {
     const field = fmap.get(key);

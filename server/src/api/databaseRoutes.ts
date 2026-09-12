@@ -10,14 +10,19 @@
 import { Router } from '../core/router.js';
 import { requireAdmin } from '../platform/adminAuth.js';
 import { getProjectDb, closeProjectDb } from '../core/projectDbManager.js';
+import { projectDbPath, projectDir } from '../core/platformDb.js';
+import fs from 'node:fs';
+import path from 'node:path';
 import {
   defineCollection,
   getCollectionByName,
   listCollections,
   deleteCollection,
+  duplicateCollection,
 } from '../core/schema.js';
 import {
   createRecord,
+  createRecordsBatch,
   getRecord,
   updateRecord,
   deleteRecord,
@@ -169,6 +174,104 @@ export function createDatabaseRouter(): Router {
         return;
       }
       res.json({ success: true });
+    } catch (err) {
+      handleError(res, err);
+    }
+  });
+
+  // ════════════════════════════════════════════════════════════════════════
+  // B3: UTILITAS (duplikasi collection + batch API)
+  // ════════════════════════════════════════════════════════════════════════
+
+  // POST /api/admin/projects/:pid/collections/:name/duplicate
+  //   body: { newName, withData? }
+  router.post('/api/admin/projects/:pid/collections/:name/duplicate', requireAdmin, (req, res) => {
+    try {
+      const db = getProjectDb(req.params.pid);
+      const body = req.body as { newName?: string; withData?: boolean } | undefined;
+
+      if (!body?.newName) {
+        res.status(400).json({
+          error: { code: 'BAD_REQUEST', message: 'newName wajib diisi' },
+        });
+        return;
+      }
+
+      const created = duplicateCollection(db, req.params.name, body.newName, {
+        withData: body.withData ?? false,
+      });
+      res.status(201).json({ collection: created });
+    } catch (err) {
+      handleError(res, err);
+    }
+  });
+
+  // POST /api/admin/projects/:pid/collections/:name/records/batch
+  //   body: { records: [...] } → insert semua dalam 1 transaksi (atomik)
+  router.post('/api/admin/projects/:pid/collections/:name/records/batch', requireAdmin, (req, res) => {
+    try {
+      const db = getProjectDb(req.params.pid);
+      const body = req.body as { records?: Record<string, unknown>[] } | undefined;
+
+      if (!Array.isArray(body?.records)) {
+        res.status(400).json({
+          error: { code: 'BAD_REQUEST', message: 'records harus berupa array' },
+        });
+        return;
+      }
+
+      const created = createRecordsBatch(db, req.params.name, body.records);
+      res.status(201).json({ records: created, count: created.length });
+    } catch (err) {
+      handleError(res, err);
+    }
+  });
+
+  // ════════════════════════════════════════════════════════════════════════
+  // B2: BACKUP & RESTORE
+  // ════════════════════════════════════════════════════════════════════════
+
+  // POST /api/admin/projects/:pid/backup — backup database project → file .db
+  // SQLite memudahkan backup: VACUUM INTO membuat salinan konsisten.
+  router.post('/api/admin/projects/:pid/backup', requireAdmin, (req, res) => {
+    try {
+      const db = getProjectDb(req.params.pid);
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const backupName = `backup-${req.params.pid}-${timestamp}.db`;
+      const backupPath = projectDbPath(req.params.pid).replace('data.db', backupName);
+
+      // VACUUM INTO = salinan database yang konsisten & terkompak
+      db.exec(`VACUUM INTO '${backupPath.replace(/'/g, "''")}'`);
+
+      res.json({
+        success: true,
+        backup: backupName,
+        path: backupPath,
+        sizeBytes: fs.statSync(backupPath).size,
+      });
+    } catch (err) {
+      handleError(res, err);
+    }
+  });
+
+  // GET /api/admin/projects/:pid/backups — daftar file backup yang ada
+  router.get('/api/admin/projects/:pid/backups', requireAdmin, (req, res) => {
+    try {
+      const dir = projectDir(req.params.pid);
+      if (!fs.existsSync(dir)) {
+        res.json({ backups: [] });
+        return;
+      }
+      const backups = fs
+        .readdirSync(dir)
+        .filter((f) => f.startsWith('backup-') && f.endsWith('.db'))
+        .map((f) => ({
+          name: f,
+          sizeBytes: fs.statSync(path.join(dir, f)).size,
+          modified: fs.statSync(path.join(dir, f)).mtime.toISOString(),
+        }))
+        .sort((a, b) => b.modified.localeCompare(a.modified));
+      res.json({ backups });
     } catch (err) {
       handleError(res, err);
     }

@@ -505,6 +505,39 @@ function defaultValueForType(field: FieldDefinition): string {
   }
 }
 
+// ─── B3.1: DUPLICATE COLLECTION ──────────────────────────────────────────────
+// Menyalin skema collection ke nama baru, opsional beserta datanya.
+
+export function duplicateCollection(
+  db: DatabaseSync,
+  sourceName: string,
+  newName: string,
+  options: { withData?: boolean } = {}
+): CollectionMeta {
+  const source = getCollectionByName(db, sourceName);
+  if (!source) {
+    throw new Error(`Collection sumber '${sourceName}' tidak ditemukan`);
+  }
+  if (getCollectionByName(db, newName)) {
+    throw new Error(`Collection '${newName}' sudah ada`);
+  }
+
+  // Buat collection baru dengan skema sama
+  const created = defineCollection(db, {
+    name: newName,
+    fields: source.fields,
+    indexes: source.indexes,
+  });
+
+  // Salin data kalau diminta
+  if (options.withData) {
+    const cols = ['id', 'created', 'updated', ...source.fields.map((f) => `"${f.name}"`)].join(', ');
+    db.exec(`INSERT INTO "${newName}" (${cols}) SELECT ${cols} FROM "${sourceName}"`);
+  }
+
+  return created;
+}
+
 // ─── Helper ──────────────────────────────────────────────────────────────────
 
 function rowToMeta(row: CollectionRow): CollectionMeta {
