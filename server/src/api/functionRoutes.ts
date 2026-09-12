@@ -60,6 +60,7 @@ export function createFunctionRouter(): Router {
         enabled?: boolean;
         timeoutMs?: number;
         triggers?: { collection: string; actions: string[] }[];
+        schedule?: string | null;
       };
       if (!body.name || !body.code) {
         res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'name dan code wajib' } });
@@ -88,6 +89,7 @@ export function createFunctionRouter(): Router {
         enabled: body.enabled,
         timeoutMs: body.timeoutMs,
         triggers,
+        schedule: body.schedule,
       });
       res.status(201).json({ function: fn });
     } catch (err) {
@@ -130,6 +132,7 @@ export function createFunctionRouter(): Router {
         enabled?: boolean;
         timeoutMs?: number;
         triggers?: { collection: string; actions: string[] }[];
+        schedule?: string | null;
       };
       // Validasi trigger collection terhadap skema project
       let triggers;
@@ -148,7 +151,13 @@ export function createFunctionRouter(): Router {
           actions: t.actions as ('create' | 'update' | 'delete')[],
         }));
       }
-      const fn = updateFunction(db, req.params.name, { ...body, triggers });
+      const fn = updateFunction(db, req.params.name, {
+        code: body.code,
+        enabled: body.enabled,
+        timeoutMs: body.timeoutMs,
+        triggers,
+        schedule: body.schedule,
+      });
       if (!fn) {
         res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Function tidak ditemukan' } });
         return;

@@ -18,6 +18,7 @@ import { createUserAdminRouter } from './api/userAdminRoutes.js';
 import { createStorageRouter } from './api/storageRoutes.js';
 import { createRealtimeRouter } from './api/realtimeRoutes.js';
 import { createFunctionRouter } from './api/functionRoutes.js';
+import { scheduler } from './core/scheduler.js';
 import { Router, type Middleware } from './core/router.js';
 
 const PORT = parseInt(process.env.PORT ?? '5100', 10);
@@ -76,12 +77,27 @@ async function main(): Promise<void> {
   });
 
   server.listen(PORT, () => {
+    // M15c: scheduler cron — mulai setelah server listen (DB sudah siap).
+    // dbProvider: scheduler membaca DB project pertama? TIDAK — function
+    // milik tiap project. Untuk M15c v1: scheduler cek SEMUA project via
+    // listProjectDbs. (Lihat scheduler.start menerima array provider.)
     console.log('');
     console.log('🛠️  WekanzBaseForge server running');
     console.log(`   → http://localhost:${PORT}`);
     console.log(`   → Health: http://localhost:${PORT}/api/health`);
     console.log('');
+    scheduler.start(getProjectDbProviders());
   });
+}
+
+// M15c: scheduler butuh akses ke SEMUA project DB (function milik project)
+import { listProjects } from './core/platformDb.js';
+import { getProjectDb } from './core/projectDbManager.js';
+import type { DatabaseSync } from 'node:sqlite';
+
+function getProjectDbProviders(): (() => DatabaseSync)[] {
+  const projects = listProjects();
+  return projects.map((p) => () => getProjectDb(p.id));
 }
 
 main().catch((err) => {

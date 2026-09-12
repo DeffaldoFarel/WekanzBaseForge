@@ -30,6 +30,10 @@ export interface FunctionRunOptions {
     record: Record<string, unknown>;
     previous?: Record<string, unknown> | null;
   };
+  // M15c: konteks scheduled run — req = { scheduled: true, time }
+  scheduledContext?: {
+    time: string; // ISO timestamp
+  };
 }
 
 export interface FunctionRunResult {
@@ -74,13 +78,19 @@ export function runFunctionCode(code: string, opts: FunctionRunOptions = {}): Fu
   };
 
   // ── Sandbox context — inilah SELURUH dunia yang dilihat kode user ──
+  // M15c: scheduledContext > triggerContext > callable (urutan prioritas)
+  let req: unknown;
+  if (opts.scheduledContext) {
+    req = { scheduled: true, time: opts.scheduledContext.time };
+  } else if (opts.triggerContext) {
+    req = opts.triggerContext;
+  } else {
+    req = { body: opts.body ?? {}, query: opts.query ?? {}, auth: opts.auth ?? null };
+  }
+
   const sandbox = {
     console: sandboxConsole,
-    req: opts.triggerContext ?? {
-      body: opts.body ?? {},
-      query: opts.query ?? {},
-      auth: opts.auth ?? null, // { id, email } | null
-    },
+    req,
     // Utilitas aman yang KITA izinkan (tidak membawa akses host):
     JSON,
     Math,

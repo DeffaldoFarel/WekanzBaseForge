@@ -11,6 +11,7 @@
 
 import { DatabaseSync } from 'node:sqlite';
 import { generateId } from './router.js';
+import { parseCron } from './cronParser.js';
 
 export interface FunctionTrigger {
   collection: string; // nama collection yang dipantau
@@ -24,6 +25,7 @@ export interface StoredFunction {
   enabled: boolean;
   timeoutMs: number;
   triggers: FunctionTrigger[]; // M15b: kosong = hanya callable
+  schedule: string | null; // M15c: cron expression (null = bukan scheduled)
   created: string;
   updated: string;
 }
@@ -35,6 +37,7 @@ interface FunctionRow {
   enabled: number;
   timeout_ms: number;
   triggers: string | null; // JSON string — M15b
+  schedule: string | null; // M15c
   created: string;
   updated: string;
 }
@@ -65,6 +68,11 @@ export function initFunctionsTable(db: DatabaseSync): void {
   if (!cols.some((c) => c.name === 'triggers')) {
     db.exec(`ALTER TABLE _functions ADD COLUMN triggers TEXT NOT NULL DEFAULT '[]'`);
   }
+
+  // M15c: kolom schedule (cron expression, nullable)
+  if (!cols.some((c) => c.name === 'schedule')) {
+    db.exec(`ALTER TABLE _functions ADD COLUMN schedule TEXT`);
+  }
 }
 
 function rowToFunction(row: FunctionRow): StoredFunction {
@@ -82,6 +90,7 @@ function rowToFunction(row: FunctionRow): StoredFunction {
     enabled: row.enabled === 1,
     timeoutMs: row.timeout_ms,
     triggers,
+    schedule: row.schedule ?? null,
     created: row.created,
     updated: row.updated,
   };
@@ -91,7 +100,7 @@ function rowToFunction(row: FunctionRow): StoredFunction {
 
 export function createFunction(
   db: DatabaseSync,
-  def: { name: string; code: string; enabled?: boolean; timeoutMs?: number; triggers?: FunctionTrigger[] }
+  def: { name: string; code: string; enabled?: boolean; timeoutMs?: number; triggers?: FunctionTrigger[]; schedule?: string | null }
 ): StoredFunction {
   if (!isValidFunctionName(def.name)) {
     throw new Error(
@@ -112,6 +121,17 @@ export function createFunction(
 
   const triggers = validateTriggers(def.triggers ?? []);
 
+  // M15c: validasi schedule (cron) — invalid ditolak di pintu
+  let schedule: string | null = null;
+  if (def.schedule !== undefined && def.schedule !== null) {
+    if (typeof def.schedule !== 'string' || def.schedule.trim() === '') {
+      schedule = null;
+    } else {
+      parseCron(def.schedule); // lempar kalau invalid
+      schedule = def.schedule.trim();
+    }
+  }
+
   const existing = getFunctionByName(db, def.name);
   if (existing) {
     throw new Error(`Function '${def.name}' already exists`);
@@ -119,8 +139,8 @@ export function createFunction(
 
   const id = generateId();
   db.prepare(
-    `INSERT INTO _functions (id, name, code, enabled, timeout_ms, triggers) VALUES (?, ?, ?, ?, ?, ?)`
-  ).run(id, def.name, def.code, def.enabled === false ? 0 : 1, timeoutMs, JSON.stringify(triggers));
+    `INSERT INTO _functions (id, name, code, enabled, timeout_ms, triggers, schedule) VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).run(id, def.name, def.code, def.enabled === false ? 0 : 1, timeoutMs, JSON.stringify(triggers), schedule);
 
   return getFunctionByName(db, def.name)!;
 }
@@ -165,7 +185,7 @@ export function getFunctionByName(db: DatabaseSync, name: string): StoredFunctio
 export function updateFunction(
   db: DatabaseSync,
   name: string,
-  updates: { code?: string; enabled?: boolean; timeoutMs?: number; triggers?: FunctionTrigger[] }
+  updates: { code?: string; enabled?: boolean; timeoutMs?: number; triggers?: FunctionTrigger[]; schedule?: string | null }
 ): StoredFunction | undefined {
   const existing = getFunctionByName(db, name);
   if (!existing) return undefined;
@@ -183,6 +203,16 @@ export function updateFunction(
   if (updates.triggers !== undefined) {
     triggersJson = JSON.stringify(validateTriggers(updates.triggers));
   }
+  // M15c: schedule — string valid / null (hapus schedule)
+  let scheduleValue: string | null | undefined;
+  if (updates.schedule !== undefined) {
+    if (updates.schedule === null || (typeof updates.schedule === 'string' && updates.schedule.trim() === '')) {
+      scheduleValue = null;
+    } else {
+      parseCron(updates.schedule); // lempar kalau invalid
+      scheduleValue = updates.schedule.trim();
+    }
+  }
 
   db.prepare(
     `UPDATE _functions SET
@@ -190,6 +220,7 @@ export function updateFunction(
        enabled = COALESCE(?, enabled),
        timeout_ms = COALESCE(?, timeout_ms),
        triggers = COALESCE(?, triggers),
+       schedule = ?,
        updated = strftime('%Y-%m-%dT%H:%M:%fZ','now')
      WHERE name = ?`
   ).run(
@@ -197,6 +228,7 @@ export function updateFunction(
     updates.enabled === undefined ? null : updates.enabled ? 1 : 0,
     updates.timeoutMs ?? null,
     triggersJson,
+    scheduleValue !== undefined ? scheduleValue : existing.schedule, // undefined = tidak disentuh
     name
   );
 
