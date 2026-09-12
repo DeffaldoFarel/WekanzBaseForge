@@ -30,6 +30,7 @@ import {
 import { getCollectionByName } from '../core/schema.js';
 import type { DatabaseSync } from 'node:sqlite';
 import { deleteRecordFiles } from '../core/storage.js';
+import { realtimeHub } from '../core/realtime.js';
 
 // ─── Helper: identitas pemanggil (admin ATAU end user) ──────────────────────
 // - Bearer JWT admin (login admin) → bypass rules (undefined ctx)
@@ -165,6 +166,8 @@ export function createPublicRouter(): Router {
       const body = prepareBodyData(req, db, req.params.pid, req.params.name, preId);
 
       const record = createRecord(db, req.params.name, body, reqCtx, preId);
+      // M13: broadcast ke realtime subscribers (setelah DB sukses)
+      realtimeHub.publish(db, meta, 'create', record as Record<string, unknown>);
       res.status(201).json({ record });
     } catch (err) {
       handleErrorPublic(res, err);
@@ -194,6 +197,9 @@ export function createPublicRouter(): Router {
         cleanupReplacedFiles(req.params.pid, meta, req.params.id, oldRecord, body);
       }
 
+      // M13: broadcast ke realtime subscribers
+      realtimeHub.publish(db, meta, 'update', record as Record<string, unknown>);
+
       res.json({ record });
     } catch (err) {
       handleErrorPublic(res, err);
@@ -205,14 +211,16 @@ export function createPublicRouter(): Router {
     try {
       const db = getProjectDb(req.params.pid);
       const reqCtx = resolveEndUserCtx(req);
+      const meta = getCollectionByName(db, req.params.name);
       const ok = deleteRecord(db, req.params.name, req.params.id, reqCtx);
       if (!ok) {
         res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Record tidak ditemukan' } });
         return;
       }
       // M14: hapus file fisik (setelah DB sukses)
-      const meta = getCollectionByName(db, req.params.name);
       if (meta) {
+        // M13: broadcast delete (record id terakhir yang diketahui subscriber)
+        realtimeHub.publish(db, meta, 'delete', { id: req.params.id } as Record<string, unknown>);
         // record sudah terhapus — kita tak punya isinya; deleteRecordFiles by prefix
         deleteRecordFiles(req.params.pid, req.params.id);
       }

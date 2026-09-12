@@ -92,7 +92,7 @@ BaseForge (1 instalasi)
 - [x] M14b — Thumbnails ala PocketBase (?thumb=WxH, lazy + cache, Sharp) ✅
 
 ### 📡 Tambahan
-- [ ] M13 — Realtime subscriptions (WebSocket)
+- [x] M13 — Realtime subscriptions (SSE ala PocketBase) ✅
 
 ### 🔮 Fitur lanjutan (opsional)
 - [ ] View collections (SQL views read-only)
