@@ -8,6 +8,7 @@
 // ============================================================================
 
 import { Router } from '../core/router.js';
+import { generateId } from '../core/router.js';
 import { getProjectDb } from '../core/projectDbManager.js';
 import { requireAdmin, validateToken } from '../platform/adminAuth.js';
 import { verifyToken } from '../auth/jwt.js';
@@ -21,11 +22,42 @@ import {
 } from '../core/records.js';
 import { RequestContext } from '../core/query/sqlBuilder.js';
 import { ForbiddenError } from '../core/rules.js';
+import {
+  multipartToRecordData,
+  cleanupReplacedFiles,
+  cleanupAllRecordFiles,
+} from '../core/records.js';
+import { getCollectionByName } from '../core/schema.js';
+import type { DatabaseSync } from 'node:sqlite';
+import { deleteRecordFiles } from '../core/storage.js';
 
 // ─── Helper: identitas pemanggil (admin ATAU end user) ──────────────────────
 // - Bearer JWT admin (login admin) → bypass rules (undefined ctx)
 // - Bearer JWT end user (M09u)     → reqCtx = { auth: {...} }
 // - Anonymous                      → reqCtx = { auth: null } (rules tetap jalan)
+
+// M14: siapkan data dari body JSON ATAU multipart (file upload)
+function prepareBodyData(
+  req: { isMultipart?: boolean; rawBody?: Buffer; body: unknown; headers: { 'content-type'?: string } },
+  db: DatabaseSync,
+  projectId: string,
+  collectionName: string,
+  recordId: string // untuk create: id harus sudah dibuat dulu oleh caller
+): Record<string, unknown> {
+  const reqExt = req as { isMultipart?: boolean; rawBody?: Buffer; body: unknown; headers: { 'content-type'?: string } };
+  if (reqExt.isMultipart && reqExt.rawBody) {
+    const meta = getCollectionByName(db, collectionName);
+    if (!meta) throw new Error(`Collection '${collectionName}' tidak ditemukan`);
+    return multipartToRecordData(
+      projectId,
+      meta,
+      recordId,
+      reqExt.rawBody,
+      reqExt.headers['content-type'] ?? ''
+    );
+  }
+  return (reqExt.body ?? {}) as Record<string, unknown>;
+}
 
 // Admin token = token sesi admin. Kita bedakan dengan cek session store.
 function isAdminToken(token: string): boolean {
@@ -123,8 +155,16 @@ export function createPublicRouter(): Router {
     try {
       const db = getProjectDb(req.params.pid);
       const reqCtx = resolveEndUserCtx(req);
-      const body = (req.body ?? {}) as Record<string, unknown>;
-      const record = createRecord(db, req.params.name, body, reqCtx);
+
+      // M14: multipart perlu recordId SEBELUM insert (nama file = <id>_<filename>).
+      // Kita generate id di sini dan pass ke createRecord via data hack:
+      // cara bersih = createRecord menerima optional preGeneratedId.
+      const meta = getCollectionByName(db, req.params.name);
+      if (!meta) throw new Error(`Collection '${req.params.name}' tidak ditemukan`);
+      const preId = generateId();
+      const body = prepareBodyData(req, db, req.params.pid, req.params.name, preId);
+
+      const record = createRecord(db, req.params.name, body, reqCtx, preId);
       res.status(201).json({ record });
     } catch (err) {
       handleErrorPublic(res, err);
@@ -136,12 +176,24 @@ export function createPublicRouter(): Router {
     try {
       const db = getProjectDb(req.params.pid);
       const reqCtx = resolveEndUserCtx(req);
-      const body = (req.body ?? {}) as Record<string, unknown>;
+      const meta = getCollectionByName(db, req.params.name);
+      if (!meta) throw new Error(`Collection '${req.params.name}' tidak ditemukan`);
+
+      // M14: snapshot file lama SEBELUM update (untuk cleanup yang diganti)
+      const oldRecord = getRecordRawPublic(db, req.params.name, req.params.id);
+      const body = prepareBodyData(req, db, req.params.pid, req.params.name, req.params.id);
+
       const record = updateRecord(db, req.params.name, req.params.id, body, reqCtx);
       if (!record) {
         res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Record tidak ditemukan' } });
         return;
       }
+
+      // M14: hapus file lama yang diganti (setelah UPDATE sukses)
+      if (oldRecord) {
+        cleanupReplacedFiles(req.params.pid, meta, req.params.id, oldRecord, body);
+      }
+
       res.json({ record });
     } catch (err) {
       handleErrorPublic(res, err);
@@ -158,6 +210,12 @@ export function createPublicRouter(): Router {
         res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Record tidak ditemukan' } });
         return;
       }
+      // M14: hapus file fisik (setelah DB sukses)
+      const meta = getCollectionByName(db, req.params.name);
+      if (meta) {
+        // record sudah terhapus — kita tak punya isinya; deleteRecordFiles by prefix
+        deleteRecordFiles(req.params.pid, req.params.id);
+      }
       res.json({ success: true });
     } catch (err) {
       handleErrorPublic(res, err);
@@ -165,6 +223,18 @@ export function createPublicRouter(): Router {
   });
 
   return router;
+}
+
+// ─── M14: ambil record utk snapshot file lama (API layer) ────────────────────
+
+function getRecordRawPublic(
+  db: DatabaseSync,
+  collection: string,
+  id: string
+): Record<string, unknown> | null {
+  // Pakai getRecord tanpa ctx (admin view — bypass rules)
+  const rec = getRecord(db, collection, id);
+  return rec as unknown as Record<string, unknown> | null;
 }
 
 // ─── Helper: resolve JWT → RequestContext (untuk end user) ──────────────────

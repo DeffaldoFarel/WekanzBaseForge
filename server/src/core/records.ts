@@ -15,6 +15,8 @@ import { getCollectionByName, listCollections, CollectionMeta } from './schema.j
 import { FieldDefinition, validateValue } from './fieldTypes.js';
 import { filterToSql, RequestContext } from './query/sqlBuilder.js';
 import { decideRule, evaluateRuleOnData, ForbiddenError, CollectionRules } from './rules.js';
+import { parseMultipart, extractBoundary, MultipartFile } from './multipart.js';
+import { saveFile, deleteFile, deleteRecordFiles, storedFilenames } from './storage.js';
 
 // ─── Tipe ────────────────────────────────────────────────────────────────────
 
@@ -47,6 +49,117 @@ export type RulesCtx = RequestContext | undefined;
 // M11: pilih rule yang relevan + evaluasi
 function ruleFor(meta: CollectionMeta, op: keyof CollectionRules): string | null {
   return meta.rules[op] ?? null;
+}
+
+// ─── M14: MULTIPART → DATA (dipanggil dari API layer sebelum createRecord) ──
+// Mengubah multipart form menjadi: field teks + nama file tersimpan.
+// File fisik ditulis ke disk DI SINI (setelah recordId diketahui).
+//
+// Flow create: id dibuat dulu → file disimpan sebagai <id>_<filename> →
+// data field file = nama tersimpan → INSERT.
+
+export function multipartToRecordData(
+  projectId: string,
+  meta: CollectionMeta,
+  recordId: string,
+  body: Buffer,
+  contentType: string
+): Record<string, unknown> {
+  const boundary = extractBoundary(contentType);
+  if (!boundary) throw new Error('Malformed multipart: boundary tidak ditemukan');
+
+  const { fields, files } = parseMultipart(body, boundary);
+  const data: Record<string, unknown> = { ...fields };
+  const fmap = fieldMap(meta);
+
+  // Kelompokkan file per field
+  const filesByField = new Map<string, MultipartFile[]>();
+  for (const f of files) {
+    const arr = filesByField.get(f.fieldName) ?? [];
+    arr.push(f);
+    filesByField.set(f.fieldName, arr);
+  }
+
+  for (const [fieldName, fieldFiles] of filesByField) {
+    const field = fmap.get(fieldName);
+    if (!field) {
+      throw new Error(`Field '${fieldName}' tidak ada di collection '${meta.name}'`);
+    }
+    if (field.type !== 'file') {
+      throw new Error(`Field '${fieldName}' bukan tipe file — upload ditolak`);
+    }
+
+    const isMulti = (field.options?.maxSelect ?? 1) > 1;
+    const maxSize = field.options?.maxSize ?? 5 * 1024 * 1024; // 5 MB default
+
+    // Validasi ukuran SEBELUM simpan apa pun ke disk
+    for (const f of fieldFiles) {
+      if (f.data.length > maxSize) {
+        throw new Error(
+          `File '${f.filename}' melebihi batas ${Math.floor(maxSize / 1024 / 1024)} MB untuk field '${fieldName}'`
+        );
+      }
+    }
+
+    if (isMulti) {
+      const stored: string[] = [];
+      for (const f of fieldFiles) {
+        stored.push(saveFile(projectId, recordId, f.filename, f.data));
+      }
+      data[fieldName] = stored;
+    } else {
+      if (fieldFiles.length > 1) {
+        throw new Error(`Field '${fieldName}' hanya menerima 1 file (maxSelect=1)`);
+      }
+      data[fieldName] = saveFile(projectId, recordId, fieldFiles[0].filename, fieldFiles[0].data);
+    }
+  }
+
+  return data;
+}
+
+// ─── M14: hapus file lama yang diganti saat update ──────────────────────────
+
+export function cleanupReplacedFiles(
+  projectId: string,
+  meta: CollectionMeta,
+  recordId: string,
+  oldRecord: Record<string, unknown>,
+  newData: Record<string, unknown>
+): void {
+  const fmap = fieldMap(meta);
+  for (const [key, field] of fmap) {
+    if (field.type !== 'file' || !(key in newData)) continue;
+    const oldFiles = storedFilenames(oldRecord[key]);
+    const newFiles = storedFilenames(newData[key]);
+    for (const f of oldFiles) {
+      if (!newFiles.includes(f)) {
+        deleteFile(projectId, recordId, f);
+      }
+    }
+  }
+}
+
+// ─── M14: hapus SEMUA file record (dipanggil deleteRecord) ──────────────────
+
+export function cleanupAllRecordFiles(
+  projectId: string,
+  meta: CollectionMeta,
+  recordId: string,
+  record: Record<string, unknown>
+): void {
+  const fmap = fieldMap(meta);
+  let hasFiles = false;
+  for (const [key, field] of fmap) {
+    if (field.type === 'file') {
+      hasFiles = true;
+      for (const f of storedFilenames(record[key])) {
+        deleteFile(projectId, recordId, f);
+      }
+    }
+  }
+  // Fallback: hapus sisa file dengan prefix record (berjaga kalau ada orphan)
+  if (hasFiles) deleteRecordFiles(projectId, recordId);
 }
 
 // ─── Helper: ambil skema collection (gagal jelas kalau tidak ada) ────────────
@@ -115,6 +228,14 @@ function serializeValue(field: FieldDefinition, value: unknown): unknown {
       }
       return value; // single: string biasa
     }
+    case 'file': {
+      // M14: multi-file disimpan sebagai JSON array string (sama dgn relation)
+      const isMulti = (field.options?.maxSelect ?? 1) > 1;
+      if (isMulti) {
+        return JSON.stringify(value);
+      }
+      return value;
+    }
     default:
       return value;
   }
@@ -150,6 +271,16 @@ function deserializeRow(meta: CollectionMeta, row: Record<string, unknown>): For
         }
       }
       // single relation: biarkan string apa adanya
+    } else if (field.type === 'file' && typeof value === 'string') {
+      // M14: multi-file disimpan sebagai JSON array → parse kembali
+      const isMulti = (field.options?.maxSelect ?? 1) > 1;
+      if (isMulti) {
+        try {
+          result[key] = JSON.parse(value);
+        } catch {
+          result[key] = [];
+        }
+      }
     }
   }
 
@@ -162,7 +293,8 @@ export function createRecord(
   db: DatabaseSync,
   collection: string,
   data: Record<string, unknown>,
-  reqCtx?: RequestContext
+  reqCtx?: RequestContext,
+  preGeneratedId?: string // M14: multipart butuh id SEBELUM insert (nama file)
 ): ForgeRecord {
   const meta = mustGetCollection(db, collection);
   const fmap = fieldMap(meta);
@@ -199,7 +331,7 @@ export function createRecord(
   }
 
   // ── Bangun INSERT secara dinamis dari skema ──
-  const id = generateId();
+  const id = preGeneratedId ?? generateId();
   const columns: string[] = ['id'];
   const placeholders: string[] = ['?'];
   const params: unknown[] = [id];
@@ -324,6 +456,10 @@ export function updateRecord(
     }
   }
 
+  // ── M14: simpan file baru yang di-upload via multipart & hapus yang diganti ──
+  // data di sini bisa mengandung nama file tersimpan (dari multipartToRecordData)
+  // atau file lama yang tetap dipakai — cleanupReplacedFiles membandingkan.
+
   // Validasi & bangun SET clause
   const setClauses: string[] = [`"updated" = strftime('%Y-%m-%dT%H:%M:%fZ','now')`];
   const params: unknown[] = [];
@@ -352,6 +488,11 @@ export function updateRecord(
     setClauses.push(`"${key}" = ?`);
     params.push(serializeValue(field, value));
   }
+
+  // ── M14: hapus file lama yang DIGANTI (sebelum UPDATE — kalau UPDATE gagal,
+  // file sudah hilang... jadi urutan aman: UPDATE dulu, baru hapus file) ──
+  // Catatan arsitektur: cleanup dilakukan oleh API layer setelah sukses
+  // (lihat publicRoutes) karena core tidak tahu projectId.
 
   params.push(id);
   const sql = `UPDATE "${collection}" SET ${setClauses.join(', ')} WHERE id = ?`;
@@ -496,6 +637,7 @@ export function deleteRecord(
     const result = db.prepare(`DELETE FROM "${collection}" WHERE id = ?`).run(id);
 
     db.exec('COMMIT');
+
     return result.changes > 0;
   } catch (err) {
     db.exec('ROLLBACK');

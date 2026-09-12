@@ -144,12 +144,27 @@ export class Router {
 
     const res = makeResponse(rawRes);
 
-    // Baca body JSON (jika ada). Perhatikan: body datang sebagai STREAM —
+    // Baca body (jika ada). Perhatikan: body datang sebagai STREAM —
     // kita harus mengumpulkannya chunk demi chunk. Inilah yang disembunyikan
     // express.json() darimu selama ini!
+    //
+    // M14: kalau Content-Type = multipart/form-data → simpan Buffer mentah
+    // + informasi multipart di req (parser dijalankan oleh handler yang
+    // butuh — supaya endpoint JSON tidak membayar biaya parsing).
     let body: unknown = undefined;
+    let rawBody: Buffer | undefined;
+    const contentTypeHeader = String(rawReq.headers['content-type'] ?? '');
+    const isMultipart = contentTypeHeader.startsWith('multipart/form-data');
     if (method === 'POST' || method === 'PATCH' || method === 'PUT') {
-      body = await readJsonBody(rawReq);
+      rawBody = await readRawBody(rawReq);
+      if (!isMultipart && rawBody.length > 0) {
+        try {
+          const text = rawBody.toString('utf-8');
+          body = JSON.parse(text);
+        } catch {
+          throw new Error('Invalid JSON body');
+        }
+      }
     }
 
     const req: ForgeRequest = {
@@ -161,6 +176,9 @@ export class Router {
       body,
       raw: rawReq,
     };
+    // M14: lampirkan buffer mentah + flag multipart (ekstensi request)
+    (req as ForgeRequest & { rawBody?: Buffer; isMultipart?: boolean }).rawBody = rawBody;
+    (req as ForgeRequest & { rawBody?: Buffer; isMultipart?: boolean }).isMultipart = isMultipart;
 
     // Jalankan middleware global dulu
     for (const mw of this.globalMiddlewares) {
@@ -220,22 +238,16 @@ function makeResponse(rawRes: ServerResponse): ForgeResponse {
   return res;
 }
 
-// Membaca stream body sampai habis, lalu parse JSON.
+// Membaca stream body sampai habis sebagai BUFFER MENTAH.
 // Aha! moment: request body TIDAK tersedia sekaligus — ia mengalir
 // sebagai potongan-potongan (chunk) lewat jaringan.
-function readJsonBody(rawReq: IncomingMessage): Promise<unknown> {
+// M14: JSON parsing dipindah ke caller (handle) supaya multipart
+// tidak ikut ter-parse sebagai JSON.
+function readRawBody(rawReq: IncomingMessage): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     rawReq.on('data', (chunk: Buffer) => chunks.push(chunk));
-    rawReq.on('end', () => {
-      if (chunks.length === 0) return resolve(undefined);
-      try {
-        const text = Buffer.concat(chunks).toString('utf-8');
-        resolve(JSON.parse(text));
-      } catch {
-        reject(new Error('Invalid JSON body'));
-      }
-    });
+    rawReq.on('end', () => resolve(Buffer.concat(chunks)));
     rawReq.on('error', reject);
   });
 }

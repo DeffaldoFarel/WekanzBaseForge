@@ -87,7 +87,7 @@ BaseForge (1 instalasi)
 - [ ] M15u 🖥️ — Dashboard: function editor + logs
 
 ### 📁 Storage (per project)
-- [ ] M14a — Upload/serving per project
+- [x] M14a — Upload/serving per project ✅ (multipart dari nol + field file + serving aman)
 - [ ] M14b — Image processing (Sharp)
 - [ ] M14u 🖥️ — Dashboard: file browser
 

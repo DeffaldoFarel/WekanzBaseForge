@@ -15,6 +15,7 @@ import { createDatabaseRouter } from './api/databaseRoutes.js';
 import { createProjectAuthRouter } from './api/authRoutes.js';
 import { createPublicRouter } from './api/publicRoutes.js';
 import { createUserAdminRouter } from './api/userAdminRoutes.js';
+import { createStorageRouter } from './api/storageRoutes.js';
 import { Router, type Middleware } from './core/router.js';
 
 const PORT = parseInt(process.env.PORT ?? '5100', 10);
@@ -61,6 +62,7 @@ async function main(): Promise<void> {
   router.merge(createProjectAuthRouter());
   router.merge(createPublicRouter());
   router.merge(createUserAdminRouter()); // M10u: user management + rules
+  router.merge(createStorageRouter()); // M14: file serving
 
   // Buat HTTP server. Perhatikan betapa tipisnya lapisan ini:
   // server = terima koneksi → serahkan ke router → router memanggil handler.

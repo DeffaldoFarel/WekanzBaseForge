@@ -18,7 +18,8 @@ export type FieldType =
   | 'relation'
   | 'select'    // B1: dropdown pilihan
   | 'autodate'  // B1: timestamp otomatis
-  | 'url';      // B1: URL tervalidasi
+  | 'url'       // B1: URL tervalidasi
+  | 'file';     // M14: file upload (nama file tersimpan; bytes di disk)
 
 export interface FieldDefinition {
   name: string;
@@ -34,9 +35,11 @@ export interface FieldDefinition {
     cascadeDelete?: 'cascade' | 'setNull' | 'restrict';
     /** B1 (select): daftar nilai yang diizinkan */
     values?: string[];
-    /** B1 (autodate): update otomatis saat create/update */
+    /** B1 (autodate) */
     onCreate?: boolean;
     onUpdate?: boolean;
+    /** M14 (file): ukuran maksimum file dalam bytes. Default 5 MB. */
+    maxSize?: number;
   };
 }
 
@@ -103,6 +106,10 @@ export function fieldToSql(field: FieldDefinition): string {
       return `${col} TEXT${notNull}`;
     case 'relation':
       // Menyimpan id record dari collection lain (detail di M12)
+      return `${col} TEXT${notNull}`;
+    case 'file':
+      // M14: menyimpan NAMA file tersimpan (bukan bytes!) — single TEXT,
+      // multi TEXT berisi JSON array. File fisik ada di disk.
       return `${col} TEXT${notNull}`;
     case 'select':
     case 'url':
@@ -206,6 +213,33 @@ export function validateValue(field: FieldDefinition, value: unknown): string | 
       // Single relation: nilai harus string (satu id)
       if (typeof value !== 'string') return `Field '${field.name}' must be a record id (string)`;
       return null;
+    }
+    case 'file': {
+      // M14: nilai field file = nama file TERSIMPAN (string atau array utk multi).
+      // File bytes datang terpisah via multipart — tidak pernah lewat JSON.
+      const maxSelect = field.options?.maxSelect ?? 1;
+      const isMulti = maxSelect > 1;
+
+      const checkOne = (v: unknown): string | null => {
+        if (typeof v !== 'string') return `Field '${field.name}' must be a stored filename string`;
+        return null;
+      };
+
+      if (isMulti) {
+        if (!Array.isArray(value)) {
+          return `Field '${field.name}' must be an array of filenames (multi-file)`;
+        }
+        if (value.length > maxSelect) {
+          return `Field '${field.name}' exceeds maxSelect ${maxSelect} (dapat ${value.length})`;
+        }
+        for (const item of value) {
+          const err = checkOne(item);
+          if (err) return err;
+        }
+        return null;
+      }
+
+      return checkOne(value);
     }
     default:
       return `Unknown type for field '${field.name}'`;
