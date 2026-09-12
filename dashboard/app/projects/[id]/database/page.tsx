@@ -9,6 +9,7 @@ import {
   type CollectionInfo,
   type FieldDef,
 } from "@/lib/api";
+import { FieldOptionsEditor } from "@/components/FieldOptionsEditor";
 
 const FIELD_TYPES = [
   "text",
@@ -207,73 +208,12 @@ export default function DatabaseIndexPage() {
                     )}
                   </div>
 
-                  {/* Field Specific Options */}
-                  {f.type === "select" && (
-                    <div className="field-card-options">
-                      <label>Allowed Values (pisahkan dengan koma):</label>
-                      <input
-                        className="input"
-                        placeholder="draft, published, archived"
-                        value={f.options?.values?.join(", ") || ""}
-                        onChange={(e) =>
-                          updateFieldRow(i, {
-                            options: {
-                              ...f.options,
-                              values: e.target.value.split(",").map((s) => s.trim()).filter(Boolean),
-                            },
-                          })
-                        }
-                      />
-                    </div>
-                  )}
-
-                  {f.type === "file" && (
-                    <div className="field-card-options" style={{ display: "flex", gap: "1rem" }}>
-                      <div style={{ flex: 1 }}>
-                        <label>Max Files (maxSelect):</label>
-                        <input
-                          type="number"
-                          className="input"
-                          value={f.options?.maxSelect ?? 1}
-                          onChange={(e) =>
-                            updateFieldRow(i, {
-                              options: { ...f.options, maxSelect: Number(e.target.value) || 1 },
-                            })
-                          }
-                        />
-                      </div>
-                      <div style={{ flex: 1 }}>
-                        <label>Max Size (MB):</label>
-                        <input
-                          type="number"
-                          className="input"
-                          value={(f.options?.maxSize ?? 5242880) / (1024 * 1024)}
-                          onChange={(e) =>
-                            updateFieldRow(i, {
-                              options: { ...f.options, maxSize: (Number(e.target.value) || 5) * 1024 * 1024 },
-                            })
-                          }
-                        />
-                      </div>
-                    </div>
-                  )}
-
-                  {f.type === "text" && (
-                    <div className="field-card-options">
-                      <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer" }}>
-                        <input
-                          type="checkbox"
-                          checked={!!f.options?.fulltext}
-                          onChange={(e) =>
-                            updateFieldRow(i, {
-                              options: { ...f.options, fulltext: e.target.checked },
-                            })
-                          }
-                        />
-                        <span>Aktifkan FTS5 Full-Text Search Index pada field ini</span>
-                      </label>
-                    </div>
-                  )}
+                  {/* Field Specific Options for All 14 Types */}
+                  <FieldOptionsEditor
+                    field={f}
+                    allCollections={collections}
+                    onChange={(patch) => updateFieldRow(i, patch)}
+                  />
                 </div>
               ))}
             </div>

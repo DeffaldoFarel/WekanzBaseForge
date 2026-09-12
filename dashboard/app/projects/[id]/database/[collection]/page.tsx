@@ -26,6 +26,7 @@ import {
   type CollectionRules as Rules,
   type ListResult,
 } from "@/lib/api";
+import { FieldOptionsEditor } from "@/components/FieldOptionsEditor";
 
 const FIELD_TYPES = [
   "text",
@@ -788,127 +789,16 @@ export default function AdvancedDatabaseStudioPage() {
                     </button>
                   </div>
 
-                  {/* Type Specific Options */}
-                  {f.type === "select" && (
-                    <div className="field-card-options">
-                      <label>Allowed Values (pisahkan dengan koma):</label>
-                      <input
-                        className="input"
-                        placeholder="draft, active, archived"
-                        value={f.options?.values?.join(", ") || ""}
-                        onChange={(e) => {
-                          const updated = [...fieldsDraft];
-                          updated[i].options = {
-                            ...updated[i].options,
-                            values: e.target.value.split(",").map((s) => s.trim()).filter(Boolean),
-                          };
-                          setFieldsDraft(updated);
-                        }}
-                      />
-                    </div>
-                  )}
-
-                  {f.type === "relation" && (
-                    <div className="field-card-options" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.75rem" }}>
-                      <div>
-                        <label>Target Collection:</label>
-                        <select
-                          className="input"
-                          value={f.options?.collectionId || ""}
-                          onChange={(e) => {
-                            const updated = [...fieldsDraft];
-                            updated[i].options = { ...updated[i].options, collectionId: e.target.value };
-                            setFieldsDraft(updated);
-                          }}
-                        >
-                          <option value="">— pilih collection —</option>
-                          {collections.map((c) => (
-                            <option key={c.name} value={c.name}>{c.name}</option>
-                          ))}
-                        </select>
-                      </div>
-                      <div>
-                        <label>Cascade Delete:</label>
-                        <select
-                          className="input"
-                          value={f.options?.cascadeDelete || "setNull"}
-                          onChange={(e) => {
-                            const updated = [...fieldsDraft];
-                            updated[i].options = { ...updated[i].options, cascadeDelete: e.target.value };
-                            setFieldsDraft(updated);
-                          }}
-                        >
-                          <option value="setNull">setNull (ubah jadi null)</option>
-                          <option value="cascade">cascade (ikut terhapus)</option>
-                          <option value="restrict">restrict (tolak hapus)</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label>Max Select:</label>
-                        <input
-                          type="number"
-                          className="input"
-                          value={f.options?.maxSelect ?? 1}
-                          onChange={(e) => {
-                            const updated = [...fieldsDraft];
-                            updated[i].options = { ...updated[i].options, maxSelect: Number(e.target.value) || 1 };
-                            setFieldsDraft(updated);
-                          }}
-                        />
-                      </div>
-                    </div>
-                  )}
-
-                  {f.type === "file" && (
-                    <div className="field-card-options" style={{ display: "flex", gap: "1rem" }}>
-                      <div style={{ flex: 1 }}>
-                        <label>Max Files (maxSelect):</label>
-                        <input
-                          type="number"
-                          className="input"
-                          value={f.options?.maxSelect ?? 1}
-                          onChange={(e) => {
-                            const updated = [...fieldsDraft];
-                            updated[i].options = { ...updated[i].options, maxSelect: Number(e.target.value) || 1 };
-                            setFieldsDraft(updated);
-                          }}
-                        />
-                      </div>
-                      <div style={{ flex: 1 }}>
-                        <label>Max Size (MB):</label>
-                        <input
-                          type="number"
-                          className="input"
-                          value={((f.options?.maxSize ?? 5242880) / (1024 * 1024)).toFixed(0)}
-                          onChange={(e) => {
-                            const updated = [...fieldsDraft];
-                            updated[i].options = {
-                              ...updated[i].options,
-                              maxSize: (Number(e.target.value) || 5) * 1024 * 1024,
-                            };
-                            setFieldsDraft(updated);
-                          }}
-                        />
-                      </div>
-                    </div>
-                  )}
-
-                  {f.type === "text" && (
-                    <div className="field-card-options">
-                      <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer" }}>
-                        <input
-                          type="checkbox"
-                          checked={!!f.options?.fulltext}
-                          onChange={(e) => {
-                            const updated = [...fieldsDraft];
-                            updated[i].options = { ...updated[i].options, fulltext: e.target.checked };
-                            setFieldsDraft(updated);
-                          }}
-                        />
-                        <span>Aktifkan FTS5 Full-Text Search Index pada field ini</span>
-                      </label>
-                    </div>
-                  )}
+                  {/* Field Specific Options for All 14 Types */}
+                  <FieldOptionsEditor
+                    field={f}
+                    allCollections={collections}
+                    onChange={(patch) => {
+                      const updated = [...fieldsDraft];
+                      updated[i] = { ...updated[i], ...patch };
+                      setFieldsDraft(updated);
+                    }}
+                  />
                 </div>
               ))}
             </div>
@@ -1251,6 +1141,17 @@ export default function AdvancedDatabaseStudioPage() {
                       </button>
                     )}
                   </div>
+
+                  {/* Field Specific Options for All 14 Types */}
+                  <FieldOptionsEditor
+                    field={f}
+                    allCollections={collections}
+                    onChange={(patch) => {
+                      const updated = [...newColFields];
+                      updated[i] = { ...updated[i], ...patch };
+                      setNewColFields(updated);
+                    }}
+                  />
                 </div>
               ))}
             </div>

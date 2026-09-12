@@ -30,21 +30,33 @@ export interface FieldDefinition {
   required?: boolean;
   /** D1: field harus unik (tidak boleh duplikat) — ditegakkan oleh UNIQUE INDEX */
   unique?: boolean;
-  // Untuk type 'relation': collection tujuan (detail di M12)
   options?: {
-    collectionId?: string;
-    maxSelect?: number;
-    /** D3: strategi saat record tujuan dihapus. Default 'setNull'. */
-    cascadeDelete?: 'cascade' | 'setNull' | 'restrict';
-    /** B1 (select): daftar nilai yang diizinkan */
+    // text
+    min?: number;
+    max?: number;
+    pattern?: string;
+    fulltext?: boolean;
+    // number
+    noDecimal?: boolean;
+    // select
     values?: string[];
-    /** B1 (autodate) */
+    maxSelect?: number;
+    // relation
+    collectionId?: string;
+    cascadeDelete?: 'cascade' | 'setNull' | 'restrict';
+    // file
+    mimeTypes?: string[];
+    maxSize?: number;
+    thumbs?: string[];
+    protected?: boolean;
+    // autodate
     onCreate?: boolean;
     onUpdate?: boolean;
-    /** M14 (file): ukuran maksimum file dalam bytes. Default 5 MB. */
-    maxSize?: number;
-    /** M17b: field teks diikutkan dalam FTS5 full-text index */
-    fulltext?: boolean;
+    // email & url
+    onlyDomains?: string[];
+    exceptDomains?: string[];
+    // password
+    cost?: number;
   };
 }
 
@@ -155,14 +167,49 @@ export function validateValue(field: FieldDefinition, value: unknown): string | 
   }
 
   switch (field.type) {
-    case 'text':
-    case 'date':
+    case 'text': {
       if (typeof value !== 'string') return `Field '${field.name}' must be a string`;
+      const min = field.options?.min;
+      if (typeof min === 'number' && value.length < min) {
+        return `Field '${field.name}' minimal ${min} karakter (dapat ${value.length})`;
+      }
+      const max = field.options?.max;
+      if (typeof max === 'number' && value.length > max) {
+        return `Field '${field.name}' maksimal ${max} karakter (dapat ${value.length})`;
+      }
+      const pattern = field.options?.pattern;
+      if (pattern) {
+        try {
+          const re = new RegExp(pattern);
+          if (!re.test(value)) {
+            return `Field '${field.name}' tidak cocok dengan pola regex /${pattern}/`;
+          }
+        } catch {
+          // ignore pattern regex error
+        }
+      }
       return null;
-    case 'number':
+    }
+    case 'date': {
+      if (typeof value !== 'string') return `Field '${field.name}' must be a date string`;
+      return null;
+    }
+    case 'number': {
       if (typeof value !== 'number' || !Number.isFinite(value))
         return `Field '${field.name}' must be a finite number`;
+      const min = field.options?.min;
+      if (typeof min === 'number' && value < min) {
+        return `Field '${field.name}' minimal ${min} (dapat ${value})`;
+      }
+      const max = field.options?.max;
+      if (typeof max === 'number' && value > max) {
+        return `Field '${field.name}' maksimal ${max} (dapat ${value})`;
+      }
+      if (field.options?.noDecimal && !Number.isInteger(value)) {
+        return `Field '${field.name}' harus bilangan bulat (noDecimal)`;
+      }
       return null;
+    }
     case 'bool':
       if (typeof value !== 'boolean') return `Field '${field.name}' must be a boolean`;
       return null;
@@ -171,6 +218,17 @@ export function validateValue(field: FieldDefinition, value: unknown): string | 
       // Regex email sederhana (validasi penuh itu notoriously sulit!)
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value))
         return `Field '${field.name}' must be a valid email`;
+      const domain = value.split('@')[1]?.toLowerCase();
+      if (domain) {
+        const only = field.options?.onlyDomains;
+        if (Array.isArray(only) && only.length > 0 && !only.includes(domain)) {
+          return `Domain email '${domain}' tidak diizinkan (hanya: ${only.join(', ')})`;
+        }
+        const except = field.options?.exceptDomains;
+        if (Array.isArray(except) && except.length > 0 && except.includes(domain)) {
+          return `Domain email '${domain}' dilarang`;
+        }
+      }
       return null;
     }
     case 'url': {
@@ -181,15 +239,41 @@ export function validateValue(field: FieldDefinition, value: unknown): string | 
         if (u.protocol !== 'http:' && u.protocol !== 'https:') {
           return `Field '${field.name}' must be an http/https URL`;
         }
+        const host = u.hostname.toLowerCase();
+        const only = field.options?.onlyDomains;
+        if (Array.isArray(only) && only.length > 0 && !only.includes(host)) {
+          return `Host URL '${host}' tidak diizinkan (hanya: ${only.join(', ')})`;
+        }
+        const except = field.options?.exceptDomains;
+        if (Array.isArray(except) && except.length > 0 && except.includes(host)) {
+          return `Host URL '${host}' dilarang`;
+        }
         return null;
       } catch {
         return `Field '${field.name}' must be a valid URL`;
       }
     }
     case 'select': {
-      // B1: nilai harus salah satu dari options.values
-      if (typeof value !== 'string') return `Field '${field.name}' must be a string`;
       const allowed = field.options?.values ?? [];
+      const maxSelect = field.options?.maxSelect ?? 1;
+      const isMulti = maxSelect > 1;
+
+      if (isMulti) {
+        if (!Array.isArray(value)) {
+          return `Field '${field.name}' harus berupa array (multi-select)`;
+        }
+        if (value.length > maxSelect) {
+          return `Field '${field.name}' melebihi maxSelect ${maxSelect} (dapat ${value.length})`;
+        }
+        for (const item of value) {
+          if (typeof item !== 'string' || (allowed.length > 0 && !allowed.includes(item))) {
+            return `Pilihan '${item}' tidak valid (hanya: ${allowed.join(', ')})`;
+          }
+        }
+        return null;
+      }
+
+      if (typeof value !== 'string') return `Field '${field.name}' must be a string`;
       if (allowed.length > 0 && !allowed.includes(value)) {
         return `Field '${field.name}' must be one of: ${allowed.join(', ')}`;
       }

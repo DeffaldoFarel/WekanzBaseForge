@@ -102,15 +102,33 @@ export interface FieldDef {
   required?: boolean;
   unique?: boolean;
   options?: {
-    collectionId?: string;
+    // text
+    min?: number;
+    max?: number;
+    pattern?: string;
+    fulltext?: boolean;
+    // number
+    noDecimal?: boolean;
+    // select
+    values?: string[];
     maxSelect?: number;
+    // relation
+    collectionId?: string;
     cascadeDelete?: string;
-    values?: string[]; // untuk type 'select'
-    onCreate?: boolean; // untuk type 'autodate'
+    // file
+    mimeTypes?: string[];
+    maxSize?: number;
+    thumbs?: string[];
+    protected?: boolean;
+    mime?: string;
+    // email & url
+    onlyDomains?: string[];
+    exceptDomains?: string[];
+    // password
+    cost?: number;
+    // autodate
+    onCreate?: boolean;
     onUpdate?: boolean;
-    maxSize?: number; // M14: untuk type 'file'
-    mime?: string; // M14u: accept attribute untuk input file
-    fulltext?: boolean; // M17b: FTS5 fulltext search index
   };
 }
 
