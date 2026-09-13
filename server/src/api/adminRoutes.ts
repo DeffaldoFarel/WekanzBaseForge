@@ -163,10 +163,17 @@ function serializeProject(row: {
   created: string;
   updated: string;
 }) {
+  const parsed = JSON.parse(row.services || '{}');
   return {
     id: row.id,
     name: row.name,
-    services: JSON.parse(row.services) as ProjectServices,
+    services: {
+      database: true,
+      auth: true,
+      storage: true,
+      functions: true,
+      ...parsed,
+    } as ProjectServices,
     created: row.created,
     updated: row.updated,
   };

@@ -144,25 +144,18 @@ export default function ProjectsPage() {
                 Dibuat pada {new Date(p.created).toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" })}
               </p>
 
-              {/* Service Badges */}
+              {/* Service Capabilities */}
               <div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem" }}>
-                {Object.entries(SERVICE_LABELS).map(([key, item]) => {
-                  const on = p.services[key as keyof Project["services"]];
-                  return (
-                    <span
-                      key={key}
-                      className="badge"
-                      style={{
-                        background: on ? "rgba(62, 174, 125, 0.12)" : "#F1F5F9",
-                        color: on ? "#218456" : "var(--text-muted)",
-                        border: on ? "1px solid rgba(62, 174, 125, 0.25)" : "1px solid var(--border)",
-                      }}
-                    >
-                      <span style={{ fontSize: "0.75rem" }}>{item.icon}</span>
-                      {item.label}
-                    </span>
-                  );
-                })}
+                {Object.entries(SERVICE_LABELS).map(([key, item]) => (
+                  <span
+                    key={key}
+                    className="badge badge-gray"
+                    style={{ fontSize: "0.72rem" }}
+                  >
+                    <span style={{ fontSize: "0.75rem" }}>{item.icon}</span>
+                    {item.label}
+                  </span>
+                ))}
               </div>
             </Link>
           ))}

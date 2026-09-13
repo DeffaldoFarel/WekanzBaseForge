@@ -41,9 +41,9 @@ export interface ProjectServices {
 
 export const DEFAULT_SERVICES: ProjectServices = {
   database: true,
-  auth: false,
-  storage: false,
-  functions: false,
+  auth: true,
+  storage: true,
+  functions: true,
 };
 
 // ─── Inisialisasi ────────────────────────────────────────────────────────────
