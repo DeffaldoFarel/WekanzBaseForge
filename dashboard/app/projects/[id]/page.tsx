@@ -12,11 +12,37 @@ import {
 } from "@/lib/api";
 
 const SERVICE_INFO: Record<string, { title: string; desc: string }> = {
-  database: { title: "Database", desc: "SQL database per project (SQLite)" },
-  auth: { title: "Auth", desc: "User management untuk aplikasi end user" },
-  storage: { title: "Storage", desc: "File storage & image processing" },
-  functions: { title: "Functions", desc: "Serverless functions & triggers" },
+  database: { title: "Database & Auth", desc: "SQLite database & Unified Auth Collections (PocketBase style)" },
+  storage: { title: "Storage", desc: "File storage, media preview & orphaned files cleanup" },
+  functions: { title: "Functions", desc: "Serverless functions, triggers & cron scheduler" },
 };
+
+const OPEN_SERVICES = [
+  {
+    key: "database",
+    title: "Database & Collections",
+    icon: "🗄️",
+    desc: "Kelola tabel data, skema, SQL Views, dan akun pengguna (Auth)",
+    href: (id: string) => `/projects/${id}/database`,
+    serviceKey: "database" as const,
+  },
+  {
+    key: "storage",
+    title: "Storage Explorer",
+    icon: "📁",
+    desc: "Berkas fisik, pratinjau media, dan pembersihan file yatim",
+    href: (id: string) => `/projects/${id}/storage`,
+    serviceKey: "storage" as const,
+  },
+  {
+    key: "functions",
+    title: "Functions & Scheduler",
+    icon: "⚡",
+    desc: "Serverless execution, event triggers, dan cron scheduler",
+    href: (id: string) => `/projects/${id}/functions`,
+    serviceKey: "functions" as const,
+  },
+];
 
 export default function ProjectDetailPage() {
   const router = useRouter();
@@ -42,7 +68,12 @@ export default function ProjectDetailPage() {
     setToggling(service);
     try {
       const current = project.services[service as keyof Project["services"]];
-      const updated = await updateServices(project.id, { [service]: !current });
+      const nextVal = !current;
+      const patchData: Record<string, boolean> = { [service]: nextVal };
+      if (service === "database") {
+        patchData.auth = nextVal;
+      }
+      const updated = await updateServices(project.id, patchData);
       setProject(updated);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Gagal mengubah layanan");
@@ -119,16 +150,19 @@ export default function ProjectDetailPage() {
 
         <h3 style={{ marginTop: "2rem" }}>Buka Layanan</h3>
         <div className="service-links">
-          {Object.entries(SERVICE_INFO).map(([key, info]) => {
-            const on = project.services[key as keyof Project["services"]];
+          {OPEN_SERVICES.map((s) => {
+            const on = project.services[s.serviceKey];
             return (
               <Link
-                key={key}
-                href={`/projects/${project.id}/${key}`}
+                key={s.key}
+                href={s.href(project.id)}
                 className={`service-link ${on ? "" : "disabled"}`}
               >
-                <div className="t">{info.title} →</div>
-                <div className="d">{on ? "Kelola" : "Nonaktif — aktifkan dulu di atas"}</div>
+                <div className="t">
+                  <span style={{ marginRight: "0.4rem" }}>{s.icon}</span>
+                  {s.title} →
+                </div>
+                <div className="d">{on ? s.desc : "Nonaktif — aktifkan dulu di atas"}</div>
               </Link>
             );
           })}
