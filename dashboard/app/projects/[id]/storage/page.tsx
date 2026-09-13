@@ -12,6 +12,36 @@ import {
   type StorageStats,
 } from "@/lib/api";
 import { Navbar } from "@/components/Navbar";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  HardDrive,
+  FileText,
+  Image as ImageIcon,
+  Music,
+  Film,
+  Package,
+  Trash2,
+  Download,
+  Copy,
+  ExternalLink,
+  LayoutGrid,
+  List,
+  AlertTriangle,
+  RefreshCw,
+  Search,
+  Eye,
+  Check,
+  FolderOpen,
+} from "lucide-react";
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return "0 B";
@@ -98,7 +128,6 @@ export default function StorageExplorerPage() {
   // Filtered files memo
   const filteredFiles = useMemo(() => {
     return files.filter((f) => {
-      // Search
       const matchesSearch =
         f.name.toLowerCase().includes(search.toLowerCase()) ||
         f.recordId.toLowerCase().includes(search.toLowerCase()) ||
@@ -106,7 +135,6 @@ export default function StorageExplorerPage() {
 
       if (!matchesSearch) return false;
 
-      // Type filter
       if (typeFilter === "images") return f.isImage;
       if (typeFilter === "documents") {
         return f.mime.includes("pdf") || f.mime.includes("text") || f.mime.includes("json") || f.mime.includes("csv");
@@ -125,495 +153,514 @@ export default function StorageExplorerPage() {
   return (
     <>
       <Navbar projectId={projectId} />
-      <div className="page" style={{ maxWidth: "1200px" }}>
-        {/* Top Navigation */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem" }}>
+
+      <div className="page" style={{ maxWidth: "1220px" }}>
+        {/* Header Navigation */}
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
           <div>
-            <h2 style={{ margin: "0.35rem 0 0", fontSize: "1.85rem", fontWeight: 800, letterSpacing: "-0.03em" }}>
-              📁 Storage Explorer
-            </h2>
-            <p className="muted" style={{ margin: "0.25rem 0 0", fontSize: "0.88rem" }}>
-              Kelola berkas fisik, aset gambar, dan thumbnail cache pada disk <code>data/storage/{projectId}</code>.
+            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-foreground flex items-center gap-2.5">
+              <HardDrive className="w-7 h-7 text-slate-800" />
+              <span>Storage Explorer</span>
+            </h1>
+            <p className="text-xs sm:text-sm text-muted-foreground mt-1">
+              Kelola berkas fisik, thumbnail image caching, dan bersihkan file sampah pada disk project.
             </p>
           </div>
 
-        <div style={{ display: "flex", gap: "0.5rem" }}>
-          {stats.orphanedCount > 0 && (
-            <button
-              className="btn"
-              onClick={handleCleanOrphans}
-              disabled={cleaning}
-              style={{
-                background: "rgba(245, 158, 11, 0.15)",
-                border: "1px solid rgba(245, 158, 11, 0.4)",
-                color: "#fbbf24",
-                fontSize: "0.85rem",
-              }}
-            >
-              🧹 Bersihkan {stats.orphanedCount} File Yatim
-            </button>
-          )}
-          <button className="btn btn-secondary" onClick={loadFiles} disabled={loading} style={{ fontSize: "0.85rem" }}>
-            🔄 Refresh
-          </button>
-        </div>
-      </div>
-
-      {notice && (
-        <div style={{ padding: "0.75rem 1rem", background: "rgba(34, 197, 94, 0.15)", border: "1px solid var(--green)", borderRadius: "8px", color: "var(--green)", fontSize: "0.85rem", marginBottom: "1.25rem" }}>
-          ✓ {notice}
-        </div>
-      )}
-
-      {error && (
-        <div style={{ padding: "0.75rem 1rem", background: "rgba(239, 68, 68, 0.15)", border: "1px solid var(--red)", borderRadius: "8px", color: "var(--red)", fontSize: "0.85rem", marginBottom: "1.25rem" }}>
-          ⚠️ {error}
-        </div>
-      )}
-
-      {/* Metric Cards */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "1rem", marginBottom: "1.75rem" }}>
-        <div className="card" style={{ padding: "1.25rem" }}>
-          <div className="muted" style={{ fontSize: "0.8rem", fontWeight: 600, textTransform: "uppercase" }}>
-            📦 Total Berkas Fisik
-          </div>
-          <div style={{ fontSize: "1.8rem", fontWeight: 700, marginTop: "0.3rem", color: "var(--text)" }}>
-            {stats.totalFiles}
-          </div>
-        </div>
-
-        <div className="card" style={{ padding: "1.25rem" }}>
-          <div className="muted" style={{ fontSize: "0.8rem", fontWeight: 600, textTransform: "uppercase" }}>
-            💾 Storage Digunakan
-          </div>
-          <div style={{ fontSize: "1.8rem", fontWeight: 700, marginTop: "0.3rem", color: "var(--accent)" }}>
-            {formatBytes(stats.totalSize)}
-          </div>
-        </div>
-
-        <div className="card" style={{ padding: "1.25rem" }}>
-          <div className="muted" style={{ fontSize: "0.8rem", fontWeight: 600, textTransform: "uppercase" }}>
-            🖼️ Berkas Gambar
-          </div>
-          <div style={{ fontSize: "1.8rem", fontWeight: 700, marginTop: "0.3rem", color: "#60a5fa" }}>
-            {imageCount}
-          </div>
-        </div>
-
-        <div className="card" style={{ padding: "1.25rem" }}>
-          <div className="muted" style={{ fontSize: "0.8rem", fontWeight: 600, textTransform: "uppercase" }}>
-            🧹 File Yatim (Orphaned)
-          </div>
-          <div style={{ fontSize: "1.8rem", fontWeight: 700, marginTop: "0.3rem", color: stats.orphanedCount > 0 ? "#f87171" : "var(--green)" }}>
-            {stats.orphanedCount}
-          </div>
-        </div>
-      </div>
-
-      {/* Filter & View Toolbar */}
-      <div className="studio-toolbar" style={{ background: "var(--panel)", padding: "0.85rem 1.25rem", borderRadius: "10px", border: "1px solid var(--border)" }}>
-        <div style={{ display: "flex", gap: "0.5rem", flex: 1, minWidth: "260px" }}>
-          <input
-            className="input"
-            placeholder="Cari nama berkas, record id, atau koleksi..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            style={{ fontSize: "0.85rem" }}
-          />
-        </div>
-
-        {/* Type Filter Buttons */}
-        <div style={{ display: "flex", gap: "0.3rem", flexWrap: "wrap" }}>
-          {[
-            { id: "all", label: "Semua" },
-            { id: "images", label: "🖼️ Gambar" },
-            { id: "documents", label: "📄 Dokumen" },
-            { id: "media", label: "🎵 Media" },
-            ...(stats.orphanedCount > 0 ? [{ id: "orphaned", label: `⚠️ Yatim (${stats.orphanedCount})` }] : []),
-          ].map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              className={`btn btn-secondary ${typeFilter === t.id ? "btn-active" : ""}`}
-              onClick={() => setTypeFilter(t.id as typeof typeFilter)}
-              style={{
-                fontSize: "0.8rem",
-                padding: "0.35rem 0.65rem",
-                background: typeFilter === t.id ? "var(--panel-2)" : "transparent",
-                borderColor: typeFilter === t.id ? "var(--accent)" : "var(--border)",
-                color: typeFilter === t.id ? "var(--accent)" : "var(--muted)",
-              }}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
-
-        {/* View Mode Toggle */}
-        <div style={{ display: "flex", gap: "0.2rem", background: "var(--panel-2)", padding: "0.2rem", borderRadius: "6px", border: "1px solid var(--border)" }}>
-          <button
-            type="button"
-            className="btn-icon"
-            onClick={() => setViewMode("grid")}
-            style={{
-              padding: "0.3rem 0.5rem",
-              background: viewMode === "grid" ? "var(--panel)" : "transparent",
-              color: viewMode === "grid" ? "var(--text)" : "var(--muted)",
-              border: "none",
-            }}
-            title="Grid View"
-          >
-            🔲
-          </button>
-          <button
-            type="button"
-            className="btn-icon"
-            onClick={() => setViewMode("table")}
-            style={{
-              padding: "0.3rem 0.5rem",
-              background: viewMode === "table" ? "var(--panel)" : "transparent",
-              color: viewMode === "table" ? "var(--text)" : "var(--muted)",
-              border: "none",
-            }}
-            title="Table View"
-          >
-            📋
-          </button>
-        </div>
-      </div>
-
-      {/* Main Files View */}
-      {loading ? (
-        <div style={{ padding: "4rem", textAlign: "center" }} className="muted">
-          Memindai disk storage…
-        </div>
-      ) : filteredFiles.length === 0 ? (
-        <div className="card empty-state" style={{ marginTop: "1.5rem" }}>
-          <div className="big">📁</div>
-          <h3>Tidak ada berkas yang cocok</h3>
-          <p className="muted" style={{ maxWidth: 400, margin: "0.5rem auto 0" }}>
-            {files.length === 0
-              ? "Belum ada berkas yang diunggah ke project ini. Upload berkas melalui form data tabel database."
-              : "Tidak ada berkas yang cocok dengan filter atau kata kunci pencarian Anda."}
-          </p>
-        </div>
-      ) : viewMode === "grid" ? (
-        /* ─── GRID CARD VIEW ─── */
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: "1rem", marginTop: "1.5rem" }}>
-          {filteredFiles.map((file) => {
-            const fileDirectUrl = file.collectionName
-              ? fileUrl(projectId, file.collectionName, file.recordId, file.name)
-              : null;
-            const thumbUrl = file.isImage && file.collectionName
-              ? `${fileDirectUrl}?thumb=200x200`
-              : null;
-
-            return (
-              <div
-                key={file.storedName}
-                className="card"
-                style={{
-                  padding: "0.75rem",
-                  display: "flex",
-                  flexDirection: "column",
-                  justifyContent: "space-between",
-                  background: "var(--panel)",
-                  border: file.isOrphaned ? "1px dashed #f87171" : "1px solid var(--border)",
-                  borderRadius: "10px",
-                  overflow: "hidden",
-                }}
+          <div className="flex items-center gap-2">
+            {stats.orphanedCount > 0 && (
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={handleCleanOrphans}
+                disabled={cleaning}
+                className="gap-1.5"
               >
-                {/* Thumbnail / Icon Container */}
-                <div
-                  onClick={() => setPreviewFile(file)}
-                  style={{
-                    height: "140px",
-                    background: "var(--panel-2)",
-                    borderRadius: "6px",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    cursor: "pointer",
-                    overflow: "hidden",
-                    position: "relative",
-                  }}
+                <AlertTriangle className="w-3.5 h-3.5" />
+                <span>Bersihkan {stats.orphanedCount} File Yatim</span>
+              </Button>
+            )}
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={loadFiles}
+              disabled={loading}
+              className="gap-1.5"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
+              <span>Refresh</span>
+            </Button>
+          </div>
+        </div>
+
+        {notice && (
+          <div className="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200/80 text-emerald-800 text-xs font-semibold mb-6 flex items-center gap-2 shadow-sm">
+            <Check className="w-4 h-4 text-emerald-600" />
+            <span>{notice}</span>
+          </div>
+        )}
+
+        {error && (
+          <div className="p-3.5 rounded-2xl bg-destructive/10 border border-destructive/20 text-destructive text-xs font-semibold mb-6 flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4" />
+            <span>{error}</span>
+          </div>
+        )}
+
+        {/* Metric Cards */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+          <Card className="p-5 rounded-[22px]">
+            <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+              <Package className="w-4 h-4 text-slate-400" />
+              <span>Total Berkas</span>
+            </div>
+            <div className="text-2xl font-extrabold text-foreground mt-2">
+              {stats.totalFiles}
+            </div>
+          </Card>
+
+          <Card className="p-5 rounded-[22px]">
+            <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+              <HardDrive className="w-4 h-4 text-brand-blue" />
+              <span>Storage Terpakai</span>
+            </div>
+            <div className="text-2xl font-extrabold text-brand-blue mt-2">
+              {formatBytes(stats.totalSize)}
+            </div>
+          </Card>
+
+          <Card className="p-5 rounded-[22px]">
+            <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+              <ImageIcon className="w-4 h-4 text-emerald-600" />
+              <span>Berkas Gambar</span>
+            </div>
+            <div className="text-2xl font-extrabold text-emerald-700 mt-2">
+              {imageCount}
+            </div>
+          </Card>
+
+          <Card className="p-5 rounded-[22px]">
+            <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+              <AlertTriangle className={`w-4 h-4 ${stats.orphanedCount > 0 ? "text-destructive" : "text-slate-400"}`} />
+              <span>File Yatim</span>
+            </div>
+            <div className={`text-2xl font-extrabold mt-2 ${stats.orphanedCount > 0 ? "text-destructive" : "text-foreground"}`}>
+              {stats.orphanedCount}
+            </div>
+          </Card>
+        </div>
+
+        {/* Toolbar: Search, Filters, View Modes */}
+        <Card className="p-3 mb-6 flex flex-col md:flex-row justify-between items-center gap-3 rounded-[22px]">
+          <div className="relative flex-1 w-full">
+            <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              className="pl-10 h-10 border-slate-200"
+              placeholder="Cari nama berkas, record id, atau koleksi..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+
+          <div className="flex items-center gap-2 w-full md:w-auto overflow-x-auto pb-1 md:pb-0">
+            {/* Filter Pills */}
+            <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-full border border-border">
+              {[
+                { id: "all", label: "Semua" },
+                { id: "images", label: "Gambar" },
+                { id: "documents", label: "Dokumen" },
+                { id: "media", label: "Media" },
+                ...(stats.orphanedCount > 0 ? [{ id: "orphaned", label: `Yatim (${stats.orphanedCount})` }] : []),
+              ].map((t) => {
+                const active = typeFilter === t.id;
+                return (
+                  <button
+                    key={t.id}
+                    onClick={() => setTypeFilter(t.id as typeof typeFilter)}
+                    className={`px-3 py-1 rounded-full text-xs font-semibold transition-all whitespace-nowrap ${
+                      active
+                        ? "bg-primary text-primary-foreground shadow-pill"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {t.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* View Mode Toggle */}
+            <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-full border border-border shrink-0">
+              <button
+                onClick={() => setViewMode("grid")}
+                className={`p-1.5 rounded-full transition-all ${
+                  viewMode === "grid" ? "bg-white text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                }`}
+                title="Grid View"
+              >
+                <LayoutGrid className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={() => setViewMode("table")}
+                className={`p-1.5 rounded-full transition-all ${
+                  viewMode === "table" ? "bg-white text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                }`}
+                title="Table View"
+              >
+                <List className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        </Card>
+
+        {/* Files View */}
+        {loading ? (
+          <Card className="py-20 text-center rounded-[24px]">
+            <RefreshCw className="w-8 h-8 animate-spin mx-auto text-muted-foreground mb-3" />
+            <p className="text-sm font-medium text-muted-foreground">Memindai disk storage...</p>
+          </Card>
+        ) : filteredFiles.length === 0 ? (
+          <Card className="py-20 text-center rounded-[28px]">
+            <div className="w-16 h-16 rounded-2xl bg-slate-100 flex items-center justify-center mx-auto mb-4 border border-border">
+              <FolderOpen className="w-8 h-8 text-slate-400" />
+            </div>
+            <h3 className="text-lg font-bold text-foreground">Tidak Ada Berkas</h3>
+            <p className="text-sm text-muted-foreground max-w-sm mx-auto mt-1">
+              {files.length === 0
+                ? "Belum ada berkas yang diunggah. Unggah file melalui form data record di Database Studio."
+                : "Tidak ada berkas yang cocok dengan kata kunci pencarian atau filter aktif."}
+            </p>
+          </Card>
+        ) : viewMode === "grid" ? (
+          /* Grid View */
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+            {filteredFiles.map((file) => {
+              const fileDirectUrl = file.collectionName
+                ? fileUrl(projectId, file.collectionName, file.recordId, file.name)
+                : null;
+              const thumbUrl = file.isImage && file.collectionName
+                ? `${fileDirectUrl}?thumb=200x200`
+                : null;
+
+              return (
+                <Card
+                  key={file.storedName}
+                  className={`p-3.5 rounded-[22px] flex flex-col justify-between hover:shadow-lg transition-all ${
+                    file.isOrphaned ? "border-dashed border-destructive/50 bg-red-50/20" : "bg-white"
+                  }`}
                 >
-                  {thumbUrl ? (
+                  {/* Thumbnail Container */}
+                  <div
+                    onClick={() => setPreviewFile(file)}
+                    className="h-36 rounded-2xl bg-slate-100 flex items-center justify-center cursor-pointer overflow-hidden relative group border border-slate-100"
+                  >
+                    {thumbUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={thumbUrl}
+                        alt={file.name}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                        loading="lazy"
+                      />
+                    ) : (
+                      <div className="flex flex-col items-center gap-1 text-slate-400 group-hover:text-slate-600 transition-colors">
+                        {file.isImage ? (
+                          <ImageIcon className="w-10 h-10" />
+                        ) : file.mime.includes("pdf") ? (
+                          <FileText className="w-10 h-10 text-rose-500" />
+                        ) : file.mime.includes("audio") ? (
+                          <Music className="w-10 h-10 text-amber-500" />
+                        ) : file.mime.includes("video") ? (
+                          <Film className="w-10 h-10 text-violet-500" />
+                        ) : (
+                          <Package className="w-10 h-10" />
+                        )}
+                      </div>
+                    )}
+
+                    {file.isOrphaned && (
+                      <Badge variant="destructive" className="absolute top-2.5 left-2.5 text-[10px] py-0 px-2">
+                        Yatim
+                      </Badge>
+                    )}
+
+                    <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                      <span className="bg-white/95 text-foreground px-3 py-1 rounded-full text-xs font-semibold shadow-sm flex items-center gap-1">
+                        <Eye className="w-3.5 h-3.5" />
+                        Lihat
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* File Info */}
+                  <div className="mt-3 px-1">
+                    <div className="font-semibold text-xs text-foreground truncate" title={file.name}>
+                      {file.name}
+                    </div>
+                    <div className="flex justify-between items-center text-[11px] text-muted-foreground mt-1 font-medium">
+                      <span>{formatBytes(file.size)}</span>
+                      <Badge variant="secondary" className="text-[10px] py-0 px-2 font-mono">
+                        {file.collectionName ?? "tanpa tabel"}
+                      </Badge>
+                    </div>
+                  </div>
+
+                  {/* Action Icons */}
+                  <div className="flex items-center gap-1.5 mt-3 pt-2.5 border-t border-slate-100">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setPreviewFile(file)}
+                      className="h-8 flex-1 rounded-full px-0"
+                      title="Pratinjau"
+                    >
+                      <Eye className="w-3.5 h-3.5 text-slate-600" />
+                    </Button>
+                    {fileDirectUrl && (
+                      <>
+                        <a
+                          href={fileDirectUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="h-8 flex-1 rounded-full inline-flex items-center justify-center hover:bg-slate-100 text-slate-600 transition-colors"
+                          title="Buka / Unduh Berkas"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                        </a>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => copyFileUrl(file)}
+                          className="h-8 flex-1 rounded-full px-0"
+                          title="Salin URL Berkas"
+                        >
+                          <Copy className="w-3.5 h-3.5 text-slate-600" />
+                        </Button>
+                      </>
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleDelete(file)}
+                      className="h-8 flex-1 rounded-full px-0 text-destructive hover:text-destructive hover:bg-destructive/10"
+                      title="Hapus Berkas"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
+                </Card>
+              );
+            })}
+          </div>
+        ) : (
+          /* Table View */
+          <Card className="overflow-hidden rounded-[24px] p-0 border-border">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-border text-slate-500 font-semibold uppercase tracking-wider">
+                    <th className="p-3.5 pl-5">Nama Berkas</th>
+                    <th className="p-3.5">Ukuran</th>
+                    <th className="p-3.5">MIME Type</th>
+                    <th className="p-3.5">Koleksi</th>
+                    <th className="p-3.5">Record ID</th>
+                    <th className="p-3.5">Status</th>
+                    <th className="p-3.5 pr-5 text-right">Aksi</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 font-mono">
+                  {filteredFiles.map((file) => {
+                    const fileDirectUrl = file.collectionName
+                      ? fileUrl(projectId, file.collectionName, file.recordId, file.name)
+                      : null;
+
+                    return (
+                      <tr key={file.storedName} className="hover:bg-slate-50/80 transition-colors font-sans">
+                        <td className="p-3.5 pl-5 font-semibold text-foreground flex items-center gap-2">
+                          {file.isImage ? (
+                            <ImageIcon className="w-4 h-4 text-brand-blue" />
+                          ) : (
+                            <FileText className="w-4 h-4 text-slate-500" />
+                          )}
+                          <span className="truncate max-w-[200px]" title={file.name}>
+                            {file.name}
+                          </span>
+                        </td>
+                        <td className="p-3.5 text-muted-foreground font-mono">{formatBytes(file.size)}</td>
+                        <td className="p-3.5 text-muted-foreground">{file.mime}</td>
+                        <td className="p-3.5">
+                          <Badge variant="secondary" className="text-[10px] font-mono">
+                            {file.collectionName ?? "—"}
+                          </Badge>
+                        </td>
+                        <td className="p-3.5 font-mono text-[11px] text-muted-foreground">{file.recordId}</td>
+                        <td className="p-3.5">
+                          {file.isOrphaned ? (
+                            <Badge variant="destructive" className="text-[10px]">Yatim</Badge>
+                          ) : (
+                            <Badge variant="green" className="text-[10px]">Terhubung</Badge>
+                          )}
+                        </td>
+                        <td className="p-3.5 pr-5 text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7"
+                              onClick={() => setPreviewFile(file)}
+                              title="Lihat"
+                            >
+                              <Eye className="w-3.5 h-3.5 text-slate-600" />
+                            </Button>
+                            {fileDirectUrl && (
+                              <>
+                                <a
+                                  href={fileDirectUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="h-7 w-7 inline-flex items-center justify-center rounded-full hover:bg-slate-100 text-slate-600"
+                                  title="Download"
+                                >
+                                  <Download className="w-3.5 h-3.5" />
+                                </a>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-7 w-7"
+                                  onClick={() => copyFileUrl(file)}
+                                  title="Copy URL"
+                                >
+                                  <Copy className="w-3.5 h-3.5 text-slate-600" />
+                                </Button>
+                              </>
+                            )}
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 text-destructive hover:bg-destructive/10"
+                              onClick={() => handleDelete(file)}
+                              title="Hapus"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        )}
+
+        {/* Modal File Preview with shadcn Dialog */}
+        <Dialog open={previewFile !== null} onOpenChange={(open: boolean) => !open && setPreviewFile(null)}>
+          <DialogContent className="max-w-xl">
+            <DialogHeader>
+              <DialogTitle className="text-base font-bold truncate pr-6">
+                {previewFile?.name}
+              </DialogTitle>
+            </DialogHeader>
+
+            {previewFile && (
+              <div className="space-y-4">
+                {/* Media Render Preview */}
+                <div className="bg-slate-100 rounded-2xl p-4 flex items-center justify-center min-h-[200px] border border-border overflow-hidden">
+                  {previewFile.isImage && previewFile.collectionName ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
-                      src={thumbUrl}
-                      alt={file.name}
-                      style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                      loading="lazy"
+                      src={fileUrl(projectId, previewFile.collectionName, previewFile.recordId, previewFile.name)}
+                      alt={previewFile.name}
+                      className="max-h-[340px] max-w-full rounded-lg object-contain shadow-sm"
+                    />
+                  ) : previewFile.mime.includes("audio") && previewFile.collectionName ? (
+                    <audio
+                      controls
+                      src={fileUrl(projectId, previewFile.collectionName, previewFile.recordId, previewFile.name)}
+                      className="w-full"
+                    />
+                  ) : previewFile.mime.includes("video") && previewFile.collectionName ? (
+                    <video
+                      controls
+                      src={fileUrl(projectId, previewFile.collectionName, previewFile.recordId, previewFile.name)}
+                      className="max-h-[300px] max-w-full rounded-lg"
                     />
                   ) : (
-                    <span style={{ fontSize: "2.5rem" }}>
-                      {file.isImage ? "🖼️" : file.mime.includes("pdf") ? "📄" : file.mime.includes("audio") ? "🎵" : file.mime.includes("video") ? "🎬" : "📦"}
-                    </span>
-                  )}
-                  {file.isOrphaned && (
-                    <span
-                      className="badge"
-                      style={{
-                        position: "absolute",
-                        top: "6px",
-                        left: "6px",
-                        background: "rgba(239, 68, 68, 0.85)",
-                        color: "#fff",
-                        fontSize: "0.68rem",
-                      }}
-                    >
-                      Yatim
-                    </span>
+                    <div className="text-center py-6">
+                      <FileText className="w-16 h-16 mx-auto text-slate-400 mb-2" />
+                      <p className="text-xs text-muted-foreground font-medium">Pratinjau visual tidak tersedia untuk tipe berkas ini</p>
+                    </div>
                   )}
                 </div>
 
-                {/* File Details */}
-                <div style={{ marginTop: "0.65rem" }}>
-                  <div
-                    style={{
-                      fontWeight: 600,
-                      fontSize: "0.85rem",
-                      whiteSpace: "nowrap",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      color: "var(--text)",
+                {/* Metadata Details */}
+                <div className="grid grid-cols-2 gap-3 text-xs bg-slate-50 p-4 rounded-2xl border border-border">
+                  <div>
+                    <span className="text-muted-foreground block text-[11px]">Ukuran Berkas</span>
+                    <span className="font-semibold text-foreground font-mono">{formatBytes(previewFile.size)}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground block text-[11px]">MIME Type</span>
+                    <span className="font-semibold text-foreground">{previewFile.mime}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground block text-[11px]">Parent Collection</span>
+                    <span className="font-semibold text-foreground">{previewFile.collectionName ?? "— (Yatim)"}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground block text-[11px]">Parent Record ID</span>
+                    <span className="font-semibold text-foreground font-mono">{previewFile.recordId}</span>
+                  </div>
+                </div>
+
+                {/* Actions */}
+                <div className="flex justify-between items-center pt-2">
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => {
+                      const f = previewFile;
+                      setPreviewFile(null);
+                      handleDelete(f);
                     }}
-                    title={file.name}
+                    className="gap-1.5"
                   >
-                    {file.name}
-                  </div>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Hapus Berkas</span>
+                  </Button>
 
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "0.3rem", fontSize: "0.75rem", color: "var(--muted)" }}>
-                    <span>{formatBytes(file.size)}</span>
-                    <span className="badge badge-gray" style={{ fontSize: "0.68rem", padding: "0.1rem 0.35rem" }}>
-                      {file.collectionName ?? "tanpa tabel"}
-                    </span>
+                  <div className="flex items-center gap-2">
+                    {previewFile.collectionName && (
+                      <>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => copyFileUrl(previewFile)}
+                          className="gap-1.5"
+                        >
+                          <Copy className="w-3.5 h-3.5" />
+                          <span>Salin URL</span>
+                        </Button>
+                        <a
+                          href={fileUrl(projectId, previewFile.collectionName, previewFile.recordId, previewFile.name)}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          <Button size="sm" className="gap-1.5">
+                            <span>Buka Asli</span>
+                            <ExternalLink className="w-3.5 h-3.5" />
+                          </Button>
+                        </a>
+                      </>
+                    )}
                   </div>
-                </div>
-
-                {/* Card Actions */}
-                <div style={{ display: "flex", gap: "0.3rem", marginTop: "0.75rem", paddingTop: "0.5rem", borderTop: "1px solid var(--border)" }}>
-                  <button
-                    type="button"
-                    className="btn-icon"
-                    onClick={() => setPreviewFile(file)}
-                    style={{ flex: 1, padding: "0.35rem" }}
-                    title="Pratinjau Berkas"
-                  >
-                    👁️
-                  </button>
-                  {fileDirectUrl && (
-                    <>
-                      <a
-                        href={fileDirectUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="btn-icon"
-                        style={{ flex: 1, padding: "0.35rem", textAlign: "center", textDecoration: "none" }}
-                        title="Buka / Unduh Berkas"
-                      >
-                        📥
-                      </a>
-                      <button
-                        type="button"
-                        className="btn-icon"
-                        onClick={() => copyFileUrl(file)}
-                        style={{ flex: 1, padding: "0.35rem" }}
-                        title="Salin URL Berkas"
-                      >
-                        📋
-                      </button>
-                    </>
-                  )}
-                  <button
-                    type="button"
-                    className="btn-icon"
-                    onClick={() => handleDelete(file)}
-                    style={{ flex: 1, padding: "0.35rem" }}
-                    title="Hapus Berkas dari Disk"
-                  >
-                    🗑️
-                  </button>
                 </div>
               </div>
-            );
-          })}
-        </div>
-      ) : (
-        /* ─── TABLE VIEW ─── */
-        <div className="table-container" style={{ marginTop: "1.5rem" }}>
-          <div className="table-wrap" style={{ margin: 0 }}>
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th style={{ width: "45px" }}>Tipe</th>
-                  <th>Nama Berkas</th>
-                  <th>Ukuran</th>
-                  <th>MIME Type</th>
-                  <th>Record ID</th>
-                  <th>Koleksi</th>
-                  <th>Tanggal Unggah</th>
-                  <th style={{ textAlign: "right" }}>Aksi</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredFiles.map((file) => {
-                  const fileDirectUrl = file.collectionName
-                    ? fileUrl(projectId, file.collectionName, file.recordId, file.name)
-                    : null;
-
-                  return (
-                    <tr key={file.storedName}>
-                      <td style={{ textAlign: "center" }}>
-                        {file.isImage ? "🖼️" : file.mime.includes("pdf") ? "📄" : "📦"}
-                      </td>
-                      <td>
-                        <div style={{ fontWeight: 600, fontSize: "0.85rem" }}>{file.name}</div>
-                        {file.isOrphaned && (
-                          <span style={{ fontSize: "0.7rem", color: "#f87171" }}>
-                            ⚠️ Record induk tidak ditemukan (file yatim)
-                          </span>
-                        )}
-                      </td>
-                      <td style={{ fontSize: "0.82rem", whiteSpace: "nowrap" }}>{formatBytes(file.size)}</td>
-                      <td className="muted" style={{ fontSize: "0.78rem" }}>{file.mime}</td>
-                      <td style={{ fontFamily: "ui-monospace, monospace", fontSize: "0.8rem" }}>{file.recordId}</td>
-                      <td>
-                        {file.collectionName ? (
-                          <Link
-                            href={`/projects/${projectId}/database/${encodeURIComponent(file.collectionName)}`}
-                            style={{ color: "var(--accent)", textDecoration: "none", fontSize: "0.82rem" }}
-                          >
-                            {file.collectionName}
-                          </Link>
-                        ) : (
-                          <span className="muted" style={{ fontSize: "0.82rem" }}>—</span>
-                        )}
-                      </td>
-                      <td className="muted" style={{ fontSize: "0.78rem", whiteSpace: "nowrap" }}>
-                        {file.mtime.slice(0, 19).replace("T", " ")}
-                      </td>
-                      <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
-                        <button
-                          type="button"
-                          className="btn-icon"
-                          style={{ marginRight: "0.3rem" }}
-                          onClick={() => setPreviewFile(file)}
-                          title="Preview Berkas"
-                        >
-                          👁️
-                        </button>
-                        {fileDirectUrl && (
-                          <>
-                            <a
-                              href={fileDirectUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="btn-icon"
-                              style={{ marginRight: "0.3rem", display: "inline-block", textDecoration: "none" }}
-                              title="Buka / Unduh"
-                            >
-                              📥
-                            </a>
-                            <button
-                              type="button"
-                              className="btn-icon"
-                              style={{ marginRight: "0.3rem" }}
-                              onClick={() => copyFileUrl(file)}
-                              title="Salin URL"
-                            >
-                              📋
-                            </button>
-                          </>
-                        )}
-                        <button
-                          type="button"
-                          className="btn-icon"
-                          onClick={() => handleDelete(file)}
-                          title="Hapus berkas"
-                        >
-                          🗑️
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* ─── MODAL: PREVIEW FILE ─── */}
-      {previewFile && (
-        <div className="modal-overlay" onClick={() => setPreviewFile(null)}>
-          <div className="modal-box card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: "580px" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
-              <h3 style={{ margin: 0, fontSize: "1.1rem", textOverflow: "ellipsis", overflow: "hidden", whiteSpace: "nowrap" }}>
-                {previewFile.name}
-              </h3>
-              <button className="btn-icon" onClick={() => setPreviewFile(null)}>✕</button>
-            </div>
-
-            {/* Media Content */}
-            <div style={{ background: "var(--panel-2)", padding: "1rem", borderRadius: "8px", textAlign: "center", marginBottom: "1rem" }}>
-              {previewFile.isImage && previewFile.collectionName ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={fileUrl(projectId, previewFile.collectionName, previewFile.recordId, previewFile.name)}
-                  alt={previewFile.name}
-                  style={{ maxWidth: "100%", maxHeight: "320px", borderRadius: "6px", objectFit: "contain" }}
-                />
-              ) : previewFile.mime.startsWith("audio/") && previewFile.collectionName ? (
-                <audio
-                  controls
-                  src={fileUrl(projectId, previewFile.collectionName, previewFile.recordId, previewFile.name)}
-                  style={{ width: "100%", marginTop: "0.5rem" }}
-                />
-              ) : previewFile.mime.startsWith("video/") && previewFile.collectionName ? (
-                <video
-                  controls
-                  src={fileUrl(projectId, previewFile.collectionName, previewFile.recordId, previewFile.name)}
-                  style={{ width: "100%", maxHeight: "280px", borderRadius: "6px" }}
-                />
-              ) : (
-                <div style={{ padding: "2rem" }}>
-                  <div style={{ fontSize: "3rem", marginBottom: "0.5rem" }}>📄</div>
-                  <p className="muted" style={{ fontSize: "0.85rem" }}>
-                    Pratinjau langsung tidak tersedia untuk format <code>{previewFile.mime}</code>.
-                  </p>
-                </div>
-              )}
-            </div>
-
-            {/* File Metadata Info */}
-            <div style={{ fontSize: "0.82rem", display: "grid", gap: "0.4rem" }}>
-              <div className="kv"><span className="k">Ukuran:</span><span className="v">{formatBytes(previewFile.size)} ({previewFile.size} bytes)</span></div>
-              <div className="kv"><span className="k">MIME Type:</span><span className="v">{previewFile.mime}</span></div>
-              <div className="kv"><span className="k">Record ID:</span><span className="v"><code>{previewFile.recordId}</code></span></div>
-              <div className="kv"><span className="k">Koleksi:</span><span className="v">{previewFile.collectionName ?? "—"}</span></div>
-              <div className="kv"><span className="k">Waktu Unggah:</span><span className="v">{previewFile.mtime.replace("T", " ").slice(0, 19)}</span></div>
-            </div>
-
-            <div className="form-actions" style={{ marginTop: "1.25rem" }}>
-              <button className="btn btn-secondary" onClick={() => setPreviewFile(null)}>Tutup</button>
-              {previewFile.collectionName && (
-                <a
-                  href={fileUrl(projectId, previewFile.collectionName, previewFile.recordId, previewFile.name)}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="btn"
-                  style={{ textDecoration: "none" }}
-                >
-                  Buka Berkas Asli ↗
-                </a>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+            )}
+          </DialogContent>
+        </Dialog>
+      </div>
     </>
   );
 }

@@ -3,6 +3,16 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { logout } from "@/lib/api";
+import {
+  Zap,
+  LayoutDashboard,
+  Database,
+  HardDrive,
+  Code2,
+  FolderDot,
+  LogOut,
+  FolderGit2,
+} from "lucide-react";
 
 interface NavbarProps {
   projectId?: string;
@@ -25,31 +35,20 @@ export function Navbar({ projectId, projectName }: NavbarProps) {
 
   return (
     <header className="topbar">
-      <div style={{ display: "flex", alignItems: "center", gap: "1.25rem" }}>
-        <Link href="/projects" className="brand">
-          <div className="brand-icon">⚡</div>
-          <div>
-            wekanz<span style={{ color: "var(--blue)" }}>BaseForge</span>
+      <div className="flex items-center gap-4">
+        <Link href="/projects" className="brand flex items-center gap-2.5">
+          <div className="brand-icon bg-primary text-white flex items-center justify-center">
+            <Zap className="w-4 h-4 fill-white" />
+          </div>
+          <div className="font-extrabold text-base tracking-tight text-foreground">
+            wekanz<span className="text-brand-blue">BaseForge</span>
           </div>
         </Link>
 
         {projectName && (
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "0.5rem",
-              background: "#EFF3F8",
-              padding: "0.3rem 0.8rem",
-              borderRadius: "var(--radius-pill)",
-              fontSize: "0.82rem",
-              fontWeight: 600,
-              color: "var(--text-muted)",
-              border: "1px solid var(--border)",
-            }}
-          >
-            <span>📁</span>
-            <span style={{ color: "var(--text)" }}>{projectName}</span>
+          <div className="flex items-center gap-1.5 bg-slate-100/90 px-3 py-1 rounded-full text-xs font-semibold text-muted-foreground border border-border">
+            <FolderDot className="w-3.5 h-3.5 text-brand-blue" />
+            <span className="text-foreground">{projectName}</span>
           </div>
         )}
       </div>
@@ -61,72 +60,55 @@ export function Navbar({ projectId, projectName }: NavbarProps) {
             href={`/projects/${projectId}`}
             className={`nav-chip ${isOverview ? "active" : ""}`}
           >
-            <span>🏠</span> Overview
+            <LayoutDashboard className="w-3.5 h-3.5" />
+            <span>Overview</span>
           </Link>
           <Link
             href={`/projects/${projectId}/database`}
             className={`nav-chip ${isDatabase ? "active" : ""}`}
           >
-            <span>🗄️</span> Collections
+            <Database className="w-3.5 h-3.5" />
+            <span>Collections</span>
           </Link>
           <Link
             href={`/projects/${projectId}/storage`}
             className={`nav-chip ${isStorage ? "active" : ""}`}
           >
-            <span>📁</span> Storage
+            <HardDrive className="w-3.5 h-3.5" />
+            <span>Storage</span>
           </Link>
           <Link
             href={`/projects/${projectId}/functions`}
             className={`nav-chip ${isFunctions ? "active" : ""}`}
           >
-            <span>⚡</span> Functions
+            <Code2 className="w-3.5 h-3.5" />
+            <span>Functions</span>
           </Link>
         </nav>
       ) : (
         <nav className="nav-chips">
-          <div className="nav-chip active">
-            <span>🚀</span> All Projects
+          <div className="nav-chip active flex items-center gap-1.5">
+            <FolderGit2 className="w-3.5 h-3.5" />
+            <span>All Projects</span>
           </div>
         </nav>
       )}
 
       {/* Right Utilities */}
-      <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "0.5rem",
-            background: "#FFFFFF",
-            border: "1px solid var(--border)",
-            borderRadius: "var(--radius-pill)",
-            padding: "0.35rem 0.85rem",
-            fontSize: "0.82rem",
-            fontWeight: 600,
-            boxShadow: "var(--shadow-sm)",
-          }}
-        >
-          <div
-            style={{
-              width: "22px",
-              height: "22px",
-              borderRadius: "50%",
-              background: "#0A0B0D",
-              color: "#FFFFFF",
-              fontSize: "0.7rem",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontWeight: 700,
-            }}
-          >
+      <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 bg-white border border-border rounded-full px-3 py-1 text-xs font-semibold shadow-sm">
+          <div className="w-5 h-5 rounded-full bg-primary text-white text-[10px] flex items-center justify-center font-bold">
             A
           </div>
-          <span style={{ color: "var(--text)" }}>Admin</span>
+          <span className="text-foreground">Admin</span>
         </div>
 
-        <button className="btn btn-secondary" onClick={handleLogout} style={{ padding: "0.45rem 1rem", fontSize: "0.82rem" }}>
-          Sign out
+        <button
+          className="inline-flex items-center gap-1.5 bg-white border border-border text-foreground hover:bg-slate-50 rounded-full px-3.5 py-1.5 text-xs font-semibold shadow-sm transition-all"
+          onClick={handleLogout}
+        >
+          <LogOut className="w-3.5 h-3.5 text-muted-foreground" />
+          <span>Sign out</span>
         </button>
       </div>
     </header>

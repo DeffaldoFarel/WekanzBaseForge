@@ -10,31 +10,49 @@ import {
   type Project,
 } from "@/lib/api";
 import { Navbar } from "@/components/Navbar";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import {
+  Database,
+  HardDrive,
+  Code2,
+  Trash2,
+  ArrowRight,
+  CheckCircle2,
+  Calendar,
+  Hash,
+  Globe,
+  ChevronRight,
+} from "lucide-react";
 
 const PLATFORM_SERVICES = [
   {
     key: "database",
     title: "Database & Collections",
-    icon: "🗄️",
+    icon: Database,
     desc: "Kelola tabel data relasional, skema kolom dinamis, SQL Views, dan akun pengguna (Auth).",
     href: (id: string) => `/projects/${id}/database`,
     tag: "PocketBase Parity",
+    badgeVariant: "blue" as const,
   },
   {
     key: "storage",
     title: "Storage Explorer",
-    icon: "📁",
+    icon: HardDrive,
     desc: "Penyimpanan berkas fisik, thumbnail image caching, dan pembersihan otomatis file yatim.",
     href: (id: string) => `/projects/${id}/storage`,
     tag: "File Storage",
+    badgeVariant: "secondary" as const,
   },
   {
     key: "functions",
     title: "Functions & Scheduler",
-    icon: "⚡",
+    icon: Code2,
     desc: "Eksekusi kode JavaScript terisolasi, event-driven CRUD triggers, dan cron task scheduler.",
     href: (id: string) => `/projects/${id}/functions`,
     tag: "Serverless Engine",
+    badgeVariant: "purple" as const,
   },
 ];
 
@@ -66,7 +84,7 @@ export default function ProjectDetailPage() {
   if (error) {
     return (
       <div className="page">
-        <Link href="/projects" className="nav-back">← Kembali ke Projects</Link>
+        <Link href="/projects" className="nav-back text-sm">← Kembali ke Projects</Link>
         <p className="error-text">{error}</p>
       </div>
     );
@@ -79,121 +97,111 @@ export default function ProjectDetailPage() {
 
       <div className="page">
         {/* Breadcrumb & Header */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.25rem" }}>
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
           <div>
-            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.85rem", color: "var(--text-muted)", marginBottom: "0.25rem" }}>
-              <Link href="/projects" style={{ textDecoration: "none" }}>Projects</Link>
-              <span>/</span>
-              <span style={{ color: "var(--text)", fontWeight: 600 }}>{project.name}</span>
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1.5 font-medium">
+              <Link href="/projects" className="hover:text-foreground transition-colors">Projects</Link>
+              <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+              <span className="text-foreground font-semibold">{project.name}</span>
             </div>
-            <h1 style={{ fontSize: "1.85rem", fontWeight: 800, letterSpacing: "-0.03em" }}>
+            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-foreground">
               {project.name}
             </h1>
           </div>
 
-          <button className="btn btn-danger" onClick={onDelete} style={{ fontSize: "0.82rem", padding: "0.45rem 1.1rem" }}>
-            🗑️ Hapus Project
-          </button>
+          <Button
+            variant="destructive"
+            size="sm"
+            onClick={onDelete}
+            className="rounded-full gap-1.5"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            <span>Hapus Project</span>
+          </Button>
         </div>
 
         {/* Project Metadata Card */}
-        <div className="card" style={{ padding: "1.25rem 1.75rem", marginBottom: "2rem" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "1.25rem" }}>
+        <Card className="p-6 mb-8 rounded-[24px]">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
             <div>
-              <div className="muted" style={{ fontSize: "0.78rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.03em", marginBottom: "0.25rem" }}>
-                Project Identifier
+              <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1 flex items-center gap-1.5">
+                <Hash className="w-3.5 h-3.5 text-slate-400" />
+                <span>Project Identifier</span>
               </div>
-              <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: "0.9rem", fontWeight: 600 }}>
+              <div className="font-mono text-sm font-semibold text-foreground">
                 {project.id}
               </div>
             </div>
 
             <div>
-              <div className="muted" style={{ fontSize: "0.78rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.03em", marginBottom: "0.25rem" }}>
-                API Endpoint Base
+              <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1 flex items-center gap-1.5">
+                <Globe className="w-3.5 h-3.5 text-slate-400" />
+                <span>API Endpoint Base</span>
               </div>
-              <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: "0.86rem", color: "var(--blue)" }}>
+              <div className="font-mono text-sm font-semibold text-brand-blue">
                 /api/p/{project.id}
               </div>
             </div>
 
             <div>
-              <div className="muted" style={{ fontSize: "0.78rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.03em", marginBottom: "0.25rem" }}>
-                Tanggal Dibuat
+              <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1 flex items-center gap-1.5">
+                <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                <span>Tanggal Dibuat</span>
               </div>
-              <div style={{ fontSize: "0.88rem", fontWeight: 500 }}>
+              <div className="text-sm font-medium text-foreground">
                 {new Date(project.created).toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" })}
               </div>
             </div>
           </div>
-        </div>
+        </Card>
 
         {/* Pusat Layanan Section (Hero Shortcuts) */}
         <div>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.25rem" }}>
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mb-4">
             <div>
-              <h3 style={{ fontSize: "1.2rem", fontWeight: 800, letterSpacing: "-0.02em" }}>Pusat Layanan</h3>
-              <p className="muted" style={{ fontSize: "0.85rem", marginTop: "0.15rem" }}>
-                Semua layanan aktif dan siap digunakan langsung tanpa konfigurasi tambahan.
+              <h3 className="text-lg sm:text-xl font-extrabold tracking-tight text-foreground">Pusat Layanan</h3>
+              <p className="text-xs sm:text-sm text-muted-foreground mt-0.5">
+                Semua modul platform aktif dan siap digunakan langsung tanpa konfigurasi tambahan.
               </p>
             </div>
-            <span
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "0.4rem",
-                background: "rgba(62, 174, 125, 0.12)",
-                color: "#218456",
-                padding: "0.3rem 0.85rem",
-                borderRadius: "var(--radius-pill)",
-                fontSize: "0.78rem",
-                fontWeight: 600,
-                border: "1px solid rgba(62, 174, 125, 0.25)",
-              }}
-            >
-              <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#218456" }}></span>
-              Semua Layanan Siap
-            </span>
+            <div className="inline-flex items-center gap-1.5 bg-emerald-50 text-emerald-700 border border-emerald-200/80 px-3.5 py-1 rounded-full text-xs font-semibold shadow-sm">
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+              <span>Semua Layanan Siap</span>
+            </div>
           </div>
 
-          <div className="service-links" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))" }}>
-            {PLATFORM_SERVICES.map((s) => (
-              <Link
-                key={s.key}
-                href={s.href(project.id)}
-                className="service-link"
-                style={{ padding: "1.5rem" }}
-              >
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "0.85rem" }}>
-                  <div
-                    style={{
-                      width: "48px",
-                      height: "48px",
-                      borderRadius: "14px",
-                      background: "#EFF3F8",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      fontSize: "1.5rem",
-                      border: "1px solid var(--border)",
-                      boxShadow: "var(--shadow-sm)",
-                    }}
-                  >
-                    {s.icon}
-                  </div>
-                  <span className="badge badge-gray" style={{ fontSize: "0.72rem" }}>
-                    {s.tag}
-                  </span>
-                </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+            {PLATFORM_SERVICES.map((s) => {
+              const Icon = s.icon;
+              return (
+                <Link
+                  key={s.key}
+                  href={s.href(project.id)}
+                  className="group"
+                >
+                  <Card className="p-6 rounded-[24px] hover:border-slate-300 hover:-translate-y-1 hover:shadow-lg transition-all duration-200 h-full flex flex-col justify-between bg-white">
+                    <div>
+                      <div className="flex justify-between items-start mb-4">
+                        <div className="w-12 h-12 rounded-2xl bg-slate-100 flex items-center justify-center border border-border group-hover:scale-105 transition-transform">
+                          <Icon className="w-6 h-6 text-slate-800" />
+                        </div>
+                        <Badge variant={s.badgeVariant} className="text-[11px] py-0.5 px-2.5">
+                          {s.tag}
+                        </Badge>
+                      </div>
 
-                <div className="t" style={{ fontSize: "1.05rem", fontWeight: 700, marginBottom: "0.4rem" }}>
-                  {s.title} <span style={{ marginLeft: "0.35rem", transition: "transform 0.15s" }}>→</span>
-                </div>
-                <div className="d" style={{ fontSize: "0.84rem", lineHeight: 1.5 }}>
-                  {s.desc}
-                </div>
-              </Link>
-            ))}
+                      <div className="text-base font-bold text-foreground mb-2 flex items-center justify-between group-hover:text-brand-blue transition-colors">
+                        <span>{s.title}</span>
+                        <ArrowRight className="w-4 h-4 opacity-0 group-hover:opacity-100 -translate-x-1 group-hover:translate-x-0 transition-all text-brand-blue" />
+                      </div>
+                      <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed">
+                        {s.desc}
+                      </p>
+                    </div>
+                  </Card>
+                </Link>
+              );
+            })}
           </div>
         </div>
       </div>

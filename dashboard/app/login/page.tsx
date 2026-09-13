@@ -3,6 +3,10 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { login } from "@/lib/api";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Zap, Mail, Lock, ArrowRight, Loader2 } from "lucide-react";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -27,28 +31,30 @@ export default function LoginPage() {
 
   return (
     <div className="center-screen">
-      <div className="card login-box">
-        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "1.25rem" }}>
-          <div className="brand-icon" style={{ width: "40px", height: "40px", fontSize: "1.25rem" }}>
-            ⚡
+      <Card className="login-box w-full max-w-[420px] p-8 border-border shadow-modal rounded-[28px]">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 rounded-xl bg-primary text-white flex items-center justify-center shadow-md">
+            <Zap className="w-5 h-5 fill-white" />
           </div>
           <div>
-            <h1 style={{ fontSize: "1.35rem", fontWeight: 800, margin: 0 }}>
-              wekanz<span style={{ color: "var(--blue)" }}>BaseForge</span>
+            <h1 className="text-xl font-extrabold tracking-tight text-foreground m-0">
+              wekanz<span className="text-brand-blue">BaseForge</span>
             </h1>
-            <span style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>Backend Platform Console</span>
+            <span className="text-xs text-muted-foreground font-medium">Backend Platform Console</span>
           </div>
         </div>
 
-        <p className="sub">Masuk sebagai administrator platform</p>
+        <p className="text-sm text-muted-foreground mb-6">
+          Masuk sebagai administrator platform untuk mengelola project dan layanan.
+        </p>
 
-        <form onSubmit={onSubmit}>
-          <div className="field">
-            <label>
+        <form onSubmit={onSubmit} className="space-y-4">
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
+              <Mail className="w-3.5 h-3.5 text-muted-foreground" />
               <span>Email Administrator</span>
             </label>
-            <input
-              className="input"
+            <Input
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -57,12 +63,12 @@ export default function LoginPage() {
             />
           </div>
 
-          <div className="field" style={{ marginBottom: "1.5rem" }}>
-            <label>
+          <div className="space-y-1.5 pb-2">
+            <label className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
+              <Lock className="w-3.5 h-3.5 text-muted-foreground" />
               <span>Password</span>
             </label>
-            <input
-              className="input"
+            <Input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -71,13 +77,27 @@ export default function LoginPage() {
             />
           </div>
 
-          <button className="btn" style={{ width: "100%", padding: "0.75rem 1.5rem", fontSize: "0.92rem" }} disabled={loading}>
-            {loading ? "Memverifikasi..." : "Sign in ke Console →"}
-          </button>
+          <Button type="submit" className="w-full h-11 text-sm font-semibold" disabled={loading}>
+            {loading ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>Memverifikasi...</span>
+              </>
+            ) : (
+              <>
+                <span>Sign in ke Console</span>
+                <ArrowRight className="w-4 h-4" />
+              </>
+            )}
+          </Button>
 
-          {error && <p className="error-text" style={{ marginTop: "1rem", textAlign: "center" }}>{error}</p>}
+          {error && (
+            <div className="p-3 rounded-xl bg-destructive/10 border border-destructive/20 text-destructive text-xs font-medium text-center">
+              {error}
+            </div>
+          )}
         </form>
-      </div>
+      </Card>
     </div>
   );
 }

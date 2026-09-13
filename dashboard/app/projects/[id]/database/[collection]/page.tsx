@@ -31,6 +31,21 @@ import { FieldOptionsEditor } from "@/components/FieldOptionsEditor";
 import { IndexesEditor } from "@/components/IndexesEditor";
 import { CreateCollectionModal } from "@/components/CreateCollectionModal";
 import { Navbar } from "@/components/Navbar";
+import {
+  Database,
+  Eye,
+  Users,
+  Plus,
+  Search,
+  Copy,
+  Download,
+  Upload,
+  Trash2,
+  Shield,
+  Table as TableIcon,
+  Layers,
+  ArrowLeft,
+} from "lucide-react";
 
 const FIELD_TYPES = [
   "text",
@@ -360,15 +375,20 @@ export default function AdvancedDatabaseStudioPage() {
         <div className="studio-sidebar-list">
           {filteredCollections.map((c) => {
             const isActive = c.name === collectionName;
-            const icon = c.type === "view" ? "👁️" : c.type === "auth" ? "👤" : "📦";
             return (
               <Link
                 key={c.name}
                 href={`/projects/${projectId}/database/${encodeURIComponent(c.name)}`}
                 className={`studio-col-link ${isActive ? "active" : ""}`}
               >
-                <div style={{ display: "flex", alignItems: "center", gap: "0.45rem", overflow: "hidden" }}>
-                  <span>{icon}</span>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.55rem", overflow: "hidden" }}>
+                  {c.type === "view" ? (
+                    <Eye className="w-4 h-4 text-purple-600 shrink-0" />
+                  ) : c.type === "auth" ? (
+                    <Users className="w-4 h-4 text-emerald-600 shrink-0" />
+                  ) : (
+                    <Database className="w-4 h-4 text-slate-600 shrink-0" />
+                  )}
                   <span style={{ textOverflow: "ellipsis", overflow: "hidden", whiteSpace: "nowrap" }}>
                     {c.name}
                   </span>
@@ -387,9 +407,15 @@ export default function AdvancedDatabaseStudioPage() {
         {/* Header Koleksi */}
         <div className="header-row" style={{ marginBottom: "1rem" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-            <span style={{ fontSize: "1.6rem" }}>
-              {collection?.type === "view" ? "👁️" : collection?.type === "auth" ? "👤" : "📦"}
-            </span>
+            <div className="w-11 h-11 rounded-2xl bg-slate-100 flex items-center justify-center border border-border">
+              {collection?.type === "view" ? (
+                <Eye className="w-5 h-5 text-purple-600" />
+              ) : collection?.type === "auth" ? (
+                <Users className="w-5 h-5 text-emerald-600" />
+              ) : (
+                <Database className="w-5 h-5 text-slate-800" />
+              )}
+            </div>
             <div>
               <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
                 <h1 style={{ fontSize: "1.4rem", margin: 0 }}>{collectionName}</h1>
@@ -418,30 +444,33 @@ export default function AdvancedDatabaseStudioPage() {
 
           <div style={{ display: "flex", gap: "0.5rem" }}>
             <button
-              className="btn btn-secondary"
-              style={{ fontSize: "0.82rem", padding: "0.45rem 0.8rem" }}
+              className="btn btn-secondary flex items-center gap-1.5"
+              style={{ fontSize: "0.82rem", padding: "0.45rem 0.85rem" }}
               onClick={() => {
                 setDuplicateName(`${collectionName}_copy`);
                 setShowDuplicateCol(true);
               }}
               title="Duplikasi struktur atau data collection ini"
             >
-              📑 Duplicate
+              <Copy className="w-3.5 h-3.5" />
+              <span>Duplicate</span>
             </button>
             <button
-              className="btn btn-secondary"
-              style={{ fontSize: "0.82rem", padding: "0.45rem 0.8rem" }}
+              className="btn btn-secondary flex items-center gap-1.5"
+              style={{ fontSize: "0.82rem", padding: "0.45rem 0.85rem" }}
               onClick={handleExportJson}
               title="Download backup JSON"
             >
-              📥 Export JSON
+              <Download className="w-3.5 h-3.5" />
+              <span>Export JSON</span>
             </button>
             <button
-              className="btn btn-danger"
-              style={{ fontSize: "0.82rem", padding: "0.45rem 0.8rem" }}
+              className="btn btn-danger flex items-center gap-1.5"
+              style={{ fontSize: "0.82rem", padding: "0.45rem 0.85rem" }}
               onClick={handleDeleteCollection}
             >
-              🗑️ Delete
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Delete</span>
             </button>
           </div>
         </div>

@@ -5,12 +5,27 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { listProjects, createProject, getToken, type Project } from "@/lib/api";
 import { Navbar } from "@/components/Navbar";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import {
+  FolderKanban,
+  Plus,
+  Database,
+  HardDrive,
+  Code2,
+  Calendar,
+  Sparkles,
+  ArrowRight,
+  Layers,
+} from "lucide-react";
 
-const SERVICE_LABELS: Record<string, { label: string; icon: string }> = {
-  database: { label: "Database & Auth", icon: "🗄️" },
-  storage: { label: "Storage", icon: "📁" },
-  functions: { label: "Functions", icon: "⚡" },
-};
+const SERVICE_CAPABILITIES = [
+  { key: "database", label: "Database & Auth", icon: Database },
+  { key: "storage", label: "Storage", icon: HardDrive },
+  { key: "functions", label: "Functions", icon: Code2 },
+];
 
 export default function ProjectsPage() {
   const router = useRouter();
@@ -55,120 +70,102 @@ export default function ProjectsPage() {
 
       <div className="page">
         {/* Header Section */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: "1.5rem" }}>
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4 mb-6">
           <div>
-            <h1 style={{ fontSize: "1.85rem", fontWeight: 800, letterSpacing: "-0.03em", color: "var(--text)" }}>
+            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-foreground">
               Platform Projects
             </h1>
-            <p className="muted" style={{ fontSize: "0.92rem", marginTop: "0.25rem" }}>
-              Kelola database, media storage, dan serverless functions per project ekosistem Wekanz.
+            <p className="text-sm text-muted-foreground mt-1">
+              Kelola database relasional, penyimpanan berkas fisik, dan serverless functions per project ekosistem Wekanz.
             </p>
           </div>
 
-          <div
-            style={{
-              background: "#FFFFFF",
-              padding: "0.4rem 1rem",
-              borderRadius: "var(--radius-pill)",
-              fontSize: "0.85rem",
-              fontWeight: 600,
-              color: "var(--text)",
-              border: "1px solid var(--border)",
-              boxShadow: "var(--shadow-sm)",
-            }}
-          >
-            <span>📦 Total: </span>
-            <span style={{ color: "var(--blue)" }}>{projects.length} Projects</span>
+          <div className="bg-white px-4 py-1.5 rounded-full text-xs font-semibold text-foreground border border-border shadow-sm flex items-center gap-1.5 shrink-0">
+            <Layers className="w-3.5 h-3.5 text-brand-blue" />
+            <span>Total: </span>
+            <span className="text-brand-blue font-bold">{projects.length} Projects</span>
           </div>
         </div>
 
         {/* Create Project Card Form */}
-        <div className="card" style={{ padding: "1.25rem 1.5rem", marginBottom: "1.75rem" }}>
-          <form onSubmit={onCreate} style={{ display: "flex", gap: "0.75rem", alignItems: "center" }}>
-            <div style={{ position: "relative", flex: 1 }}>
-              <span style={{ position: "absolute", left: "1.1rem", top: "50%", transform: "translateY(-50%)", color: "var(--text-muted)", fontSize: "0.9rem" }}>
-                🏷️
+        <Card className="p-4 sm:p-5 mb-6 rounded-[24px]">
+          <form onSubmit={onCreate} className="flex flex-col sm:flex-row gap-3 items-center">
+            <div className="relative flex-1 w-full">
+              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground">
+                <Sparkles className="w-4 h-4 text-brand-blue" />
               </span>
-              <input
-                className="input"
-                style={{ paddingLeft: "2.6rem" }}
+              <Input
+                className="pl-11 h-11"
                 placeholder="Ketik nama project baru (contoh: wekanz-portal)..."
                 value={name}
                 onChange={(e) => setName(e.target.value)}
               />
             </div>
-            <button className="btn" disabled={creating || !name.trim()}>
-              {creating ? "Membuat..." : "+ Buat Project"}
-            </button>
+            <Button type="submit" className="h-11 px-6 w-full sm:w-auto shrink-0" disabled={creating || !name.trim()}>
+              <Plus className="w-4 h-4" />
+              <span>{creating ? "Membuat..." : "Buat Project Baru"}</span>
+            </Button>
           </form>
-          {error && <p className="error-text" style={{ marginTop: "0.75rem" }}>{error}</p>}
-        </div>
+          {error && <p className="error-text mt-3 text-xs">{error}</p>}
+        </Card>
 
         {/* Project Grid */}
-        <div className="project-grid">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
           {projects.map((p) => (
-            <Link key={p.id} href={`/projects/${p.id}`} className="project-card">
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "0.75rem" }}>
-                <div
-                  style={{
-                    width: "42px",
-                    height: "42px",
-                    borderRadius: "12px",
-                    background: "#F1F5F9",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    fontSize: "1.25rem",
-                    border: "1px solid var(--border)",
-                  }}
-                >
-                  📁
+            <Link key={p.id} href={`/projects/${p.id}`} className="group">
+              <Card className="p-6 rounded-[24px] hover:border-slate-300 hover:-translate-y-1 hover:shadow-lg transition-all duration-200 flex flex-col justify-between h-full bg-white">
+                <div>
+                  <div className="flex justify-between items-start mb-4">
+                    <div className="w-12 h-12 rounded-2xl bg-slate-100 flex items-center justify-center border border-border group-hover:scale-105 transition-transform">
+                      <FolderKanban className="w-6 h-6 text-slate-700" />
+                    </div>
+                    <span className="font-mono text-[11px] font-semibold bg-slate-100 text-slate-600 px-3 py-1 rounded-full border border-border">
+                      {p.id}
+                    </span>
+                  </div>
+
+                  <h3 className="text-lg font-bold text-foreground mb-1 group-hover:text-brand-blue transition-colors flex items-center justify-between">
+                    <span>{p.name}</span>
+                    <ArrowRight className="w-4 h-4 opacity-0 group-hover:opacity-100 -translate-x-1 group-hover:translate-x-0 transition-all text-brand-blue" />
+                  </h3>
+
+                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-4 font-medium">
+                    <Calendar className="w-3.5 h-3.5" />
+                    <span>Dibuat {new Date(p.created).toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" })}</span>
+                  </div>
                 </div>
-                <span
-                  style={{
-                    fontFamily: "'JetBrains Mono', monospace",
-                    fontSize: "0.72rem",
-                    background: "#F1F5F9",
-                    padding: "0.2rem 0.6rem",
-                    borderRadius: "var(--radius-pill)",
-                    color: "var(--text-muted)",
-                    border: "1px solid var(--border)",
-                  }}
-                >
-                  {p.id}
-                </span>
-              </div>
 
-              <h3>{p.name}</h3>
-              <p className="muted" style={{ fontSize: "0.82rem", marginBottom: "1rem" }}>
-                Dibuat pada {new Date(p.created).toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" })}
-              </p>
-
-              {/* Service Capabilities */}
-              <div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem" }}>
-                {Object.entries(SERVICE_LABELS).map(([key, item]) => (
-                  <span
-                    key={key}
-                    className="badge badge-gray"
-                    style={{ fontSize: "0.72rem" }}
-                  >
-                    <span style={{ fontSize: "0.75rem" }}>{item.icon}</span>
-                    {item.label}
-                  </span>
-                ))}
-              </div>
+                {/* Service Capability Badges */}
+                <div className="flex flex-wrap gap-1.5 pt-3 border-t border-slate-100">
+                  {SERVICE_CAPABILITIES.map((item) => {
+                    const Icon = item.icon;
+                    return (
+                      <Badge
+                        key={item.key}
+                        variant="secondary"
+                        className="text-[11px] py-0.5 px-2.5 bg-slate-100/90 text-slate-600 font-medium"
+                      >
+                        <Icon className="w-3 h-3 text-slate-500 mr-1" />
+                        {item.label}
+                      </Badge>
+                    );
+                  })}
+                </div>
+              </Card>
             </Link>
           ))}
         </div>
 
         {projects.length === 0 && (
-          <div className="card" style={{ textAlign: "center", padding: "3.5rem 1.5rem", marginTop: "2rem" }}>
-            <div style={{ fontSize: "2.5rem", marginBottom: "0.75rem" }}>🚀</div>
-            <h3 style={{ fontSize: "1.2rem", fontWeight: 700 }}>Belum Ada Project</h3>
-            <p className="muted" style={{ fontSize: "0.9rem", marginTop: "0.25rem" }}>
-              Mulai buat project pertama kamu menggunakan form input di atas.
+          <Card className="text-center py-16 px-6 mt-8 rounded-[28px]">
+            <div className="w-16 h-16 mx-auto rounded-2xl bg-slate-100 flex items-center justify-center mb-4 border border-border">
+              <Sparkles className="w-8 h-8 text-brand-blue" />
+            </div>
+            <h3 className="text-lg font-bold text-foreground">Belum Ada Project</h3>
+            <p className="text-sm text-muted-foreground max-w-sm mx-auto mt-1">
+              Mulai buat project pertama kamu menggunakan form input di atas untuk mengelola database dan aset media.
             </p>
-          </div>
+          </Card>
         )}
       </div>
     </>
