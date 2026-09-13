@@ -323,6 +323,7 @@ export default function AdvancedDatabaseStudioPage() {
   const filteredCollections = collections.filter((c) =>
     c.name.toLowerCase().includes(colFilter.toLowerCase())
   );
+  const isView = collection?.type === "view";
 
   return (
     <div className="studio-layout">
@@ -513,16 +514,25 @@ export default function AdvancedDatabaseStudioPage() {
                   </button>
                 )}
 
-                <button
-                  className="btn"
-                  onClick={() => {
-                    setEditingRecord(null);
-                    setShowNewRecord(true);
-                  }}
-                  style={{ fontSize: "0.85rem", whiteSpace: "nowrap" }}
-                >
-                  + New Record
-                </button>
+                {isView ? (
+                  <span
+                    className="badge badge-purple"
+                    style={{ padding: "0.45rem 0.85rem", fontSize: "0.82rem", whiteSpace: "nowrap" }}
+                  >
+                    👁️ Read-only View
+                  </span>
+                ) : (
+                  <button
+                    className="btn"
+                    onClick={() => {
+                      setEditingRecord(null);
+                      setShowNewRecord(true);
+                    }}
+                    style={{ fontSize: "0.85rem", whiteSpace: "nowrap" }}
+                  >
+                    + New Record
+                  </button>
+                )}
               </div>
             </div>
 
@@ -595,48 +605,54 @@ export default function AdvancedDatabaseStudioPage() {
                               {String(row.created || "").slice(0, 19).replace("T", " ")}
                             </td>
                             <td style={{ textAlign: "right", whiteSpace: "nowrap" }} onClick={(e) => e.stopPropagation()}>
+                              {!isView && (
+                                <>
+                                  <button
+                                    className="btn-icon"
+                                    style={{ marginRight: "0.3rem" }}
+                                    onClick={() => {
+                                      setEditingRecord(row);
+                                      setShowNewRecord(true);
+                                    }}
+                                    title="Edit record"
+                                  >
+                                    ✏️
+                                  </button>
+                                  <button
+                                    className="btn-icon"
+                                    style={{ marginRight: "0.3rem" }}
+                                    onClick={() => {
+                                      // Duplicate record
+                                      const clone = { ...row };
+                                      delete clone.id;
+                                      delete clone.created;
+                                      delete clone.updated;
+                                      setEditingRecord(clone);
+                                      setShowNewRecord(true);
+                                    }}
+                                    title="Duplicate record"
+                                  >
+                                    📑
+                                  </button>
+                                </>
+                              )}
                               <button
                                 className="btn-icon"
-                                style={{ marginRight: "0.3rem" }}
-                                onClick={() => {
-                                  setEditingRecord(row);
-                                  setShowNewRecord(true);
-                                }}
-                                title="Edit record"
-                              >
-                                ✏️
-                              </button>
-                              <button
-                                className="btn-icon"
-                                style={{ marginRight: "0.3rem" }}
-                                onClick={() => {
-                                  // Duplicate record
-                                  const clone = { ...row };
-                                  delete clone.id;
-                                  delete clone.created;
-                                  delete clone.updated;
-                                  setEditingRecord(clone);
-                                  setShowNewRecord(true);
-                                }}
-                                title="Duplicate record"
-                              >
-                                📑
-                              </button>
-                              <button
-                                className="btn-icon"
-                                style={{ marginRight: "0.3rem" }}
+                                style={{ marginRight: isView ? 0 : "0.3rem" }}
                                 onClick={() => setRawJsonView(row)}
                                 title="View Raw JSON"
                               >
                                 🔍
                               </button>
-                              <button
-                                className="btn-icon"
-                                onClick={() => handleDeleteRecord(id)}
-                                title="Delete record"
-                              >
-                                ✕
-                              </button>
+                              {!isView && (
+                                <button
+                                  className="btn-icon"
+                                  onClick={() => handleDeleteRecord(id)}
+                                  title="Delete record"
+                                >
+                                  ✕
+                                </button>
+                              )}
                             </td>
                           </tr>
                         );
@@ -672,144 +688,213 @@ export default function AdvancedDatabaseStudioPage() {
           </div>
         )}
 
-        {/* ─── TAB 2: SCHEMA & FIELDS (FULL EDITABLE SCHEMA BUILDER) ─── */}
+        {/* ─── TAB 2: SCHEMA & FIELDS (OR VIEW QUERY) ─── */}
         {activeTab === "schema" && (
           <div className="card">
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.25rem", flexWrap: "wrap", gap: "0.5rem" }}>
+            {isView ? (
               <div>
-                <h3 style={{ margin: 0 }}>Schema Editor — "{collectionName}"</h3>
-                <p className="muted" style={{ fontSize: "0.85rem", margin: "0.25rem 0 0" }}>
-                  Ubah tipe kolom, tambah, atau hapus field. Perubahan dijalankan via SQLite Table Rebuild (data tetap selamat!).
-                </p>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.25rem" }}>
+                  <div>
+                    <h3 style={{ margin: 0, display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                      <span>👁️</span> SQL View Definition — "{collectionName}"
+                    </h3>
+                    <p className="muted" style={{ fontSize: "0.85rem", margin: "0.25rem 0 0" }}>
+                      Koleksi ini adalah read-only SQL View yang dikompilasi secara otomatis oleh SQLite.
+                    </p>
+                  </div>
+                  <span className="badge badge-purple" style={{ padding: "0.35rem 0.75rem", fontSize: "0.82rem" }}>
+                    Read-only View
+                  </span>
+                </div>
+
+                <div style={{ background: "var(--panel-2)", padding: "1.25rem", borderRadius: "10px", border: "1px solid var(--border)", marginBottom: "1.5rem" }}>
+                  <div style={{ fontSize: "0.8rem", fontWeight: 600, color: "var(--accent)", marginBottom: "0.5rem", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                    Kueri SQL SELECT:
+                  </div>
+                  <pre
+                    style={{
+                      background: "var(--bg)",
+                      padding: "1rem",
+                      borderRadius: "8px",
+                      border: "1px solid var(--border)",
+                      fontFamily: "ui-monospace, monospace",
+                      fontSize: "0.88rem",
+                      overflowX: "auto",
+                      color: "var(--text)",
+                      lineHeight: "1.5",
+                      margin: 0,
+                    }}
+                  >
+                    {collection?.viewQuery || "SELECT ..."}
+                  </pre>
+                </div>
+
+                <div>
+                  <h4 style={{ margin: "0 0 0.75rem 0", fontSize: "0.95rem" }}>
+                    Inferred Columns ({collection?.fields.length ?? 0})
+                  </h4>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: "0.6rem" }}>
+                    {collection?.fields.map((f) => (
+                      <div
+                        key={f.name}
+                        style={{
+                          background: "var(--panel-2)",
+                          border: "1px solid var(--border)",
+                          borderRadius: "8px",
+                          padding: "0.6rem 0.85rem",
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                        }}
+                      >
+                        <span style={{ fontWeight: 600, fontSize: "0.85rem" }}>{f.name}</span>
+                        <span className="badge badge-gray" style={{ fontSize: "0.72rem" }}>
+                          {f.type}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               </div>
-              <div style={{ display: "flex", gap: "0.5rem" }}>
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  onClick={() => {
-                    setFieldsDraft([
-                      ...fieldsDraft,
-                      { name: "", type: "text", required: false, unique: false },
-                    ]);
-                  }}
-                >
-                  + Add Field
-                </button>
-                <button
-                  type="button"
-                  className="btn"
-                  onClick={handleSaveSchema}
-                  disabled={schemaSaving}
-                >
-                  {schemaSaving ? "Menyimpan Skema…" : "💾 Save Schema Changes"}
-                </button>
-              </div>
-            </div>
-
-            {schemaError && <div className="error-text" style={{ marginBottom: "1rem" }}>{schemaError}</div>}
-
-            <div style={{ display: "grid", gap: "0.75rem" }}>
-              {fieldsDraft.map((f, i) => (
-                <div key={i} className="field-card" style={{ background: "var(--panel-2)" }}>
-                  <div className="field-card-header">
-                    <input
-                      className="input"
-                      placeholder="nama field"
-                      value={f.name}
-                      onChange={(e) => {
-                        const updated = [...fieldsDraft];
-                        updated[i].name = e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "");
-                        setFieldsDraft(updated);
+            ) : (
+              <div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.25rem", flexWrap: "wrap", gap: "0.5rem" }}>
+                  <div>
+                    <h3 style={{ margin: 0 }}>Schema Editor — "{collectionName}"</h3>
+                    <p className="muted" style={{ fontSize: "0.85rem", margin: "0.25rem 0 0" }}>
+                      Ubah tipe kolom, tambah, atau hapus field. Perubahan dijalankan via SQLite Table Rebuild (data tetap selamat!).
+                    </p>
+                  </div>
+                  <div style={{ display: "flex", gap: "0.5rem" }}>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={() => {
+                        setFieldsDraft([
+                          ...fieldsDraft,
+                          { name: "", type: "text", required: false },
+                        ]);
                       }}
-                      style={{ flex: 2, fontWeight: 600 }}
-                    />
-
-                    <select
-                      className="input"
-                      value={f.type}
-                      onChange={(e) => {
-                        const updated = [...fieldsDraft];
-                        updated[i].type = e.target.value;
-                        setFieldsDraft(updated);
-                      }}
-                      style={{ flex: 1.5 }}
                     >
-                      {FIELD_TYPES.map((t) => (
-                        <option key={t} value={t}>{t}</option>
-                      ))}
-                    </select>
+                      + Add Field
+                    </button>
+                    <button
+                      type="button"
+                      className="btn"
+                      onClick={handleSaveSchema}
+                      disabled={schemaSaving}
+                    >
+                      {schemaSaving ? "Menyimpan Skema…" : "💾 Save Schema Changes"}
+                    </button>
+                  </div>
+                </div>
 
-                    <label style={{ display: "flex", alignItems: "center", gap: "0.3rem", fontSize: "0.82rem", whiteSpace: "nowrap", cursor: "pointer" }}>
-                      <input
-                        type="checkbox"
-                        checked={!!f.required}
-                        onChange={(e) => {
+                {schemaError && <div className="error-text" style={{ marginBottom: "1rem" }}>{schemaError}</div>}
+
+                <div style={{ display: "grid", gap: "0.75rem" }}>
+                  {fieldsDraft.map((f, i) => (
+                    <div key={i} className="field-card" style={{ background: "var(--panel-2)" }}>
+                      <div className="field-card-header">
+                        <input
+                          className="input"
+                          placeholder="nama field"
+                          value={f.name}
+                          onChange={(e) => {
+                            const updated = [...fieldsDraft];
+                            updated[i].name = e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "");
+                            setFieldsDraft(updated);
+                          }}
+                          style={{ flex: 2, fontWeight: 600 }}
+                        />
+
+                        <select
+                          className="input"
+                          value={f.type}
+                          onChange={(e) => {
+                            const updated = [...fieldsDraft];
+                            updated[i].type = e.target.value;
+                            setFieldsDraft(updated);
+                          }}
+                          style={{ flex: 1.5 }}
+                        >
+                          {FIELD_TYPES.map((t) => (
+                            <option key={t} value={t}>{t}</option>
+                          ))}
+                        </select>
+
+                        <label style={{ display: "flex", alignItems: "center", gap: "0.3rem", fontSize: "0.82rem", whiteSpace: "nowrap", cursor: "pointer" }}>
+                          <input
+                            type="checkbox"
+                            checked={!!f.required}
+                            onChange={(e) => {
+                              const updated = [...fieldsDraft];
+                              updated[i].required = e.target.checked;
+                              setFieldsDraft(updated);
+                            }}
+                          />
+                          Req
+                        </label>
+
+                        <button
+                          type="button"
+                          className="btn-icon"
+                          onClick={() => {
+                            if (confirm(`Hapus kolom "${f.name || 'baru'}"? Kolom ini akan dihapus saat skema disimpan.`)) {
+                              setFieldsDraft(fieldsDraft.filter((_, idx) => idx !== i));
+                            }
+                          }}
+                          title="Hapus kolom"
+                        >
+                          ✕
+                        </button>
+                      </div>
+
+                      {/* Field Specific Options for All 14 Types */}
+                      <FieldOptionsEditor
+                        field={f}
+                        allCollections={collections}
+                        onChange={(patch) => {
                           const updated = [...fieldsDraft];
-                          updated[i].required = e.target.checked;
+                          updated[i] = { ...updated[i], ...patch };
                           setFieldsDraft(updated);
                         }}
                       />
-                      Req
-                    </label>
-
-                    <button
-                      type="button"
-                      className="btn-icon"
-                      onClick={() => {
-                        if (confirm(`Hapus kolom "${f.name || 'baru'}"? Kolom ini akan dihapus saat skema disimpan.`)) {
-                          setFieldsDraft(fieldsDraft.filter((_, idx) => idx !== i));
-                        }
-                      }}
-                      title="Hapus kolom"
-                    >
-                      ✕
-                    </button>
-                  </div>
-
-                  {/* Field Specific Options for All 14 Types */}
-                  <FieldOptionsEditor
-                    field={f}
-                    allCollections={collections}
-                    onChange={(patch) => {
-                      const updated = [...fieldsDraft];
-                      updated[i] = { ...updated[i], ...patch };
-                      setFieldsDraft(updated);
-                    }}
-                  />
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
 
-            {/* ─── POCKETBASE-STYLE INDEXES & UNIQUE CONSTRAINTS SECTION ─── */}
-            <IndexesEditor
-              collectionName={collectionName}
-              indexes={indexesDraft}
-              fields={fieldsDraft}
-              onChange={setIndexesDraft}
-            />
+                {/* ─── POCKETBASE-STYLE INDEXES & UNIQUE CONSTRAINTS SECTION ─── */}
+                <IndexesEditor
+                  collectionName={collectionName}
+                  indexes={indexesDraft}
+                  fields={fieldsDraft}
+                  onChange={setIndexesDraft}
+                />
 
-            <div style={{ marginTop: "1.5rem", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={() => {
-                  setFieldsDraft([
-                    ...fieldsDraft,
-                    { name: "", type: "text", required: false, unique: false },
-                  ]);
-                }}
-              >
-                + Add Field
-              </button>
-              <button
-                type="button"
-                className="btn"
-                onClick={handleSaveSchema}
-                disabled={schemaSaving}
-              >
-                {schemaSaving ? "Menyimpan Skema…" : "💾 Save Schema Changes"}
-              </button>
-            </div>
+                <div style={{ marginTop: "1.5rem", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => {
+                      setFieldsDraft([
+                        ...fieldsDraft,
+                        { name: "", type: "text", required: false },
+                      ]);
+                    }}
+                  >
+                    + Add Field
+                  </button>
+                  <button
+                    type="button"
+                    className="btn"
+                    onClick={handleSaveSchema}
+                    disabled={schemaSaving}
+                  >
+                    {schemaSaving ? "Menyimpan Skema…" : "💾 Save Schema Changes"}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
