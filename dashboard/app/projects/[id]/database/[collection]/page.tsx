@@ -30,6 +30,7 @@ import {
 import { FieldOptionsEditor } from "@/components/FieldOptionsEditor";
 import { IndexesEditor } from "@/components/IndexesEditor";
 import { CreateCollectionModal } from "@/components/CreateCollectionModal";
+import { Navbar } from "@/components/Navbar";
 
 const FIELD_TYPES = [
   "text",
@@ -326,8 +327,10 @@ export default function AdvancedDatabaseStudioPage() {
   const isView = collection?.type === "view";
 
   return (
-    <div className="studio-layout">
-      {/* ─── SIDEBAR MASTER COLLECTIONS ─── */}
+    <>
+      <Navbar projectId={projectId} />
+      <div className="studio-layout">
+        {/* ─── SIDEBAR MASTER COLLECTIONS ─── */}
       <aside className="studio-sidebar">
         <div style={{ marginBottom: "0.85rem" }}>
           <Link href={`/projects/${projectId}`} className="nav-back" style={{ fontSize: "0.82rem" }}>
@@ -1145,6 +1148,7 @@ export default function AdvancedDatabaseStudioPage() {
         />
       )}
     </div>
+    </>
   );
 }
 

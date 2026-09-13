@@ -11,6 +11,7 @@ import {
   type StoredFileInfo,
   type StorageStats,
 } from "@/lib/api";
+import { Navbar } from "@/components/Navbar";
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return "0 B";
@@ -122,20 +123,19 @@ export default function StorageExplorerPage() {
   const imageCount = useMemo(() => files.filter((f) => f.isImage).length, [files]);
 
   return (
-    <div className="container" style={{ padding: "2rem 1rem", maxWidth: "1200px" }}>
-      {/* Top Navigation */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem" }}>
-        <div>
-          <Link href={`/projects/${projectId}`} className="nav-back" style={{ fontSize: "0.85rem" }}>
-            ← Kembali ke Project Home
-          </Link>
-          <h2 style={{ margin: "0.35rem 0 0", fontSize: "1.75rem", fontWeight: 700 }}>
-            📁 Storage Explorer
-          </h2>
-          <p className="muted" style={{ margin: "0.25rem 0 0", fontSize: "0.88rem" }}>
-            Kelola berkas fisik, aset gambar, dan thumbnail cache pada disk <code>data/storage/{projectId}</code>.
-          </p>
-        </div>
+    <>
+      <Navbar projectId={projectId} />
+      <div className="page" style={{ maxWidth: "1200px" }}>
+        {/* Top Navigation */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem" }}>
+          <div>
+            <h2 style={{ margin: "0.35rem 0 0", fontSize: "1.85rem", fontWeight: 800, letterSpacing: "-0.03em" }}>
+              📁 Storage Explorer
+            </h2>
+            <p className="muted" style={{ margin: "0.25rem 0 0", fontSize: "0.88rem" }}>
+              Kelola berkas fisik, aset gambar, dan thumbnail cache pada disk <code>data/storage/{projectId}</code>.
+            </p>
+          </div>
 
         <div style={{ display: "flex", gap: "0.5rem" }}>
           {stats.orphanedCount > 0 && (
@@ -614,5 +614,6 @@ export default function StorageExplorerPage() {
         </div>
       )}
     </div>
+    </>
   );
 }

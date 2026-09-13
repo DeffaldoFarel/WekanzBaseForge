@@ -248,14 +248,14 @@ export function CreateCollectionModal({
                     right: 0,
                     top: "100%",
                     marginTop: "0.4rem",
-                    width: "290px",
-                    background: "var(--panel-2)",
+                    width: "300px",
+                    background: "#FFFFFF",
                     border: "1px solid var(--border)",
-                    borderRadius: "10px",
-                    boxShadow: "0 10px 25px rgba(0,0,0,0.5)",
+                    borderRadius: "14px",
+                    boxShadow: "var(--shadow-modal)",
                     zIndex: 100,
                     overflow: "hidden",
-                    padding: "0.4rem",
+                    padding: "0.5rem",
                   }}
                 >
                   {/* Option 1: Base collection */}
@@ -265,18 +265,19 @@ export function CreateCollectionModal({
                       setShowTypeDropdown(false);
                     }}
                     style={{
-                      padding: "0.6rem 0.75rem",
-                      borderRadius: "6px",
+                      padding: "0.65rem 0.85rem",
+                      borderRadius: "10px",
                       cursor: "pointer",
-                      background: colType === "base" ? "rgba(249, 115, 22, 0.15)" : "transparent",
-                      border: colType === "base" ? "1px solid rgba(249, 115, 22, 0.3)" : "1px solid transparent",
+                      background: colType === "base" ? "#0A0B0D" : "transparent",
+                      color: colType === "base" ? "#FFFFFF" : "var(--text)",
                       marginBottom: "0.3rem",
+                      transition: "all 0.15s ease",
                     }}
                   >
-                    <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontWeight: 600, fontSize: "0.88rem", color: colType === "base" ? "var(--accent)" : "var(--text)" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontWeight: 700, fontSize: "0.88rem" }}>
                       <span>📦</span> Base collection
                     </div>
-                    <div className="muted" style={{ fontSize: "0.75rem", marginTop: "0.2rem" }}>
+                    <div style={{ fontSize: "0.75rem", marginTop: "0.2rem", color: colType === "base" ? "rgba(255,255,255,0.7)" : "var(--text-muted)" }}>
                       Tabel penyimpanan standar dengan operasi penuh CRUD.
                     </div>
                   </div>
@@ -288,18 +289,19 @@ export function CreateCollectionModal({
                       setShowTypeDropdown(false);
                     }}
                     style={{
-                      padding: "0.6rem 0.75rem",
-                      borderRadius: "6px",
+                      padding: "0.65rem 0.85rem",
+                      borderRadius: "10px",
                       cursor: "pointer",
-                      background: colType === "view" ? "rgba(249, 115, 22, 0.15)" : "transparent",
-                      border: colType === "view" ? "1px solid rgba(249, 115, 22, 0.3)" : "1px solid transparent",
+                      background: colType === "view" ? "#0A0B0D" : "transparent",
+                      color: colType === "view" ? "#FFFFFF" : "var(--text)",
                       marginBottom: "0.3rem",
+                      transition: "all 0.15s ease",
                     }}
                   >
-                    <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontWeight: 600, fontSize: "0.88rem", color: colType === "view" ? "var(--accent)" : "var(--text)" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontWeight: 700, fontSize: "0.88rem" }}>
                       <span>👁️</span> View collection
                     </div>
-                    <div className="muted" style={{ fontSize: "0.75rem", marginTop: "0.2rem" }}>
+                    <div style={{ fontSize: "0.75rem", marginTop: "0.2rem", color: colType === "view" ? "rgba(255,255,255,0.7)" : "var(--text-muted)" }}>
                       Koleksi read-only hasil query SQL SELECT (agregasi & join).
                     </div>
                   </div>
@@ -317,17 +319,18 @@ export function CreateCollectionModal({
                       }
                     }}
                     style={{
-                      padding: "0.6rem 0.75rem",
-                      borderRadius: "6px",
+                      padding: "0.65rem 0.85rem",
+                      borderRadius: "10px",
                       cursor: "pointer",
-                      background: colType === "auth" ? "rgba(249, 115, 22, 0.15)" : "transparent",
-                      border: colType === "auth" ? "1px solid rgba(249, 115, 22, 0.3)" : "1px solid transparent",
+                      background: colType === "auth" ? "#0A0B0D" : "transparent",
+                      color: colType === "auth" ? "#FFFFFF" : "var(--text)",
+                      transition: "all 0.15s ease",
                     }}
                   >
-                    <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontWeight: 600, fontSize: "0.88rem", color: colType === "auth" ? "var(--accent)" : "var(--text)" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontWeight: 700, fontSize: "0.88rem" }}>
                       <span>👤</span> Auth collection
                     </div>
-                    <div className="muted" style={{ fontSize: "0.75rem", marginTop: "0.2rem" }}>
+                    <div style={{ fontSize: "0.75rem", marginTop: "0.2rem", color: colType === "auth" ? "rgba(255,255,255,0.7)" : "var(--text-muted)" }}>
                       Koleksi akun user dengan login email & password + custom fields profil.
                     </div>
                   </div>
@@ -366,8 +369,8 @@ export function CreateCollectionModal({
                       alignItems: "center",
                       gap: "0.4rem",
                       padding: "0.55rem 0.85rem",
-                      background: "rgba(255, 255, 255, 0.03)",
-                      borderRadius: "8px",
+                      background: "#F1F5F9",
+                      borderRadius: "10px",
                       border: "1px dashed var(--border)",
                       fontSize: "0.78rem",
                       color: "var(--muted)",

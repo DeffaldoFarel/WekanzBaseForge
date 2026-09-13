@@ -10,11 +10,24 @@ import {
   getToken,
   type Project,
 } from "@/lib/api";
+import { Navbar } from "@/components/Navbar";
 
-const SERVICE_INFO: Record<string, { title: string; desc: string }> = {
-  database: { title: "Database & Auth", desc: "SQLite database & Unified Auth Collections (PocketBase style)" },
-  storage: { title: "Storage", desc: "File storage, media preview & orphaned files cleanup" },
-  functions: { title: "Functions", desc: "Serverless functions, triggers & cron scheduler" },
+const SERVICE_INFO: Record<string, { title: string; desc: string; icon: string }> = {
+  database: {
+    title: "Database & Auth",
+    desc: "SQLite database relasional & Unified Auth Collections (PocketBase style)",
+    icon: "🗄️",
+  },
+  storage: {
+    title: "Storage",
+    desc: "Penyimpanan berkas fisik, thumbnailing, dan pembersihan file yatim",
+    icon: "📁",
+  },
+  functions: {
+    title: "Functions",
+    desc: "Serverless isolated code execution, event triggers, dan cron scheduler",
+    icon: "⚡",
+  },
 };
 
 const OPEN_SERVICES = [
@@ -22,25 +35,28 @@ const OPEN_SERVICES = [
     key: "database",
     title: "Database & Collections",
     icon: "🗄️",
-    desc: "Kelola tabel data, skema, SQL Views, dan akun pengguna (Auth)",
+    desc: "Kelola tabel data, skema kolom, SQL Views, dan akun pengguna (Auth)",
     href: (id: string) => `/projects/${id}/database`,
     serviceKey: "database" as const,
+    tag: "PocketBase Parity",
   },
   {
     key: "storage",
     title: "Storage Explorer",
     icon: "📁",
-    desc: "Berkas fisik, pratinjau media, dan pembersihan file yatim",
+    desc: "Berkas fisik, pratinjau media resolusi tinggi, dan bersihkan file sampah",
     href: (id: string) => `/projects/${id}/storage`,
     serviceKey: "storage" as const,
+    tag: "File Manager",
   },
   {
     key: "functions",
     title: "Functions & Scheduler",
     icon: "⚡",
-    desc: "Serverless execution, event triggers, dan cron scheduler",
+    desc: "Serverless isolated runtime, event triggers, dan cron scheduler",
     href: (id: string) => `/projects/${id}/functions`,
     serviceKey: "functions" as const,
+    tag: "Serverless",
   },
 ];
 
@@ -101,71 +117,149 @@ export default function ProjectDetailPage() {
 
   return (
     <>
-      <div className="topbar">
-        <div className="brand">
-          Wekanz<span>BaseForge</span> 🛠️
-        </div>
-      </div>
+      <Navbar projectId={project.id} projectName={project.name} />
 
       <div className="page">
-        <Link href="/projects" className="nav-back">← Kembali ke Projects</Link>
+        {/* Breadcrumb & Header */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.25rem" }}>
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.85rem", color: "var(--text-muted)", marginBottom: "0.25rem" }}>
+              <Link href="/projects" style={{ textDecoration: "none" }}>Projects</Link>
+              <span>/</span>
+              <span style={{ color: "var(--text)", fontWeight: 600 }}>{project.name}</span>
+            </div>
+            <h1 style={{ fontSize: "1.85rem", fontWeight: 800, letterSpacing: "-0.03em" }}>
+              {project.name}
+            </h1>
+          </div>
 
-        <div className="header-row">
-          <h2>{project.name}</h2>
-          <button className="btn btn-danger" onClick={onDelete}>
-            Delete Project
+          <button className="btn btn-danger" onClick={onDelete} style={{ fontSize: "0.82rem", padding: "0.45rem 1.1rem" }}>
+            🗑️ Hapus Project
           </button>
         </div>
 
-        <div className="card" style={{ marginTop: "0.75rem" }}>
-          <div className="kv"><span className="k">Project ID</span><span className="v">{project.id}</span></div>
-          <div className="kv"><span className="k">API Key</span><span className="v">{project.apiKey ?? '— (coming soon)'}</span></div>
-          <div className="kv"><span className="k">Created</span><span className="v">{new Date(project.created).toLocaleString("id-ID")}</span></div>
-        </div>
-
-        <h3 style={{ marginTop: "2rem" }}>Layanan</h3>
-        <p className="muted" style={{ fontSize: "0.9rem" }}>
-          Aktifkan layanan yang dibutuhkan project ini.
-        </p>
-
-        <div className="card" style={{ marginTop: "0.75rem" }}>
-          {Object.entries(SERVICE_INFO).map(([key, info]) => {
-            const on = project.services[key as keyof Project["services"]];
-            return (
-              <div key={key} className="svc-row">
-                <div>
-                  <div>{info.title}</div>
-                  <div className="desc">{info.desc}</div>
-                </div>
-                <button
-                  className={`toggle ${on ? "on" : ""}`}
-                  onClick={() => toggle(key)}
-                  disabled={toggling !== null}
-                  aria-label={`Toggle ${info.title}`}
-                />
+        {/* Project Metadata Card */}
+        <div className="card" style={{ padding: "1.25rem 1.75rem", marginBottom: "1.75rem" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "1rem" }}>
+            <div>
+              <div className="muted" style={{ fontSize: "0.78rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.03em", marginBottom: "0.2rem" }}>
+                Project Identifier
               </div>
-            );
-          })}
+              <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: "0.88rem", fontWeight: 600 }}>
+                {project.id}
+              </div>
+            </div>
+
+            <div>
+              <div className="muted" style={{ fontSize: "0.78rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.03em", marginBottom: "0.2rem" }}>
+                API Endpoint Base
+              </div>
+              <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: "0.85rem", color: "var(--blue)" }}>
+                /api/p/{project.id}
+              </div>
+            </div>
+
+            <div>
+              <div className="muted" style={{ fontSize: "0.78rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.03em", marginBottom: "0.2rem" }}>
+                Tanggal Dibuat
+              </div>
+              <div style={{ fontSize: "0.88rem", fontWeight: 500 }}>
+                {new Date(project.created).toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" })}
+              </div>
+            </div>
+          </div>
         </div>
 
-        <h3 style={{ marginTop: "2rem" }}>Buka Layanan</h3>
-        <div className="service-links">
-          {OPEN_SERVICES.map((s) => {
-            const on = project.services[s.serviceKey];
-            return (
-              <Link
-                key={s.key}
-                href={s.href(project.id)}
-                className={`service-link ${on ? "" : "disabled"}`}
-              >
-                <div className="t">
-                  <span style={{ marginRight: "0.4rem" }}>{s.icon}</span>
-                  {s.title} →
+        {/* Buka Layanan Section (Hero Shortcuts) */}
+        <div style={{ marginBottom: "2rem" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+            <h3 style={{ fontSize: "1.15rem", fontWeight: 700 }}>Pusat Layanan</h3>
+            <span className="muted" style={{ fontSize: "0.82rem" }}>Klik layanan untuk membuka studio</span>
+          </div>
+
+          <div className="service-links">
+            {OPEN_SERVICES.map((s) => {
+              const on = project.services[s.serviceKey];
+              return (
+                <Link
+                  key={s.key}
+                  href={s.href(project.id)}
+                  className={`service-link ${on ? "" : "disabled"}`}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "0.6rem" }}>
+                    <div
+                      style={{
+                        width: "44px",
+                        height: "44px",
+                        borderRadius: "14px",
+                        background: "#EFF3F8",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontSize: "1.35rem",
+                        border: "1px solid var(--border)",
+                      }}
+                    >
+                      {s.icon}
+                    </div>
+                    <span className="badge badge-gray" style={{ fontSize: "0.68rem" }}>
+                      {s.tag}
+                    </span>
+                  </div>
+
+                  <div className="t">
+                    {s.title} <span style={{ marginLeft: "0.3rem", transition: "transform 0.15s" }}>→</span>
+                  </div>
+                  <div className="d">{on ? s.desc : "Nonaktif — aktifkan tombol switch di bawah"}</div>
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Layanan Switch Toggles */}
+        <div>
+          <h3 style={{ fontSize: "1.15rem", fontWeight: 700, marginBottom: "0.35rem" }}>
+            Konfigurasi &amp; Switch Layanan
+          </h3>
+          <p className="muted" style={{ fontSize: "0.88rem", marginBottom: "1rem" }}>
+            Aktifkan atau matikan modul platform untuk menghemat sumber daya sistem.
+          </p>
+
+          <div className="card" style={{ padding: "0.5rem 1.5rem" }}>
+            {Object.entries(SERVICE_INFO).map(([key, info]) => {
+              const on = project.services[key as keyof Project["services"]];
+              return (
+                <div
+                  key={key}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    padding: "1rem 0",
+                    borderBottom: key !== "functions" ? "1px solid var(--border-subtle)" : "none",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.9rem" }}>
+                    <span style={{ fontSize: "1.3rem" }}>{info.icon}</span>
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: "0.95rem" }}>{info.title}</div>
+                      <div className="muted" style={{ fontSize: "0.82rem", marginTop: "0.15rem" }}>
+                        {info.desc}
+                      </div>
+                    </div>
+                  </div>
+
+                  <button
+                    className={`toggle ${on ? "on" : ""}`}
+                    onClick={() => toggle(key)}
+                    disabled={toggling !== null}
+                    aria-label={`Toggle ${info.title}`}
+                  />
                 </div>
-                <div className="d">{on ? s.desc : "Nonaktif — aktifkan dulu di atas"}</div>
-              </Link>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
       </div>
     </>
