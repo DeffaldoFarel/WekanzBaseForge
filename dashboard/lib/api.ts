@@ -165,7 +165,14 @@ export async function listCollections(projectId: string): Promise<CollectionInfo
 
 export async function createCollection(
   projectId: string,
-  def: { name: string; fields: FieldDef[] }
+  def: {
+    name: string;
+    type?: 'base' | 'view';
+    viewQuery?: string;
+    fields?: FieldDef[];
+    indexes?: IndexDef[];
+    rules?: Partial<CollectionRules>;
+  }
 ): Promise<CollectionInfo> {
   const data = await request<{ collection: CollectionInfo }>(
     `/api/admin/projects/${projectId}/collections`,

@@ -15,6 +15,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {
   defineCollection,
+  createViewCollection,
   getCollectionByName,
   listCollections,
   deleteCollection,
@@ -45,13 +46,21 @@ export function createDatabaseRouter(): Router {
       const db = getProjectDb(req.params.pid);
       const collections = listCollections(db).map((meta) => {
         // Hitung jumlah record per collection (untuk tampilan)
-        const count = (
-          db.prepare(`SELECT COUNT(*) AS n FROM "${meta.name}"`).get() as { n: number }
-        ).n;
+        let count = 0;
+        try {
+          count = (
+            db.prepare(`SELECT COUNT(*) AS n FROM "${meta.name}"`).get() as { n: number }
+          ).n;
+        } catch {
+          count = 0;
+        }
         return {
           name: meta.name,
+          type: meta.type ?? 'base',
+          viewQuery: meta.viewQuery ?? null,
           fields: meta.fields,
           indexes: meta.indexes,
+          rules: meta.rules,
           recordCount: count,
           created: meta.created,
         };
@@ -62,15 +71,39 @@ export function createDatabaseRouter(): Router {
     }
   });
 
-  // POST /api/admin/projects/:pid/collections — buat collection baru
+  // POST /api/admin/projects/:pid/collections — buat collection baru (base atau view)
   router.post('/api/admin/projects/:pid/collections', requireAdmin, (req, res) => {
     try {
       const db = getProjectDb(req.params.pid);
-      const body = req.body as CollectionDefinition | undefined;
+      const body = req.body as (CollectionDefinition & { type?: 'base' | 'view'; viewQuery?: string }) | undefined;
 
-      if (!body?.name || !Array.isArray(body.fields)) {
+      if (!body?.name) {
         res.status(400).json({
-          error: { code: 'BAD_REQUEST', message: 'name dan fields (array) wajib diisi' },
+          error: { code: 'BAD_REQUEST', message: 'name wajib diisi' },
+        });
+        return;
+      }
+
+      if (body.type === 'view') {
+        if (!body.viewQuery || typeof body.viewQuery !== 'string') {
+          res.status(400).json({
+            error: { code: 'BAD_REQUEST', message: 'viewQuery wajib diisi untuk collection type view' },
+          });
+          return;
+        }
+        const meta = createViewCollection(db, {
+          name: body.name,
+          viewQuery: body.viewQuery,
+          rules: body.rules,
+        });
+        res.status(201).json({ collection: meta });
+        return;
+      }
+
+      // Default: base collection
+      if (!Array.isArray(body.fields)) {
+        res.status(400).json({
+          error: { code: 'BAD_REQUEST', message: 'fields (array) wajib diisi untuk base collection' },
         });
         return;
       }
@@ -79,6 +112,7 @@ export function createDatabaseRouter(): Router {
         name: body.name,
         fields: body.fields,
         indexes: body.indexes,
+        rules: body.rules,
       });
 
       res.status(201).json({ collection: meta });

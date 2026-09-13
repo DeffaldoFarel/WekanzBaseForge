@@ -29,6 +29,7 @@ import {
 } from "@/lib/api";
 import { FieldOptionsEditor } from "@/components/FieldOptionsEditor";
 import { IndexesEditor } from "@/components/IndexesEditor";
+import { CreateCollectionModal } from "@/components/CreateCollectionModal";
 
 const FIELD_TYPES = [
   "text",
@@ -94,10 +95,6 @@ export default function AdvancedDatabaseStudioPage() {
 
   // New Collection Modal
   const [showNewCol, setShowNewCol] = useState(false);
-  const [newColName, setNewColName] = useState("");
-  const [newColFields, setNewColFields] = useState<FieldDef[]>([
-    { name: "title", type: "text", required: true },
-  ]);
 
   // Schema Editor State (M16 / D4 Rebuild)
   const [fieldsDraft, setFieldsDraft] = useState<FieldDef[]>([]);
@@ -320,21 +317,6 @@ export default function AdvancedDatabaseStudioPage() {
       setSchemaError(e instanceof Error ? e.message : "Gagal memperbarui skema");
     } finally {
       setSchemaSaving(false);
-    }
-  }
-
-  async function handleCreateNewCollection() {
-    if (!newColName.trim()) return;
-    try {
-      const fields = newColFields.filter((f) => f.name.trim().length > 0);
-      const created = await createCollection(projectId, { name: newColName.trim(), fields });
-      setShowNewCol(false);
-      setNewColName("");
-      setNewColFields([{ name: "title", type: "text", required: true }]);
-      await loadAllCollections();
-      router.push(`/projects/${projectId}/database/${encodeURIComponent(created.name)}`);
-    } catch (e) {
-      alert(e instanceof Error ? e.message : "Gagal membuat collection");
     }
   }
 
@@ -1049,112 +1031,18 @@ export default function AdvancedDatabaseStudioPage() {
         </div>
       )}
 
-      {/* ─── MODAL: NEW COLLECTION ─── */}
+      {/* ─── MODAL: NEW COLLECTION (POCKETBASE STYLE) ─── */}
       {showNewCol && (
-        <div className="modal-overlay" onClick={() => setShowNewCol(false)}>
-          <div className="modal-box-lg card" onClick={(e) => e.stopPropagation()}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.25rem" }}>
-              <h3 style={{ margin: 0 }}>New Collection</h3>
-              <button className="btn-icon" onClick={() => setShowNewCol(false)}>✕</button>
-            </div>
-
-            <div className="field">
-              <label>Nama Collection</label>
-              <input
-                className="input"
-                placeholder="misal: products, orders, articles"
-                value={newColName}
-                onChange={(e) => setNewColName(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ""))}
-                autoFocus
-              />
-            </div>
-
-            <div className="field" style={{ marginTop: "1.5rem" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
-                <label style={{ margin: 0, fontWeight: 600 }}>Fields ({newColFields.length})</label>
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  onClick={() => setNewColFields([...newColFields, { name: "", type: "text", required: false }])}
-                  style={{ padding: "0.3rem 0.7rem", fontSize: "0.8rem" }}
-                >
-                  + Add Field
-                </button>
-              </div>
-
-              {newColFields.map((f, i) => (
-                <div className="field-card" key={i}>
-                  <div className="field-card-header">
-                    <input
-                      className="input"
-                      placeholder="nama field"
-                      value={f.name}
-                      onChange={(e) => {
-                        const updated = [...newColFields];
-                        updated[i].name = e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "");
-                        setNewColFields(updated);
-                      }}
-                      style={{ flex: 2 }}
-                    />
-                    <select
-                      className="input"
-                      value={f.type}
-                      onChange={(e) => {
-                        const updated = [...newColFields];
-                        updated[i].type = e.target.value;
-                        setNewColFields(updated);
-                      }}
-                      style={{ flex: 1.5 }}
-                    >
-                      {FIELD_TYPES.map((t) => (
-                        <option key={t} value={t}>{t}</option>
-                      ))}
-                    </select>
-                    <label style={{ display: "flex", alignItems: "center", gap: "0.3rem", fontSize: "0.82rem", whiteSpace: "nowrap" }}>
-                      <input
-                        type="checkbox"
-                        checked={!!f.required}
-                        onChange={(e) => {
-                          const updated = [...newColFields];
-                          updated[i].required = e.target.checked;
-                          setNewColFields(updated);
-                        }}
-                      />
-                      Req
-                    </label>
-                    {newColFields.length > 1 && (
-                      <button
-                        type="button"
-                        className="btn-icon"
-                        onClick={() => setNewColFields(newColFields.filter((_, idx) => idx !== i))}
-                      >
-                        ✕
-                      </button>
-                    )}
-                  </div>
-
-                  {/* Field Specific Options for All 14 Types */}
-                  <FieldOptionsEditor
-                    field={f}
-                    allCollections={collections}
-                    onChange={(patch) => {
-                      const updated = [...newColFields];
-                      updated[i] = { ...updated[i], ...patch };
-                      setNewColFields(updated);
-                    }}
-                  />
-                </div>
-              ))}
-            </div>
-
-            <div className="form-actions">
-              <button className="btn btn-secondary" onClick={() => setShowNewCol(false)}>Batal</button>
-              <button className="btn" onClick={handleCreateNewCollection} disabled={!newColName.trim()}>
-                Buat Collection
-              </button>
-            </div>
-          </div>
-        </div>
+        <CreateCollectionModal
+          projectId={projectId}
+          existingCollections={collections}
+          onClose={() => setShowNewCol(false)}
+          onCreated={async (created) => {
+            setShowNewCol(false);
+            await loadAllCollections();
+            router.push(`/projects/${projectId}/database/${encodeURIComponent(created.name)}`);
+          }}
+        />
       )}
     </div>
   );

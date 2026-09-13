@@ -5,28 +5,9 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   listCollections,
-  createCollection,
   type CollectionInfo,
-  type FieldDef,
 } from "@/lib/api";
-import { FieldOptionsEditor } from "@/components/FieldOptionsEditor";
-
-const FIELD_TYPES = [
-  "text",
-  "number",
-  "bool",
-  "email",
-  "date",
-  "json",
-  "relation",
-  "select",
-  "url",
-  "autodate",
-  "file",
-  "editor",
-  "geoPoint",
-  "password",
-];
+import { CreateCollectionModal } from "@/components/CreateCollectionModal";
 
 export default function DatabaseIndexPage() {
   const params = useParams();
@@ -36,14 +17,7 @@ export default function DatabaseIndexPage() {
   const [collections, setCollections] = useState<CollectionInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-
-  // Modal new collection
   const [showNew, setShowNew] = useState(false);
-  const [newName, setNewName] = useState("");
-  const [newFields, setNewFields] = useState<FieldDef[]>([
-    { name: "title", type: "text", required: true },
-  ]);
-  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     listCollections(projectId)
@@ -62,53 +36,21 @@ export default function DatabaseIndexPage() {
       });
   }, [projectId, router]);
 
-  async function handleCreate() {
-    setSubmitting(true);
-    setError("");
-    try {
-      const fields = newFields.filter((f) => f.name.trim().length > 0);
-      const created = await createCollection(projectId, {
-        name: newName.trim(),
-        fields,
-      });
-      router.push(`/projects/${projectId}/database/${encodeURIComponent(created.name)}`);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Gagal membuat collection");
-      setSubmitting(false);
-    }
-  }
-
-  function addFieldRow() {
-    setNewFields([...newFields, { name: "", type: "text", required: false }]);
-  }
-
-  function removeFieldRow(i: number) {
-    setNewFields(newFields.filter((_, idx) => idx !== i));
-  }
-
-  function updateFieldRow(i: number, patch: Partial<FieldDef>) {
-    setNewFields(newFields.map((f, idx) => (idx === i ? { ...f, ...patch } : f)));
-  }
-
   if (loading) {
     return (
-      <div className="page" style={{ textAlign: "center", paddingTop: "4rem" }}>
-        <p className="muted">Memuat database studio…</p>
+      <div className="container" style={{ padding: "3rem 1rem", textAlign: "center" }}>
+        <p className="muted">Memuat database…</p>
       </div>
     );
   }
 
   return (
-    <div className="page">
-      <Link href={`/projects/${projectId}`} className="nav-back">
-        ← Kembali ke project
-      </Link>
-
-      <div className="header-row">
+    <div className="container" style={{ padding: "2rem 1rem" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem" }}>
         <div>
-          <h1 style={{ fontSize: "1.5rem" }}>Database Studio</h1>
-          <p className="muted" style={{ fontSize: "0.9rem", marginTop: "0.25rem" }}>
-            Kelola collections dan records — setara PocketBase Console.
+          <h2 style={{ margin: 0 }}>Database Studio</h2>
+          <p className="muted" style={{ margin: "0.25rem 0 0", fontSize: "0.9rem" }}>
+            Kelola tabel data (Base) & view SQL (View) dalam SQLite
           </p>
         </div>
         <button className="btn" onClick={() => setShowNew(true)}>
@@ -116,109 +58,58 @@ export default function DatabaseIndexPage() {
         </button>
       </div>
 
-      {error && <div className="error-text">{error}</div>}
+      {error && (
+        <div style={{ padding: "1rem", background: "rgba(239, 68, 68, 0.15)", border: "1px solid var(--red)", borderRadius: "8px", color: "var(--red)", marginBottom: "1.5rem" }}>
+          ⚠️ {error}
+        </div>
+      )}
 
-      <div className="card" style={{ marginTop: "1.5rem" }}>
-        <div className="empty-state">
+      {collections.length === 0 ? (
+        <div className="card empty-state">
           <div className="big">📦</div>
-          <h3 style={{ marginBottom: "0.5rem" }}>Belum ada collection di project ini</h3>
-          <p className="muted" style={{ marginBottom: "1.25rem" }}>
-            Buat collection pertama Anda untuk mulai menyimpan data.
+          <h3>Belum ada collection</h3>
+          <p className="muted" style={{ maxWidth: 420, margin: "0.5rem auto 1.5rem" }}>
+            Buat collection pertama Anda untuk mulai menyimpan data atau membuat query view.
           </p>
           <button className="btn" onClick={() => setShowNew(true)}>
             + Buat Collection Pertama
           </button>
         </div>
-      </div>
-
-      {/* Modal New Collection */}
-      {showNew && (
-        <div className="modal-overlay" onClick={() => setShowNew(false)}>
-          <div className="modal-box-lg card" onClick={(e) => e.stopPropagation()}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.25rem" }}>
-              <h3 style={{ margin: 0 }}>New Collection</h3>
-              <button className="btn-icon" onClick={() => setShowNew(false)}>✕</button>
-            </div>
-
-            <div className="field">
-              <label>Nama Collection</label>
-              <input
-                className="input"
-                placeholder="misal: posts, products, habits"
-                value={newName}
-                onChange={(e) => setNewName(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ""))}
-                autoFocus
-              />
-              <span className="muted" style={{ fontSize: "0.78rem" }}>
-                Hanya huruf kecil, angka, dan underscore.
-              </span>
-            </div>
-
-            <div className="field" style={{ marginTop: "1.5rem" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
-                <label style={{ margin: 0, fontWeight: 600 }}>Fields Skema ({newFields.length})</label>
-                <button type="button" className="btn btn-secondary" onClick={addFieldRow} style={{ padding: "0.3rem 0.75rem", fontSize: "0.82rem" }}>
-                  + Add Field
-                </button>
-              </div>
-
-              {newFields.map((f, i) => (
-                <div className="field-card" key={i}>
-                  <div className="field-card-header">
-                    <input
-                      className="input"
-                      placeholder="nama field (misal: title)"
-                      value={f.name}
-                      onChange={(e) => updateFieldRow(i, { name: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "") })}
-                      style={{ flex: 2 }}
-                    />
-                    <select
-                      className="input"
-                      value={f.type}
-                      onChange={(e) => updateFieldRow(i, { type: e.target.value })}
-                      style={{ flex: 1.5 }}
-                    >
-                      {FIELD_TYPES.map((t) => (
-                        <option key={t} value={t}>{t}</option>
-                      ))}
-                    </select>
-
-                    <label style={{ display: "flex", alignItems: "center", gap: "0.3rem", fontSize: "0.82rem", whiteSpace: "nowrap", cursor: "pointer" }}>
-                      <input
-                        type="checkbox"
-                        checked={!!f.required}
-                        onChange={(e) => updateFieldRow(i, { required: e.target.checked })}
-                      />
-                      Req
-                    </label>
-
-                    {newFields.length > 1 && (
-                      <button type="button" className="btn-icon" onClick={() => removeFieldRow(i)} title="Hapus field">
-                        ✕
-                      </button>
-                    )}
-                  </div>
-
-                  {/* Field Specific Options for All 14 Types */}
-                  <FieldOptionsEditor
-                    field={f}
-                    allCollections={collections}
-                    onChange={(patch) => updateFieldRow(i, patch)}
-                  />
+      ) : (
+        <div className="card" style={{ padding: 0 }}>
+          {collections.map((c) => (
+            <Link
+              key={c.name}
+              href={`/projects/${projectId}/database/${encodeURIComponent(c.name)}`}
+              className="collection-item"
+              style={{ padding: "1rem 1.25rem", textDecoration: "none", color: "inherit" }}
+            >
+              <div className="info">
+                <div className="name" style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                  <span>{c.type === "view" ? "👁️" : "📦"}</span>
+                  <span>{c.name}</span>
+                  <span className="badge badge-gray">{c.type === "view" ? "View" : "Base"}</span>
                 </div>
-              ))}
-            </div>
-
-            <div className="form-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setShowNew(false)}>
-                Batal
-              </button>
-              <button type="button" className="btn" onClick={handleCreate} disabled={submitting || !newName.trim()}>
-                {submitting ? "Menyimpan…" : "Buat Collection"}
-              </button>
-            </div>
-          </div>
+                <div className="meta">
+                  {c.fields.length} fields • {c.recordCount ?? 0} records
+                </div>
+              </div>
+              <div style={{ color: "var(--muted)", fontSize: "0.9rem" }}>Buka Studio →</div>
+            </Link>
+          ))}
         </div>
+      )}
+
+      {showNew && (
+        <CreateCollectionModal
+          projectId={projectId}
+          existingCollections={collections}
+          onClose={() => setShowNew(false)}
+          onCreated={(created) => {
+            setShowNew(false);
+            router.push(`/projects/${projectId}/database/${encodeURIComponent(created.name)}`);
+          }}
+        />
       )}
     </div>
   );
