@@ -146,7 +146,7 @@ export function FieldOptionsEditor({
                 checked={!!opts.noDecimal}
                 onChange={(e) => updateOptions({ noDecimal: e.target.checked })}
               />
-              <span>Hanya Bilangan Bulat (Disallow Decimals / Integers Only)</span>
+              <span>Disallow Decimals (Integers Only)</span>
             </label>
           </div>
         </div>
@@ -155,7 +155,7 @@ export function FieldOptionsEditor({
       {/* ─── 3. BOOL ─── */}
       {field.type === "bool" && (
         <div className="muted" style={{ fontSize: "0.82rem" }}>
-          ℹ️ Tersimpan sebagai <code>INTEGER 0/1</code> di SQLite, otomatis diserialisasi menjadi <code>true/false</code> pada JSON response.
+          ℹ️ Stored as <code>INTEGER 0/1</code> in SQLite, automatically deserialized to <code>true/false</code> in JSON responses.
         </div>
       )}
 
@@ -284,7 +284,7 @@ export function FieldOptionsEditor({
         <div style={{ display: "grid", gap: "0.6rem" }}>
           <div>
             <label style={{ display: "block", fontSize: "0.78rem", color: "var(--muted)", marginBottom: "0.2rem" }}>
-              Pilihan Nilai Sah (pisahkan dengan koma):
+              Allowed Values (comma separated):
             </label>
             <input
               type="text"
@@ -396,7 +396,7 @@ export function FieldOptionsEditor({
                 checked={!!opts.protected}
                 onChange={(e) => updateOptions({ protected: e.target.checked })}
               />
-              <span><strong>Protected File:</strong> Wajib Authorization Token untuk mengakses URL file</span>
+              <span><strong>Protected File:</strong> Requires Authorization Token to access file URL</span>
             </label>
           </div>
         </div>

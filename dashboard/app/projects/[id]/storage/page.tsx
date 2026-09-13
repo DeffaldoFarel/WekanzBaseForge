@@ -78,7 +78,7 @@ export default function StorageExplorerPage() {
       setFiles(res.files);
       setStats(res.stats);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Gagal memuat berkas storage");
+      setError(err instanceof Error ? err.message : "Failed to load storage files");
     } finally {
       setLoading(false);
     }
@@ -89,26 +89,26 @@ export default function StorageExplorerPage() {
   }, [loadFiles]);
 
   async function handleDelete(file: StoredFileInfo) {
-    if (!confirm(`Hapus berkas "${file.name}" secara permanen dari disk?`)) return;
+    if (!confirm(`Permanently delete file "${file.name}" from disk?`)) return;
     try {
       await deleteStorageFile(projectId, file.recordId, file.name);
-      setNotice(`Berkas "${file.name}" berhasil dihapus.`);
+      setNotice(`File "${file.name}" was deleted successfully.`);
       setTimeout(() => setNotice(""), 4000);
       loadFiles();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Gagal menghapus berkas");
+      alert(err instanceof Error ? err.message : "Failed to delete file");
     }
   }
 
   async function handleCleanOrphans() {
-    if (!confirm(`Bersihkan semua ${stats.orphanedCount} file yatim (orphaned) yang record-nya sudah tidak ada di database?`)) return;
+    if (!confirm(`Clean all ${stats.orphanedCount} orphaned files whose records no longer exist in the database?`)) return;
     setCleaning(true);
     try {
       const res = await cleanOrphanedStorageFiles(projectId);
-      alert(`Berhasil membersihkan ${res.cleaned} file yatim dari disk!`);
+      alert(`Successfully cleaned ${res.cleaned} orphaned files from disk!`);
       loadFiles();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Gagal membersihkan file yatim");
+      alert(err instanceof Error ? err.message : "Failed to clean orphaned files");
     } finally {
       setCleaning(false);
     }
@@ -116,12 +116,12 @@ export default function StorageExplorerPage() {
 
   function copyFileUrl(file: StoredFileInfo) {
     if (!file.collectionName) {
-      alert("File ini tidak terikat dengan koleksi aktif.");
+      alert("This file is not linked to any active collection.");
       return;
     }
     const url = fileUrl(projectId, file.collectionName, file.recordId, file.name);
     navigator.clipboard.writeText(url);
-    setNotice("URL berkas disalin ke clipboard!");
+    setNotice("File URL copied to clipboard!");
     setTimeout(() => setNotice(""), 3000);
   }
 
@@ -163,7 +163,7 @@ export default function StorageExplorerPage() {
               <span>Storage Explorer</span>
             </h1>
             <p className="text-xs sm:text-sm text-muted-foreground mt-1">
-              Kelola berkas fisik, thumbnail image caching, dan bersihkan file sampah pada disk project.
+              Manage physical files, image thumbnail caching, and automated orphaned files cleanup on project disk.
             </p>
           </div>
 
@@ -177,7 +177,7 @@ export default function StorageExplorerPage() {
                 className="gap-1.5"
               >
                 <AlertTriangle className="w-3.5 h-3.5" />
-                <span>Bersihkan {stats.orphanedCount} File Yatim</span>
+                <span>Clean {stats.orphanedCount} Orphaned {stats.orphanedCount === 1 ? "File" : "Files"}</span>
               </Button>
             )}
             <Button
@@ -212,7 +212,7 @@ export default function StorageExplorerPage() {
           <Card className="p-5 rounded-[22px]">
             <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
               <Package className="w-4 h-4 text-slate-400" />
-              <span>Total Berkas</span>
+              <span>Total Files</span>
             </div>
             <div className="text-2xl font-extrabold text-foreground mt-2">
               {stats.totalFiles}
@@ -222,7 +222,7 @@ export default function StorageExplorerPage() {
           <Card className="p-5 rounded-[22px]">
             <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
               <HardDrive className="w-4 h-4 text-brand-blue" />
-              <span>Storage Terpakai</span>
+              <span>Storage Used</span>
             </div>
             <div className="text-2xl font-extrabold text-brand-blue mt-2">
               {formatBytes(stats.totalSize)}
@@ -232,7 +232,7 @@ export default function StorageExplorerPage() {
           <Card className="p-5 rounded-[22px]">
             <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
               <ImageIcon className="w-4 h-4 text-emerald-600" />
-              <span>Berkas Gambar</span>
+              <span>Image Files</span>
             </div>
             <div className="text-2xl font-extrabold text-emerald-700 mt-2">
               {imageCount}
@@ -242,7 +242,7 @@ export default function StorageExplorerPage() {
           <Card className="p-5 rounded-[22px]">
             <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
               <AlertTriangle className={`w-4 h-4 ${stats.orphanedCount > 0 ? "text-destructive" : "text-slate-400"}`} />
-              <span>File Yatim</span>
+              <span>Orphaned Files</span>
             </div>
             <div className={`text-2xl font-extrabold mt-2 ${stats.orphanedCount > 0 ? "text-destructive" : "text-foreground"}`}>
               {stats.orphanedCount}
@@ -256,7 +256,7 @@ export default function StorageExplorerPage() {
             <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <Input
               className="pl-10 h-10 border-slate-200"
-              placeholder="Cari nama berkas, record id, atau koleksi..."
+              placeholder="Search by filename, record ID, or collection..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
@@ -266,11 +266,11 @@ export default function StorageExplorerPage() {
             {/* Filter Pills */}
             <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-full border border-border">
               {[
-                { id: "all", label: "Semua" },
-                { id: "images", label: "Gambar" },
-                { id: "documents", label: "Dokumen" },
+                { id: "all", label: "All" },
+                { id: "images", label: "Images" },
+                { id: "documents", label: "Documents" },
                 { id: "media", label: "Media" },
-                ...(stats.orphanedCount > 0 ? [{ id: "orphaned", label: `Yatim (${stats.orphanedCount})` }] : []),
+                ...(stats.orphanedCount > 0 ? [{ id: "orphaned", label: `Orphaned (${stats.orphanedCount})` }] : []),
               ].map((t) => {
                 const active = typeFilter === t.id;
                 return (
@@ -317,18 +317,18 @@ export default function StorageExplorerPage() {
         {loading ? (
           <Card className="py-20 text-center rounded-[24px]">
             <RefreshCw className="w-8 h-8 animate-spin mx-auto text-muted-foreground mb-3" />
-            <p className="text-sm font-medium text-muted-foreground">Memindai disk storage...</p>
+            <p className="text-sm font-medium text-muted-foreground">Scanning storage disk...</p>
           </Card>
         ) : filteredFiles.length === 0 ? (
           <Card className="py-20 text-center rounded-[28px]">
             <div className="w-16 h-16 rounded-2xl bg-slate-100 flex items-center justify-center mx-auto mb-4 border border-border">
               <FolderOpen className="w-8 h-8 text-slate-400" />
             </div>
-            <h3 className="text-lg font-bold text-foreground">Tidak Ada Berkas</h3>
+            <h3 className="text-lg font-bold text-foreground">No Files Found</h3>
             <p className="text-sm text-muted-foreground max-w-sm mx-auto mt-1">
               {files.length === 0
-                ? "Belum ada berkas yang diunggah. Unggah file melalui form data record di Database Studio."
-                : "Tidak ada berkas yang cocok dengan kata kunci pencarian atau filter aktif."}
+                ? "No files have been uploaded to this project yet. Upload files via the database record form."
+                : "No files match your search keyword or active filters."}
             </p>
           </Card>
         ) : viewMode === "grid" ? (
@@ -380,14 +380,14 @@ export default function StorageExplorerPage() {
 
                     {file.isOrphaned && (
                       <Badge variant="destructive" className="absolute top-2.5 left-2.5 text-[10px] py-0 px-2">
-                        Yatim
+                        Orphaned
                       </Badge>
                     )}
 
                     <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                       <span className="bg-white/95 text-foreground px-3 py-1 rounded-full text-xs font-semibold shadow-sm flex items-center gap-1">
                         <Eye className="w-3.5 h-3.5" />
-                        Lihat
+                        View
                       </span>
                     </div>
                   </div>
@@ -400,7 +400,7 @@ export default function StorageExplorerPage() {
                     <div className="flex justify-between items-center text-[11px] text-muted-foreground mt-1 font-medium">
                       <span>{formatBytes(file.size)}</span>
                       <Badge variant="secondary" className="text-[10px] py-0 px-2 font-mono">
-                        {file.collectionName ?? "tanpa tabel"}
+                        {file.collectionName ?? "unlinked"}
                       </Badge>
                     </div>
                   </div>
@@ -412,7 +412,7 @@ export default function StorageExplorerPage() {
                       size="sm"
                       onClick={() => setPreviewFile(file)}
                       className="h-8 flex-1 rounded-full px-0"
-                      title="Pratinjau"
+                      title="Preview"
                     >
                       <Eye className="w-3.5 h-3.5 text-slate-600" />
                     </Button>
@@ -423,7 +423,7 @@ export default function StorageExplorerPage() {
                           target="_blank"
                           rel="noreferrer"
                           className="h-8 flex-1 rounded-full inline-flex items-center justify-center hover:bg-slate-100 text-slate-600 transition-colors"
-                          title="Buka / Unduh Berkas"
+                          title="Download file"
                         >
                           <Download className="w-3.5 h-3.5" />
                         </a>
@@ -432,7 +432,7 @@ export default function StorageExplorerPage() {
                           size="sm"
                           onClick={() => copyFileUrl(file)}
                           className="h-8 flex-1 rounded-full px-0"
-                          title="Salin URL Berkas"
+                          title="Copy file URL"
                         >
                           <Copy className="w-3.5 h-3.5 text-slate-600" />
                         </Button>
@@ -443,7 +443,7 @@ export default function StorageExplorerPage() {
                       size="sm"
                       onClick={() => handleDelete(file)}
                       className="h-8 flex-1 rounded-full px-0 text-destructive hover:text-destructive hover:bg-destructive/10"
-                      title="Hapus Berkas"
+                      title="Delete file"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </Button>
@@ -459,13 +459,13 @@ export default function StorageExplorerPage() {
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
                   <tr className="bg-slate-50 border-b border-border text-slate-500 font-semibold uppercase tracking-wider">
-                    <th className="p-3.5 pl-5">Nama Berkas</th>
-                    <th className="p-3.5">Ukuran</th>
+                    <th className="p-3.5 pl-5">File Name</th>
+                    <th className="p-3.5">Size</th>
                     <th className="p-3.5">MIME Type</th>
-                    <th className="p-3.5">Koleksi</th>
+                    <th className="p-3.5">Collection</th>
                     <th className="p-3.5">Record ID</th>
                     <th className="p-3.5">Status</th>
-                    <th className="p-3.5 pr-5 text-right">Aksi</th>
+                    <th className="p-3.5 pr-5 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-mono">
@@ -496,9 +496,9 @@ export default function StorageExplorerPage() {
                         <td className="p-3.5 font-mono text-[11px] text-muted-foreground">{file.recordId}</td>
                         <td className="p-3.5">
                           {file.isOrphaned ? (
-                            <Badge variant="destructive" className="text-[10px]">Yatim</Badge>
+                            <Badge variant="destructive" className="text-[10px]">Orphaned</Badge>
                           ) : (
-                            <Badge variant="green" className="text-[10px]">Terhubung</Badge>
+                            <Badge variant="green" className="text-[10px]">Connected</Badge>
                           )}
                         </td>
                         <td className="p-3.5 pr-5 text-right">
@@ -508,7 +508,7 @@ export default function StorageExplorerPage() {
                               size="icon"
                               className="h-7 w-7"
                               onClick={() => setPreviewFile(file)}
-                              title="Lihat"
+                              title="View"
                             >
                               <Eye className="w-3.5 h-3.5 text-slate-600" />
                             </Button>
@@ -539,7 +539,7 @@ export default function StorageExplorerPage() {
                               size="icon"
                               className="h-7 w-7 text-destructive hover:bg-destructive/10"
                               onClick={() => handleDelete(file)}
-                              title="Hapus"
+                              title="Delete"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
                             </Button>
@@ -589,7 +589,7 @@ export default function StorageExplorerPage() {
                   ) : (
                     <div className="text-center py-6">
                       <FileText className="w-16 h-16 mx-auto text-slate-400 mb-2" />
-                      <p className="text-xs text-muted-foreground font-medium">Pratinjau visual tidak tersedia untuk tipe berkas ini</p>
+                      <p className="text-xs text-muted-foreground font-medium">Visual preview not available for this file type</p>
                     </div>
                   )}
                 </div>
@@ -597,7 +597,7 @@ export default function StorageExplorerPage() {
                 {/* Metadata Details */}
                 <div className="grid grid-cols-2 gap-3 text-xs bg-slate-50 p-4 rounded-2xl border border-border">
                   <div>
-                    <span className="text-muted-foreground block text-[11px]">Ukuran Berkas</span>
+                    <span className="text-muted-foreground block text-[11px]">File Size</span>
                     <span className="font-semibold text-foreground font-mono">{formatBytes(previewFile.size)}</span>
                   </div>
                   <div>
@@ -606,7 +606,7 @@ export default function StorageExplorerPage() {
                   </div>
                   <div>
                     <span className="text-muted-foreground block text-[11px]">Parent Collection</span>
-                    <span className="font-semibold text-foreground">{previewFile.collectionName ?? "— (Yatim)"}</span>
+                    <span className="font-semibold text-foreground">{previewFile.collectionName ?? "— (Orphaned)"}</span>
                   </div>
                   <div>
                     <span className="text-muted-foreground block text-[11px]">Parent Record ID</span>
@@ -627,7 +627,7 @@ export default function StorageExplorerPage() {
                     className="gap-1.5"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
-                    <span>Hapus Berkas</span>
+                    <span>Delete File</span>
                   </Button>
 
                   <div className="flex items-center gap-2">
@@ -640,7 +640,7 @@ export default function StorageExplorerPage() {
                           className="gap-1.5"
                         >
                           <Copy className="w-3.5 h-3.5" />
-                          <span>Salin URL</span>
+                          <span>Copy URL</span>
                         </Button>
                         <a
                           href={fileUrl(projectId, previewFile.collectionName, previewFile.recordId, previewFile.name)}
@@ -648,7 +648,7 @@ export default function StorageExplorerPage() {
                           rel="noreferrer"
                         >
                           <Button size="sm" className="gap-1.5">
-                            <span>Buka Asli</span>
+                            <span>Open Original</span>
                             <ExternalLink className="w-3.5 h-3.5" />
                           </Button>
                         </a>

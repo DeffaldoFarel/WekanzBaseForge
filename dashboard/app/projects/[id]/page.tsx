@@ -31,7 +31,7 @@ const PLATFORM_SERVICES = [
     key: "database",
     title: "Database & Collections",
     icon: Database,
-    desc: "Kelola tabel data relasional, skema kolom dinamis, SQL Views, dan akun pengguna (Auth).",
+    desc: "Manage relational tables, dynamic schemas, SQL Views, and user authentication accounts.",
     href: (id: string) => `/projects/${id}/database`,
     tag: "PocketBase Parity",
     badgeVariant: "blue" as const,
@@ -40,7 +40,7 @@ const PLATFORM_SERVICES = [
     key: "storage",
     title: "Storage Explorer",
     icon: HardDrive,
-    desc: "Penyimpanan berkas fisik, thumbnail image caching, dan pembersihan otomatis file yatim.",
+    desc: "Physical file storage, image thumbnail caching, and automated orphaned files cleanup.",
     href: (id: string) => `/projects/${id}/storage`,
     tag: "File Storage",
     badgeVariant: "secondary" as const,
@@ -49,7 +49,7 @@ const PLATFORM_SERVICES = [
     key: "functions",
     title: "Functions & Scheduler",
     icon: Code2,
-    desc: "Eksekusi kode JavaScript terisolasi, event-driven CRUD triggers, dan cron task scheduler.",
+    desc: "Isolated JavaScript execution, event-driven CRUD triggers, and cron task scheduler.",
     href: (id: string) => `/projects/${id}/functions`,
     tag: "Serverless Engine",
     badgeVariant: "purple" as const,
@@ -71,12 +71,12 @@ export default function ProjectDetailPage() {
     }
     getProject(id)
       .then(setProject)
-      .catch(() => setError("Project tidak ditemukan"));
+      .catch(() => setError("Project not found"));
   }, [id, router]);
 
   async function onDelete() {
     if (!project) return;
-    if (!confirm(`Hapus project "${project.name}"? Data dan file storage tidak bisa dikembalikan.`)) return;
+    if (!confirm(`Permanently delete project "${project.name}"? All database records and storage files will be lost.`)) return;
     await deleteProject(project.id);
     router.replace("/projects");
   }
@@ -84,7 +84,7 @@ export default function ProjectDetailPage() {
   if (error) {
     return (
       <div className="page">
-        <Link href="/projects" className="nav-back text-sm">← Kembali ke Projects</Link>
+        <Link href="/projects" className="nav-back text-sm">← Back to Projects</Link>
         <p className="error-text">{error}</p>
       </div>
     );
@@ -116,7 +116,7 @@ export default function ProjectDetailPage() {
             className="rounded-full gap-1.5"
           >
             <Trash2 className="w-3.5 h-3.5" />
-            <span>Hapus Project</span>
+            <span>Delete Project</span>
           </Button>
         </div>
 
@@ -146,10 +146,10 @@ export default function ProjectDetailPage() {
             <div>
               <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1 flex items-center gap-1.5">
                 <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                <span>Tanggal Dibuat</span>
+                <span>Created Date</span>
               </div>
               <div className="text-sm font-medium text-foreground">
-                {new Date(project.created).toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" })}
+                {new Date(project.created).toLocaleDateString("en-US", { day: "numeric", month: "long", year: "numeric" })}
               </div>
             </div>
           </div>
@@ -159,14 +159,14 @@ export default function ProjectDetailPage() {
         <div>
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mb-4">
             <div>
-              <h3 className="text-lg sm:text-xl font-extrabold tracking-tight text-foreground">Pusat Layanan</h3>
+              <h3 className="text-lg sm:text-xl font-extrabold tracking-tight text-foreground">Service Center</h3>
               <p className="text-xs sm:text-sm text-muted-foreground mt-0.5">
-                Semua modul platform aktif dan siap digunakan langsung tanpa konfigurasi tambahan.
+                All platform modules are active and ready to use without extra configuration.
               </p>
             </div>
             <div className="inline-flex items-center gap-1.5 bg-emerald-50 text-emerald-700 border border-emerald-200/80 px-3.5 py-1 rounded-full text-xs font-semibold shadow-sm">
               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-              <span>Semua Layanan Siap</span>
+              <span>All Services Ready</span>
             </div>
           </div>
 

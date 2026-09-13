@@ -278,7 +278,7 @@ export function CreateCollectionModal({
                       <span>📦</span> Base collection
                     </div>
                     <div style={{ fontSize: "0.75rem", marginTop: "0.2rem", color: colType === "base" ? "rgba(255,255,255,0.7)" : "var(--text-muted)" }}>
-                      Tabel penyimpanan standar dengan operasi penuh CRUD.
+                      Standard data storage table with full CRUD operations.
                     </div>
                   </div>
 
@@ -302,7 +302,7 @@ export function CreateCollectionModal({
                       <span>👁️</span> View collection
                     </div>
                     <div style={{ fontSize: "0.75rem", marginTop: "0.2rem", color: colType === "view" ? "rgba(255,255,255,0.7)" : "var(--text-muted)" }}>
-                      Koleksi read-only hasil query SQL SELECT (agregasi & join).
+                      Read-only collection populated by SQL SELECT query (aggregations & joins).
                     </div>
                   </div>
 
@@ -331,7 +331,7 @@ export function CreateCollectionModal({
                       <span>👤</span> Auth collection
                     </div>
                     <div style={{ fontSize: "0.75rem", marginTop: "0.2rem", color: colType === "auth" ? "rgba(255,255,255,0.7)" : "var(--text-muted)" }}>
-                      Koleksi akun user dengan login email & password + custom fields profil.
+                      User authentication collection with email & password login + profile custom fields.
                     </div>
                   </div>
                 </div>
@@ -378,7 +378,7 @@ export function CreateCollectionModal({
                       flexWrap: "wrap",
                     }}
                   >
-                    <span style={{ fontWeight: 600 }}>System Fields (Otomatis):</span>
+                    <span style={{ fontWeight: 600 }}>System Fields (Automatic):</span>
                     <span className="badge badge-gray">T id (PK)</span>
                     {colType === "auth" && (
                       <>
@@ -442,7 +442,7 @@ export function CreateCollectionModal({
                               type="button"
                               className="btn-icon"
                               onClick={() => handleRemoveField(i)}
-                              title="Hapus field"
+                              title="Delete field"
                             >
                               ✕
                             </button>
@@ -503,13 +503,13 @@ export function CreateCollectionModal({
                     }}
                   />
                   <div className="muted" style={{ fontSize: "0.78rem", marginTop: "0.5rem", lineHeight: "1.4" }}>
-                    💡 <strong>Tips View Collection:</strong>
+                    💡 <strong>View Collection Tips:</strong>
                     <br />
-                    • Kueri wajib dimulai dengan <code>SELECT</code> dan menyertakan kolom unik <code>id</code>.
+                    • Query must start with <code>SELECT</code> and include a unique <code>id</code> column.
                     <br />
-                    • Skema kolom akan diekstrak secara dinamis oleh engine BaseForge.
+                    • Column schema will be dynamically inferred by the BaseForge query engine.
                     <br />
-                    • View bersifat murni read-only (operasi Create, Update, dan Delete akan ditolak otomatis).
+                    • Views are strictly read-only (mutations like Create, Update, and Delete are rejected).
                   </div>
                 </div>
               )}
@@ -520,17 +520,17 @@ export function CreateCollectionModal({
           {activeTab === "rules" && (
             <div style={{ display: "grid", gap: "0.8rem" }}>
               <div className="muted" style={{ fontSize: "0.82rem", marginBottom: "0.3rem" }}>
-                Atur kontrol akses ke API collection ini. Kosongkan / klik <code>🔒 Kunci</code> untuk akses Admin Only, atau klik <code>🌐 Publik</code> untuk akses tanpa otentikasi.
+                Configure access control rules for this collection. Leave empty / click <code>🔒 Lock</code> for Admin Only, or click <code>🌐 Public</code> for unauthenticated access.
               </div>
 
               {[
-                { key: "listRule", label: "List/Search Rule", desc: "Akses GET list records" },
-                { key: "viewRule", label: "View Rule", desc: "Akses GET satu record by ID" },
+                { key: "listRule", label: "List/Search Rule", desc: "GET records list access" },
+                { key: "viewRule", label: "View Rule", desc: "GET single record by ID access" },
                 ...(colType === "base"
                   ? [
-                      { key: "createRule", label: "Create Rule", desc: "Akses POST record baru" },
-                      { key: "updateRule", label: "Update Rule", desc: "Akses PATCH/PUT edit record" },
-                      { key: "deleteRule", label: "Delete Rule", desc: "Akses DELETE hapus record" },
+                      { key: "createRule", label: "Create Rule", desc: "POST new record access" },
+                      { key: "updateRule", label: "Update Rule", desc: "PATCH/PUT edit record access" },
+                      { key: "deleteRule", label: "Delete Rule", desc: "DELETE record access" },
                     ]
                   : []),
               ].map(({ key, label, desc }) => {
@@ -561,7 +561,7 @@ export function CreateCollectionModal({
                           style={{ padding: "0.15rem 0.45rem", fontSize: "0.72rem" }}
                           onClick={() => setRules({ ...rules, [ruleKey]: null })}
                         >
-                          🔒 Kunci (null)
+                          🔒 Lock (null)
                         </button>
                         <button
                           type="button"
@@ -569,7 +569,7 @@ export function CreateCollectionModal({
                           style={{ padding: "0.15rem 0.45rem", fontSize: "0.72rem" }}
                           onClick={() => setRules({ ...rules, [ruleKey]: "" })}
                         >
-                          🌐 Publik ("")
+                          🌐 Public (&quot;&quot;)
                         </button>
                       </div>
                     </div>
@@ -577,7 +577,7 @@ export function CreateCollectionModal({
                     <input
                       className="input"
                       style={{ fontFamily: "ui-monospace, monospace", fontSize: "0.82rem" }}
-                      placeholder="null (admin only), atau ekspresi: user = @request.auth.id"
+                      placeholder="null (admin only), or expression: user = @request.auth.id"
                       value={val === null ? "" : val}
                       onChange={(e) =>
                         setRules({
@@ -600,10 +600,10 @@ export function CreateCollectionModal({
               onClick={onClose}
               disabled={submitting}
             >
-              Batal
+              Cancel
             </button>
             <button type="submit" className="btn" disabled={submitting || !name.trim()}>
-              {submitting ? "Membuat Collection…" : `Buat ${colType === "view" ? "View" : "Collection"}`}
+              {submitting ? "Creating Collection…" : `Create ${colType === "view" ? "View" : "Collection"}`}
             </button>
           </div>
         </form>

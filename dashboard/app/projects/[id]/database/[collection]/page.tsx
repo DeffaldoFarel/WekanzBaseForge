@@ -144,7 +144,7 @@ export default function AdvancedDatabaseStudioPage() {
       }
       return data;
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Gagal memuat collections");
+      setError(e instanceof Error ? e.message : "Failed to load collections");
       return [];
     }
   }, [projectId, collectionName]);
@@ -164,7 +164,7 @@ export default function AdvancedDatabaseStudioPage() {
       setSelectedIds(new Set());
       setError("");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Gagal memuat records");
+      setError(e instanceof Error ? e.message : "Failed to load records");
     } finally {
       setLoading(false);
     }
@@ -214,18 +214,18 @@ export default function AdvancedDatabaseStudioPage() {
   }
 
   async function handleDeleteRecord(id: string) {
-    if (!confirm("Hapus record ini?")) return;
+    if (!confirm("Delete this record?")) return;
     try {
       await deleteRecord(projectId, collectionName, id);
       await loadRecords();
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Gagal menghapus");
+      alert(e instanceof Error ? e.message : "Failed to delete record");
     }
   }
 
   async function handleBulkDelete() {
     if (selectedIds.size === 0) return;
-    if (!confirm(`Hapus ${selectedIds.size} record yang dipilih?`)) return;
+    if (!confirm(`Delete ${selectedIds.size} selected records?`)) return;
     try {
       for (const id of Array.from(selectedIds)) {
         await deleteRecord(projectId, collectionName, id);
@@ -233,12 +233,12 @@ export default function AdvancedDatabaseStudioPage() {
       setSelectedIds(new Set());
       await loadRecords();
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Gagal menghapus beberapa record");
+      alert(e instanceof Error ? e.message : "Failed to delete records");
     }
   }
 
   async function handleDeleteCollection() {
-    if (!confirm(`HAPUS KOLEKSI "${collectionName}" BESERTA SELURUH DATA & FILE DI DALAMNYA?`)) return;
+    if (!confirm(`PERMANENTLY DELETE COLLECTION "${collectionName}" AND ALL ITS DATA & FILES?`)) return;
     try {
       await deleteCollection(projectId, collectionName);
       const remaining = collections.filter((c) => c.name !== collectionName);
@@ -248,7 +248,7 @@ export default function AdvancedDatabaseStudioPage() {
         router.push(`/projects/${projectId}/database`);
       }
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Gagal menghapus collection");
+      alert(e instanceof Error ? e.message : "Failed to delete collection");
     }
   }
 
@@ -261,7 +261,7 @@ export default function AdvancedDatabaseStudioPage() {
       const updated = await loadAllCollections();
       router.push(`/projects/${projectId}/database/${encodeURIComponent(duplicateName.trim())}`);
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Gagal menduplikasi collection");
+      alert(e instanceof Error ? e.message : "Failed to duplicate collection");
     }
   }
 
@@ -276,7 +276,7 @@ export default function AdvancedDatabaseStudioPage() {
       a.click();
       URL.revokeObjectURL(url);
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Gagal mengekspor data");
+      alert(e instanceof Error ? e.message : "Failed to export data");
     }
   }
 
@@ -287,12 +287,12 @@ export default function AdvancedDatabaseStudioPage() {
     try {
       const parsed = JSON.parse(importJsonText);
       const res = await importCollection(projectId, parsed, importMode);
-      setIoMessage(`Berhasil import ${res.recordCount} records!`);
+      setIoMessage(`Successfully imported ${res.recordCount} records!`);
       setImportJsonText("");
       await loadRecords();
       await loadAllCollections();
     } catch (e) {
-      setIoMessage(e instanceof Error ? e.message : "Gagal mengimpor JSON");
+      setIoMessage(e instanceof Error ? e.message : "Failed to import JSON");
     } finally {
       setImporting(false);
     }
@@ -305,9 +305,9 @@ export default function AdvancedDatabaseStudioPage() {
     try {
       const saved = await updateRules(projectId, collectionName, rulesDraft);
       setRules(saved);
-      alert("API Rules berhasil diperbarui!");
+      alert("API Rules updated successfully!");
     } catch (e) {
-      setRulesError(e instanceof Error ? e.message : "Gagal menyimpan rules");
+      setRulesError(e instanceof Error ? e.message : "Failed to save rules");
     } finally {
       setRulesSaving(false);
     }
@@ -326,11 +326,11 @@ export default function AdvancedDatabaseStudioPage() {
       setCollection(updated);
       setFieldsDraft(JSON.parse(JSON.stringify(updated.fields)));
       setIndexesDraft(JSON.parse(JSON.stringify(updated.indexes || [])));
-      alert("Skema & Indeks berhasil diperbarui via Table Rebuild!");
+      alert("Schema & indexes updated successfully via Table Rebuild!");
       await loadAllCollections();
       await loadRecords();
     } catch (e) {
-      setSchemaError(e instanceof Error ? e.message : "Gagal memperbarui skema");
+      setSchemaError(e instanceof Error ? e.message : "Failed to update schema");
     } finally {
       setSchemaSaving(false);
     }
@@ -357,7 +357,7 @@ export default function AdvancedDatabaseStudioPage() {
               className="btn btn-secondary"
               style={{ padding: "0.25rem 0.55rem", fontSize: "0.78rem" }}
               onClick={() => setShowNewCol(true)}
-              title="Buat koleksi baru"
+              title="Create new collection"
             >
               + New
             </button>
@@ -365,7 +365,7 @@ export default function AdvancedDatabaseStudioPage() {
 
           <input
             className="input"
-            placeholder="Cari koleksi..."
+            placeholder="Search collections..."
             value={colFilter}
             onChange={(e) => setColFilter(e.target.value)}
             style={{ fontSize: "0.8rem", padding: "0.4rem 0.65rem", marginBottom: "0.5rem" }}
@@ -557,7 +557,7 @@ export default function AdvancedDatabaseStudioPage() {
 
                 {selectedIds.size > 0 && (
                   <button className="btn btn-danger" onClick={handleBulkDelete} style={{ fontSize: "0.85rem" }}>
-                    🗑️ Hapus ({selectedIds.size})
+                    🗑️ Delete ({selectedIds.size})
                   </button>
                 )}
 
@@ -746,7 +746,7 @@ export default function AdvancedDatabaseStudioPage() {
                       <span>👁️</span> SQL View Definition — "{collectionName}"
                     </h3>
                     <p className="muted" style={{ fontSize: "0.85rem", margin: "0.25rem 0 0" }}>
-                      Koleksi ini adalah read-only SQL View yang dikompilasi secara otomatis oleh SQLite.
+                      This collection is a read-only SQL View compiled and executed directly by SQLite.
                     </p>
                   </div>
                   <span className="badge badge-purple" style={{ padding: "0.35rem 0.75rem", fontSize: "0.82rem" }}>
@@ -756,7 +756,7 @@ export default function AdvancedDatabaseStudioPage() {
 
                 <div style={{ background: "var(--panel-2)", padding: "1.25rem", borderRadius: "10px", border: "1px solid var(--border)", marginBottom: "1.5rem" }}>
                   <div style={{ fontSize: "0.8rem", fontWeight: 600, color: "var(--accent)", marginBottom: "0.5rem", textTransform: "uppercase", letterSpacing: "0.5px" }}>
-                    Kueri SQL SELECT:
+                    SQL SELECT Query:
                   </div>
                   <pre
                     style={{
@@ -886,11 +886,11 @@ export default function AdvancedDatabaseStudioPage() {
                           type="button"
                           className="btn-icon"
                           onClick={() => {
-                            if (confirm(`Hapus kolom "${f.name || 'baru'}"? Kolom ini akan dihapus saat skema disimpan.`)) {
+                            if (confirm(`Delete column "${f.name || 'new'}"? This column will be dropped when the schema is saved.`)) {
                               setFieldsDraft(fieldsDraft.filter((_, idx) => idx !== i));
                             }
                           }}
-                          title="Hapus kolom"
+                          title="Delete column"
                         >
                           ✕
                         </button>
@@ -1018,7 +1018,7 @@ export default function AdvancedDatabaseStudioPage() {
 
             <div style={{ marginTop: "1.5rem", display: "flex", justifyContent: "flex-end" }}>
               <button className="btn" onClick={handleSaveRules} disabled={rulesSaving}>
-                {rulesSaving ? "Menyimpan Rules…" : "Simpan Perubahan Rules"}
+                {rulesSaving ? "Saving Rules…" : "Save API Rules Changes"}
               </button>
             </div>
           </div>
@@ -1027,20 +1027,20 @@ export default function AdvancedDatabaseStudioPage() {
         {/* ─── TAB 4: EXPORT / IMPORT ─── */}
         {activeTab === "io" && (
           <div className="card">
-            <h3 style={{ marginBottom: "0.5rem" }}>Backup & Migrasi Data (JSON)</h3>
+            <h3 style={{ marginBottom: "0.5rem" }}>Backup & Data Migration (JSON)</h3>
             <p className="muted" style={{ fontSize: "0.85rem", marginBottom: "1.5rem" }}>
-              Ekspor seluruh skema dan baris data ke format JSON mandiri, atau impor dari backup sebelumnya.
+              Export full collection schema and record rows to portable JSON format, or import from a previous backup.
             </p>
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.5rem" }}>
               {/* Export Box */}
               <div style={{ background: "var(--panel-2)", padding: "1.25rem", borderRadius: "10px" }}>
-                <h4 style={{ marginBottom: "0.5rem" }}>📥 Export Koleksi</h4>
+                <h4 style={{ marginBottom: "0.5rem" }}>📥 Export Collection</h4>
                 <p className="muted" style={{ fontSize: "0.82rem", marginBottom: "1rem" }}>
-                  Unduh file <code>{collectionName}-export.json</code> yang berisi seluruh definisi field beserta semua baris record di dalamnya.
+                  Download <code>{collectionName}-export.json</code> containing all field definitions and data rows.
                 </p>
                 <button className="btn" onClick={handleExportJson}>
-                  Unduh File JSON Export
+                  Download Export JSON File
                 </button>
               </div>
 
@@ -1048,21 +1048,21 @@ export default function AdvancedDatabaseStudioPage() {
               <div style={{ background: "var(--panel-2)", padding: "1.25rem", borderRadius: "10px" }}>
                 <h4 style={{ marginBottom: "0.5rem" }}>📤 Import JSON Data</h4>
                 <div className="field">
-                  <label>Mode Import:</label>
+                  <label>Import Mode:</label>
                   <select
                     className="input"
                     value={importMode}
                     onChange={(e) => setImportMode(e.target.value as "create" | "replace" | "merge")}
                     style={{ fontSize: "0.85rem" }}
                   >
-                    <option value="create">create — buat baru (gagal jika sudah ada)</option>
-                    <option value="replace">replace — hapus semua data lama & ganti</option>
-                    <option value="merge">merge — upsert berdasarkan ID record</option>
+                    <option value="create">create — create new (fails if already exists)</option>
+                    <option value="replace">replace — drop old collection and replace</option>
+                    <option value="merge">merge — upsert rows by record ID</option>
                   </select>
                 </div>
 
                 <div className="field">
-                  <label>Paste Isi JSON Export:</label>
+                  <label>Paste Export JSON Payload:</label>
                   <textarea
                     className="input"
                     rows={4}
@@ -1074,13 +1074,13 @@ export default function AdvancedDatabaseStudioPage() {
                 </div>
 
                 {ioMessage && (
-                  <div style={{ fontSize: "0.82rem", marginBottom: "0.75rem", color: ioMessage.includes("Berhasil") ? "var(--green)" : "var(--red)" }}>
+                  <div style={{ fontSize: "0.82rem", marginBottom: "0.75rem", color: ioMessage.includes("Successfully") ? "var(--green)" : "var(--red)" }}>
                     {ioMessage}
                   </div>
                 )}
 
                 <button className="btn" onClick={handleImportJson} disabled={importing || !importJsonText.trim()}>
-                  {importing ? "Mengimpor…" : "Mulai Import JSON"}
+                  {importing ? "Importing…" : "Start JSON Import"}
                 </button>
               </div>
             </div>
@@ -1153,11 +1153,11 @@ export default function AdvancedDatabaseStudioPage() {
                 checked={duplicateWithData}
                 onChange={(e) => setDuplicateWithData(e.target.checked)}
               />
-              <span>Sertakan seluruh data record (withData)</span>
+              <span>Include all record data rows (withData)</span>
             </label>
             <div className="form-actions">
-              <button className="btn btn-secondary" onClick={() => setShowDuplicateCol(false)}>Batal</button>
-              <button className="btn" onClick={handleDuplicateCollection}>Duplikasi Sekarang</button>
+              <button className="btn btn-secondary" onClick={() => setShowDuplicateCol(false)}>Cancel</button>
+              <button className="btn" onClick={handleDuplicateCollection}>Duplicate Collection</button>
             </div>
           </div>
         </div>
@@ -1314,7 +1314,7 @@ function RecordFormModal({
 
       onSuccess();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Gagal menyimpan record");
+      setError(err instanceof Error ? err.message : "Failed to save record");
     } finally {
       setSaving(false);
     }
@@ -1434,10 +1434,10 @@ function RecordFormModal({
 
           <div className="form-actions">
             <button type="button" className="btn btn-secondary" onClick={onClose}>
-              Batal
+              Cancel
             </button>
             <button type="submit" className="btn" disabled={saving}>
-              {saving ? "Menyimpan…" : isEdit ? "Update Record" : "Create Record"}
+              {saving ? "Saving…" : isEdit ? "Update Record" : "Create Record"}
             </button>
           </div>
         </form>

@@ -34,7 +34,7 @@ export default function LoginPage() {
       setError(
         err instanceof Error
           ? err.message
-          : "Login gagal: pastikan kredensial admin Anda benar."
+          : "Invalid credentials: please check your email and password."
       );
     } finally {
       setLoading(false);
@@ -130,7 +130,7 @@ export default function LoginPage() {
               {loading ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin text-[#065F46]" />
-                  <span>Memproses...</span>
+                  <span>Processing...</span>
                 </>
               ) : (
                 <span>{mode === "signup" ? "Sign up" : "Sign in"}</span>

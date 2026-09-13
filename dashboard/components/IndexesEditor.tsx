@@ -151,7 +151,7 @@ export function IndexesEditor({
                     type="button"
                     className="btn-icon"
                     onClick={() => handleRemoveIndex(i)}
-                    title="Hapus Index"
+                    title="Delete Index"
                   >
                     ✕
                   </button>
