@@ -15,10 +15,10 @@ import { Router } from '../core/router.js';
 import { getProjectDb } from '../core/projectDbManager.js';
 import { getCollectionByName } from '../core/schema.js';
 import { getRecord } from '../core/records.js';
-import { readFile, storedFilenames } from '../core/storage.js';
+import { readFile, storedFilenames, deleteFile, listProjectStorageFiles, cleanOrphanedFiles } from '../core/storage.js';
 import { RequestContext } from '../core/query/sqlBuilder.js';
 import { verifyToken } from '../auth/jwt.js';
-import { validateToken } from '../platform/adminAuth.js';
+import { requireAdmin, validateToken } from '../platform/adminAuth.js';
 import { getThumb, isThumbable } from '../core/thumbs.js';
 
 // ─── Whitelist ekstensi → MIME ───────────────────────────────────────────────
@@ -133,6 +133,58 @@ export function createStorageRouter(): Router {
         res.raw.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
       }
       res.raw.end(serveData);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Internal error';
+      res.status(500).json({ error: { code: 'INTERNAL', message } });
+    }
+  });
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // ADMIN STORAGE EXPLORER ROUTES
+  // ══════════════════════════════════════════════════════════════════════════
+
+  // GET /api/admin/projects/:pid/storage/files — list semua file fisik di disk project
+  router.get('/api/admin/projects/:pid/storage/files', requireAdmin, (req, res) => {
+    try {
+      const db = getProjectDb(req.params.pid);
+      const files = listProjectStorageFiles(req.params.pid, db);
+
+      const totalFiles = files.length;
+      const totalSize = files.reduce((acc, f) => acc + f.size, 0);
+      const orphanedCount = files.filter((f) => f.isOrphaned).length;
+
+      res.json({
+        files,
+        stats: {
+          totalFiles,
+          totalSize,
+          orphanedCount,
+        },
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Internal error';
+      res.status(500).json({ error: { code: 'INTERNAL', message } });
+    }
+  });
+
+  // DELETE /api/admin/projects/:pid/storage/files/:rid/:filename — hapus 1 file
+  router.delete('/api/admin/projects/:pid/storage/files/:rid/:filename', requireAdmin, (req, res) => {
+    try {
+      const { pid, rid, filename } = req.params;
+      deleteFile(pid, rid, filename);
+      res.json({ success: true, message: `File ${filename} berhasil dihapus` });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Internal error';
+      res.status(500).json({ error: { code: 'INTERNAL', message } });
+    }
+  });
+
+  // POST /api/admin/projects/:pid/storage/clean-orphans — bersihkan file yatim
+  router.post('/api/admin/projects/:pid/storage/clean-orphans', requireAdmin, (req, res) => {
+    try {
+      const db = getProjectDb(req.params.pid);
+      const cleaned = cleanOrphanedFiles(req.params.pid, db);
+      res.json({ success: true, cleaned });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Internal error';
       res.status(500).json({ error: { code: 'INTERNAL', message } });

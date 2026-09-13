@@ -544,3 +544,51 @@ export async function listCollectionsForFunctions(
   const cols = await listCollections(projectId);
   return cols.map((c) => ({ name: c.name }));
 }
+
+// ─── STORAGE EXPLORER API ───────────────────────────────────────────────────
+
+export interface StoredFileInfo {
+  name: string;
+  recordId: string;
+  storedName: string;
+  size: number;
+  mtime: string;
+  mime: string;
+  isImage: boolean;
+  collectionName: string | null;
+  isOrphaned: boolean;
+}
+
+export interface StorageStats {
+  totalFiles: number;
+  totalSize: number;
+  orphanedCount: number;
+}
+
+export async function listStorageFiles(
+  projectId: string
+): Promise<{ files: StoredFileInfo[]; stats: StorageStats }> {
+  return request<{ files: StoredFileInfo[]; stats: StorageStats }>(
+    `/api/admin/projects/${projectId}/storage/files`
+  );
+}
+
+export async function deleteStorageFile(
+  projectId: string,
+  recordId: string,
+  filename: string
+): Promise<{ success: boolean; message: string }> {
+  return request<{ success: boolean; message: string }>(
+    `/api/admin/projects/${projectId}/storage/files/${encodeURIComponent(recordId)}/${encodeURIComponent(filename)}`,
+    { method: 'DELETE' }
+  );
+}
+
+export async function cleanOrphanedStorageFiles(
+  projectId: string
+): Promise<{ success: boolean; cleaned: number }> {
+  return request<{ success: boolean; cleaned: number }>(
+    `/api/admin/projects/${projectId}/storage/clean-orphans`,
+    { method: 'POST' }
+  );
+}
