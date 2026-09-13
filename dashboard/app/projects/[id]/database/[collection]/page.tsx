@@ -31,6 +31,7 @@ import { FieldOptionsEditor } from "@/components/FieldOptionsEditor";
 import { IndexesEditor } from "@/components/IndexesEditor";
 import { CreateCollectionModal } from "@/components/CreateCollectionModal";
 import { Navbar } from "@/components/Navbar";
+import { ProjectSidebar } from "@/components/ProjectSidebar";
 import {
   Database,
   Eye,
@@ -345,12 +346,12 @@ export default function AdvancedDatabaseStudioPage() {
     <>
       <Navbar projectId={projectId} />
       <div className="studio-layout">
+        {/* ─── GLOBAL PROJECT SIDEBAR ─── */}
+        <ProjectSidebar projectId={projectId} />
+
         {/* ─── SIDEBAR MASTER COLLECTIONS ─── */}
       <aside className="studio-sidebar">
         <div style={{ marginBottom: "0.85rem" }}>
-          <Link href={`/projects/${projectId}`} className="nav-back" style={{ fontSize: "0.82rem" }}>
-            ← Project Home
-          </Link>
           <div className="studio-sidebar-header">
             <span>Collections ({collections.length})</span>
             <button

@@ -10,6 +10,7 @@ import {
   type Project,
 } from "@/lib/api";
 import { Navbar } from "@/components/Navbar";
+import { ProjectSidebar } from "@/components/ProjectSidebar";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -95,7 +96,12 @@ export default function ProjectDetailPage() {
     <>
       <Navbar projectId={project.id} projectName={project.name} />
 
-      <div className="page">
+      <div className="page" style={{ display: "flex", gap: "1.5rem", alignItems: "flex-start" }}>
+        {/* ─── PROJECT SIDEBAR ─── */}
+        <ProjectSidebar projectId={project.id} projectName={project.name} />
+
+        {/* ─── MAIN CONTENT ─── */}
+        <div style={{ flex: 1, minWidth: 0 }}>
         {/* Breadcrumb & Header */}
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
           <div>
@@ -203,6 +209,7 @@ export default function ProjectDetailPage() {
               );
             })}
           </div>
+        </div>
         </div>
       </div>
     </>

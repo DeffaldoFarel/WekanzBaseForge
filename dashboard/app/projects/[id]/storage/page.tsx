@@ -12,6 +12,7 @@ import {
   type StorageStats,
 } from "@/lib/api";
 import { Navbar } from "@/components/Navbar";
+import { ProjectSidebar } from "@/components/ProjectSidebar";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -154,7 +155,12 @@ export default function StorageExplorerPage() {
     <>
       <Navbar projectId={projectId} />
 
-      <div className="page" style={{ maxWidth: "1220px" }}>
+      <div className="page" style={{ display: "flex", gap: "1.5rem", alignItems: "flex-start", maxWidth: "1400px" }}>
+        {/* ─── PROJECT SIDEBAR ─── */}
+        <ProjectSidebar projectId={projectId} />
+
+        {/* ─── MAIN CONTENT ─── */}
+        <div style={{ flex: 1, minWidth: 0 }}>
         {/* Header Navigation */}
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
           <div>
@@ -660,6 +666,7 @@ export default function StorageExplorerPage() {
             )}
           </DialogContent>
         </Dialog>
+        </div>
       </div>
     </>
   );

@@ -24,6 +24,8 @@ import {
   type StoredFunction,
   type FunctionTrigger,
 } from "@/lib/api";
+import { Navbar } from "@/components/Navbar";
+import { ProjectSidebar } from "@/components/ProjectSidebar";
 
 const DEFAULT_CODE = `// req = { body, query, auth } untuk callable
 // return apapun → JSON response
@@ -121,31 +123,36 @@ export default function FunctionsPage() {
   }
 
   return (
-    <div className="page">
-      <Link href={`/projects/${projectId}`} className="nav-back">
-        ← Kembali ke Project
-      </Link>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.5rem" }}>
-        <h2>
-          Functions <span className="muted" style={{ fontSize: "0.85rem" }}>({functions.length})</span>
-        </h2>
-        <button
-          className="btn btn-primary"
-          onClick={() => {
-            setCreating(true);
-            setEditing(null);
-          }}
-        >
-          + Function baru
-        </button>
-      </div>
+    <>
+      <Navbar projectId={projectId} />
 
-      <p className="muted" style={{ fontSize: "0.82rem", marginTop: "0.25rem" }}>
-        Kode berjalan di sandbox: tanpa <code>process</code>/<code>require</code>, timeout, console tertangkap.
-      </p>
+      <div className="page" style={{ display: "flex", gap: "1.5rem", alignItems: "flex-start" }}>
+        {/* ─── PROJECT SIDEBAR ─── */}
+        <ProjectSidebar projectId={projectId} />
 
-      {notice && <div className="card" style={{ borderColor: "var(--green, #2e7d32)", marginTop: "0.75rem" }}>✅ {notice}</div>}
-      {error && <div className="card" style={{ borderColor: "var(--red, #c62828)", marginTop: "0.75rem" }}>⚠️ {error}</div>}
+        {/* ─── MAIN CONTENT ─── */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.5rem" }}>
+            <h2>
+              Functions <span className="muted" style={{ fontSize: "0.85rem" }}>({functions.length})</span>
+            </h2>
+            <button
+              className="btn btn-primary"
+              onClick={() => {
+                setCreating(true);
+                setEditing(null);
+              }}
+            >
+              + Function baru
+            </button>
+          </div>
+
+          <p className="muted" style={{ fontSize: "0.82rem", marginTop: "0.25rem" }}>
+            Kode berjalan di sandbox: tanpa <code>process</code>/<code>require</code>, timeout, console tertangkap.
+          </p>
+
+          {notice && <div className="card" style={{ borderColor: "var(--green, #2e7d32)", marginTop: "0.75rem" }}>✅ {notice}</div>}
+          {error && <div className="card" style={{ borderColor: "var(--red, #c62828)", marginTop: "0.75rem" }}>⚠️ {error}</div>}
 
       {/* Daftar functions */}
       <div className="card" style={{ marginTop: "1rem" }}>
@@ -270,7 +277,9 @@ export default function FunctionsPage() {
           }}
         />
       )}
-    </div>
+        </div>
+      </div>
+    </>
   );
 }
 
