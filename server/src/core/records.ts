@@ -18,7 +18,7 @@ import { decideRule, evaluateRuleOnData, ForbiddenError, CollectionRules } from 
 import { parseMultipart, extractBoundary, MultipartFile } from './multipart.js';
 import { saveFile, deleteFile, deleteRecordFiles, storedFilenames } from './storage.js';
 import { isViewCollection } from './schema.js';
-import { hashPassword, verifyPassword } from '../auth/password.js';
+import { hashPassword, verifyPassword, validatePasswordStrength } from '../auth/password.js';
 import { ftsTableName, sanitizeFtsQuery, ftsFields } from './fts.js';
 
 // M16a: error khusus write ke view collection
@@ -325,6 +325,10 @@ function deserializeRow(meta: CollectionMeta, row: Record<string, unknown>): For
     }
   }
 
+  if (meta.type === 'auth') {
+    delete result.password_hash;
+  }
+
   return result as ForgeRecord;
 }
 
@@ -354,7 +358,9 @@ export function createRecord(
   }
 
   // ── Validasi setiap field yang dikirim user ──
+  const isAuth = meta.type === 'auth';
   for (const [key, value] of Object.entries(data)) {
+    if (isAuth && (key === 'password' || key === 'passwordConfirm')) continue;
     const field = fmap.get(key);
     if (!field) {
       throw new Error(`Field '${key}' tidak ada di collection '${collection}'`);
@@ -372,11 +378,26 @@ export function createRecord(
     }
   }
 
+  if (isAuth) {
+    const pwd = data.password;
+    if (typeof pwd !== 'string' || !pwd) {
+      throw new Error('Password wajib diisi untuk auth collection');
+    }
+    const pwdErr = validatePasswordStrength(pwd);
+    if (pwdErr) throw new Error(pwdErr.message);
+  }
+
   // ── Bangun INSERT secara dinamis dari skema ──
   const id = preGeneratedId ?? generateId();
   const columns: string[] = ['id'];
   const placeholders: string[] = ['?'];
   const params: unknown[] = [id];
+
+  if (isAuth && typeof data.password === 'string') {
+    columns.push('"password_hash"');
+    placeholders.push('?');
+    params.push(hashPassword(data.password));
+  }
 
   const now = new Date().toISOString();
 
@@ -517,7 +538,19 @@ export function updateRecord(
     }
   }
 
+  const isAuth = meta.type === 'auth';
+  if (isAuth && data.password !== undefined) {
+    const pwd = data.password;
+    if (typeof pwd === 'string' && pwd.length > 0) {
+      const pwdErr = validatePasswordStrength(pwd);
+      if (pwdErr) throw new Error(pwdErr.message);
+      setClauses.push('"password_hash" = ?');
+      params.push(hashPassword(pwd));
+    }
+  }
+
   for (const [key, value] of Object.entries(data)) {
+    if (isAuth && (key === 'password' || key === 'passwordConfirm')) continue;
     const field = fmap.get(key);
     if (!field) {
       throw new Error(`Field '${key}' tidak ada di collection '${collection}'`);

@@ -140,7 +140,7 @@ export interface IndexDef {
 
 export interface CollectionInfo {
   name: string;
-  type?: 'base' | 'view';
+  type?: 'base' | 'view' | 'auth';
   viewQuery?: string | null;
   fields: FieldDef[];
   indexes: IndexDef[];
@@ -167,7 +167,7 @@ export async function createCollection(
   projectId: string,
   def: {
     name: string;
-    type?: 'base' | 'view';
+    type?: 'base' | 'view' | 'auth';
     viewQuery?: string;
     fields?: FieldDef[];
     indexes?: IndexDef[];

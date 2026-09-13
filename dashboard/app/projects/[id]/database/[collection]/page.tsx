@@ -357,7 +357,7 @@ export default function AdvancedDatabaseStudioPage() {
         <div className="studio-sidebar-list">
           {filteredCollections.map((c) => {
             const isActive = c.name === collectionName;
-            const isView = c.type === "view";
+            const icon = c.type === "view" ? "👁️" : c.type === "auth" ? "👤" : "📦";
             return (
               <Link
                 key={c.name}
@@ -365,7 +365,7 @@ export default function AdvancedDatabaseStudioPage() {
                 className={`studio-col-link ${isActive ? "active" : ""}`}
               >
                 <div style={{ display: "flex", alignItems: "center", gap: "0.45rem", overflow: "hidden" }}>
-                  <span>{isView ? "👁️" : "📦"}</span>
+                  <span>{icon}</span>
                   <span style={{ textOverflow: "ellipsis", overflow: "hidden", whiteSpace: "nowrap" }}>
                     {c.name}
                   </span>
@@ -384,12 +384,27 @@ export default function AdvancedDatabaseStudioPage() {
         {/* Header Koleksi */}
         <div className="header-row" style={{ marginBottom: "1rem" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-            <span style={{ fontSize: "1.6rem" }}>{collection?.type === "view" ? "👁️" : "📦"}</span>
+            <span style={{ fontSize: "1.6rem" }}>
+              {collection?.type === "view" ? "👁️" : collection?.type === "auth" ? "👤" : "📦"}
+            </span>
             <div>
               <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
                 <h1 style={{ fontSize: "1.4rem", margin: 0 }}>{collectionName}</h1>
-                <span className="badge badge-accent" style={{ textTransform: "uppercase" }}>
-                  {collection?.type === "view" ? "SQL View" : "Base Collection"}
+                <span
+                  className={`badge ${
+                    collection?.type === "view"
+                      ? "badge-purple"
+                      : collection?.type === "auth"
+                      ? "badge-green"
+                      : "badge-accent"
+                  }`}
+                  style={{ textTransform: "uppercase" }}
+                >
+                  {collection?.type === "view"
+                    ? "SQL View"
+                    : collection?.type === "auth"
+                    ? "Auth Collection"
+                    : "Base Collection"}
                 </span>
               </div>
               <p className="muted" style={{ fontSize: "0.82rem", margin: "0.2rem 0 0" }}>
@@ -1245,18 +1260,22 @@ function RecordFormModal({
 
     try {
       const hasFiles = Object.keys(files).length > 0;
+      const payload = { ...formData };
+      if (collection.type === "auth" && isEdit && !payload.password) {
+        delete payload.password;
+      }
 
       if (hasFiles) {
         if (isEdit) {
-          await updateRecordWithFiles(projectId, collection.name, String(initialData!.id), formData, files);
+          await updateRecordWithFiles(projectId, collection.name, String(initialData!.id), payload, files);
         } else {
-          await createRecordWithFiles(projectId, collection.name, formData, files);
+          await createRecordWithFiles(projectId, collection.name, payload, files);
         }
       } else {
         if (isEdit) {
-          await updateRecord(projectId, collection.name, String(initialData!.id), formData);
+          await updateRecord(projectId, collection.name, String(initialData!.id), payload);
         } else {
-          await createRecord(projectId, collection.name, formData);
+          await createRecord(projectId, collection.name, payload);
         }
       }
 
@@ -1279,6 +1298,23 @@ function RecordFormModal({
         {error && <div className="error-text" style={{ marginBottom: "1rem" }}>{error}</div>}
 
         <form onSubmit={handleSubmit}>
+          {collection.type === "auth" && (
+            <div className="field">
+              <label style={{ display: "flex", justifyContent: "space-between" }}>
+                <span>Password {!isEdit && <span style={{ color: "var(--red)" }}>*</span>}</span>
+                <span className="type-badge" style={{ fontSize: "0.7rem" }}>password</span>
+              </label>
+              <input
+                type="password"
+                className="input"
+                placeholder={isEdit ? "Kosongkan jika tidak ingin mengubah password" : "Minimal 8 karakter"}
+                value={String(formData.password ?? "")}
+                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                required={!isEdit}
+              />
+            </div>
+          )}
+
           {collection.fields.map((f) => (
             <div key={f.name} className="field">
               <label style={{ display: "flex", justifyContent: "space-between" }}>

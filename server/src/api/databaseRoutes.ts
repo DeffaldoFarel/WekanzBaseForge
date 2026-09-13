@@ -110,6 +110,7 @@ export function createDatabaseRouter(): Router {
 
       const meta = defineCollection(db, {
         name: body.name,
+        type: body.type,
         fields: body.fields,
         indexes: body.indexes,
         rules: body.rules,

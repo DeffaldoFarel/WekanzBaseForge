@@ -50,11 +50,11 @@ export function CreateCollectionModal({
   onCreated,
 }: CreateCollectionModalProps) {
   const [name, setName] = useState("");
-  const [colType, setColType] = useState<"base" | "view">("base");
+  const [colType, setColType] = useState<"base" | "view" | "auth">("base");
   const [showTypeDropdown, setShowTypeDropdown] = useState(false);
   const [activeTab, setActiveTab] = useState<"fields" | "rules">("fields");
 
-  // Base Collection State
+  // Base & Auth Collection State
   const [fields, setFields] = useState<FieldDef[]>([
     { name: "title", type: "text", required: true },
   ]);
@@ -97,12 +97,12 @@ export function CreateCollectionModal({
         onCreated(created);
       } else {
         const validFields = fields.filter((f) => f.name.trim().length > 0);
-        if (validFields.length === 0) {
+        if (colType === "base" && validFields.length === 0) {
           throw new Error("Minimal tambahkan 1 field kustom untuk Base collection");
         }
         const created = await createCollection(projectId, {
           name: name.trim().toLowerCase(),
-          type: "base",
+          type: colType,
           fields: validFields,
           indexes: indexes.length > 0 ? indexes : undefined,
           rules,
@@ -237,7 +237,7 @@ export function CreateCollectionModal({
                   fontWeight: 600,
                 }}
               >
-                <span>{colType === "base" ? "📦 Base" : "👁️ View"}</span>
+                <span>{colType === "base" ? "📦 Base" : colType === "view" ? "👁️ View" : "👤 Auth"}</span>
                 <span style={{ fontSize: "0.75rem" }}>▾</span>
               </button>
 
@@ -248,7 +248,7 @@ export function CreateCollectionModal({
                     right: 0,
                     top: "100%",
                     marginTop: "0.4rem",
-                    width: "280px",
+                    width: "290px",
                     background: "var(--panel-2)",
                     border: "1px solid var(--border)",
                     borderRadius: "10px",
@@ -304,21 +304,31 @@ export function CreateCollectionModal({
                     </div>
                   </div>
 
-                  {/* Option 3: Auth collection (Disabled / Coming soon info) */}
+                  {/* Option 3: Auth collection */}
                   <div
+                    onClick={() => {
+                      setColType("auth");
+                      setShowTypeDropdown(false);
+                      if (fields.length === 1 && fields[0].name === "title") {
+                        setFields([
+                          { name: "name", type: "text" },
+                          { name: "avatar", type: "file" },
+                        ]);
+                      }
+                    }}
                     style={{
                       padding: "0.6rem 0.75rem",
                       borderRadius: "6px",
-                      opacity: 0.6,
-                      cursor: "not-allowed",
+                      cursor: "pointer",
+                      background: colType === "auth" ? "rgba(249, 115, 22, 0.15)" : "transparent",
+                      border: colType === "auth" ? "1px solid rgba(249, 115, 22, 0.3)" : "1px solid transparent",
                     }}
                   >
-                    <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontWeight: 600, fontSize: "0.88rem" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontWeight: 600, fontSize: "0.88rem", color: colType === "auth" ? "var(--accent)" : "var(--text)" }}>
                       <span>👤</span> Auth collection
-                      <span className="badge badge-gray" style={{ fontSize: "0.65rem", padding: "0.1rem 0.35rem" }}>Tersedia di Menu Auth</span>
                     </div>
                     <div className="muted" style={{ fontSize: "0.75rem", marginTop: "0.2rem" }}>
-                      Akun end-user dikelola terpusat di menu Auth project.
+                      Koleksi akun user dengan login email & password + custom fields profil.
                     </div>
                   </div>
                 </div>
@@ -333,7 +343,7 @@ export function CreateCollectionModal({
               className={`studio-tab ${activeTab === "fields" ? "active" : ""}`}
               onClick={() => setActiveTab("fields")}
             >
-              {colType === "base" ? `Fields (${fields.length})` : "SQL Query"}
+              {colType === "view" ? "SQL Query" : `Fields (${fields.length})`}
             </button>
             <button
               type="button"
@@ -344,30 +354,38 @@ export function CreateCollectionModal({
             </button>
           </div>
 
-          {/* TAB 1: FIELDS (BASE) or SQL QUERY (VIEW) */}
+          {/* TAB 1: FIELDS (BASE / AUTH) or SQL QUERY (VIEW) */}
           {activeTab === "fields" && (
             <div>
-              {colType === "base" ? (
+              {colType !== "view" ? (
                 <div>
                   {/* PocketBase-style System Fields Bar */}
                   <div
                     style={{
                       display: "flex",
                       alignItems: "center",
-                      gap: "0.6rem",
+                      gap: "0.4rem",
                       padding: "0.55rem 0.85rem",
                       background: "rgba(255, 255, 255, 0.03)",
                       borderRadius: "8px",
                       border: "1px dashed var(--border)",
-                      fontSize: "0.8rem",
+                      fontSize: "0.78rem",
                       color: "var(--muted)",
                       marginBottom: "0.75rem",
+                      flexWrap: "wrap",
                     }}
                   >
                     <span style={{ fontWeight: 600 }}>System Fields (Otomatis):</span>
-                    <span className="badge badge-gray">T id (15 char PK)</span>
-                    <span className="badge badge-gray">📅 created (ISO)</span>
-                    <span className="badge badge-gray">📅 updated (ISO)</span>
+                    <span className="badge badge-gray">T id (PK)</span>
+                    {colType === "auth" && (
+                      <>
+                        <span className="badge badge-accent">✉️ email (unique)</span>
+                        <span className="badge badge-accent">🔒 password</span>
+                        <span className="badge badge-gray">✓ verified</span>
+                      </>
+                    )}
+                    <span className="badge badge-gray">📅 created</span>
+                    <span className="badge badge-gray">📅 updated</span>
                   </div>
 
                   {/* Custom Fields List */}

@@ -86,9 +86,11 @@ export default function DatabaseIndexPage() {
             >
               <div className="info">
                 <div className="name" style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                  <span>{c.type === "view" ? "👁️" : "📦"}</span>
+                  <span>{c.type === "view" ? "👁️" : c.type === "auth" ? "👤" : "📦"}</span>
                   <span>{c.name}</span>
-                  <span className="badge badge-gray">{c.type === "view" ? "View" : "Base"}</span>
+                  <span className="badge badge-gray">
+                    {c.type === "view" ? "View" : c.type === "auth" ? "Auth" : "Base"}
+                  </span>
                 </div>
                 <div className="meta">
                   {c.fields.length} fields • {c.recordCount ?? 0} records

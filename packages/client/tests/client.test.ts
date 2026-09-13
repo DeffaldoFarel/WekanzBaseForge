@@ -218,4 +218,56 @@ describe('BaseForge Client SDK', () => {
       }
     );
   });
+
+  test('RecordService: Auth Collection authWithPassword & authRefresh (PocketBase Parity)', async () => {
+    // 1. Buat auth collection 'staff'
+    await fetch(`${BASE_URL}/api/admin/projects/${projectId}/collections`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${adminToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        name: 'staff',
+        type: 'auth',
+        fields: [
+          { name: 'name', type: 'text' },
+          { name: 'role', type: 'select', options: { values: ['editor', 'admin'] } },
+        ],
+        rules: {
+          listRule: '',
+          viewRule: '',
+          createRule: '',
+          updateRule: '',
+          deleteRule: '',
+        },
+      }),
+    });
+
+    const bf = new BaseForge({ baseUrl: BASE_URL, projectId });
+
+    // 2. Register staff via collection create
+    const newStaff = await bf.collection('staff').create({
+      email: 'staff@wekanz.id',
+      password: 'StaffSecretPass123!',
+      name: 'Staff Wekanz',
+      role: 'editor',
+    });
+    assert.ok(newStaff.id);
+    assert.equal(newStaff.email, 'staff@wekanz.id');
+    assert.equal(newStaff.role, 'editor');
+
+    // 3. Login via collection.authWithPassword
+    const authData = await bf.collection('staff').authWithPassword('staff@wekanz.id', 'StaffSecretPass123!');
+    assert.ok(authData.token);
+    assert.equal(authData.record.name, 'Staff Wekanz');
+    assert.equal(authData.record.role, 'editor');
+    assert.equal(bf.auth.isValid, true);
+    assert.equal(bf.auth.token, authData.token);
+
+    // 4. Refresh auth session
+    const refreshed = await bf.collection('staff').authRefresh();
+    assert.ok(refreshed.token);
+    assert.equal(refreshed.record.name, 'Staff Wekanz');
+  });
 });

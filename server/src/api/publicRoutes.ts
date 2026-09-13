@@ -11,6 +11,8 @@ import { Router, generateId } from '../core/router.js';
 import { getProjectDb } from '../core/projectDbManager.js';
 import { requireAdmin, validateToken } from '../platform/adminAuth.js';
 import { verifyToken } from '../auth/jwt.js';
+import { verifyPassword } from '../auth/password.js';
+import { issueTokens, initAuthTokensTable } from '../auth/tokens.js';
 import { updateCollectionRules, getCollectionByName, createViewCollection } from '../core/schema.js';
 import { exportCollection, importCollection } from '../core/collectionJson.js';
 import {
@@ -322,6 +324,96 @@ export function createPublicRouter(): Router {
         deleteRecordFiles(req.params.pid, req.params.id);
       }
       res.json({ success: true });
+    } catch (err) {
+      handleErrorPublic(res, err);
+    }
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // POCKETBASE-PARITY: AUTH COLLECTION AUTHENTICATION
+  // ═══════════════════════════════════════════════════════════════════════
+
+  // POST /api/p/:pid/collections/:name/auth-with-password
+  router.post('/api/p/:pid/collections/:name/auth-with-password', async (req, res) => {
+    try {
+      const db = getProjectDb(req.params.pid);
+      const meta = getCollectionByName(db, req.params.name);
+      if (!meta) {
+        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Collection tidak ditemukan' } });
+        return;
+      }
+      if (meta.type !== 'auth') {
+        res.status(400).json({ error: { code: 'NOT_AUTH_COLLECTION', message: `Collection '${meta.name}' bukan bertipe auth` } });
+        return;
+      }
+
+      const body = (req.body ?? {}) as { identity?: string; email?: string; password?: string };
+      const identity = (body.identity || body.email || '').trim().toLowerCase();
+      const password = body.password || '';
+
+      if (!identity || !password) {
+        res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'Identity/email dan password wajib diisi' } });
+        return;
+      }
+
+      const row = db.prepare(`SELECT * FROM "${meta.name}" WHERE email = ?`).get(identity) as Record<string, unknown> | undefined;
+      if (!row || typeof row.password_hash !== 'string' || !verifyPassword(password, row.password_hash)) {
+        res.status(400).json({ error: { code: 'INVALID_CREDENTIALS', message: 'Email atau password salah.' } });
+        return;
+      }
+
+      initAuthTokensTable(db);
+      const tokens = await issueTokens(db, {
+        id: String(row.id),
+        email: String(row.email),
+        name: typeof row.name === 'string' ? row.name : undefined,
+      });
+
+      const record = getRecord(db, meta.name, String(row.id));
+      res.json({
+        token: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+        record,
+      });
+    } catch (err) {
+      handleErrorPublic(res, err);
+    }
+  });
+
+  // POST /api/p/:pid/collections/:name/auth-refresh
+  router.post('/api/p/:pid/collections/:name/auth-refresh', async (req, res) => {
+    try {
+      const db = getProjectDb(req.params.pid);
+      const meta = getCollectionByName(db, req.params.name);
+      if (!meta || meta.type !== 'auth') {
+        res.status(400).json({ error: { code: 'NOT_AUTH_COLLECTION', message: 'Bukan auth collection' } });
+        return;
+      }
+
+      const reqCtx = await resolveEndUserCtx(req);
+      if (!reqCtx || !reqCtx.auth?.id) {
+        res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'Wajib menyertakan token otentikasi' } });
+        return;
+      }
+
+      const record = getRecord(db, meta.name, reqCtx.auth.id, reqCtx);
+      if (!record) {
+        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'User tidak ditemukan' } });
+        return;
+      }
+
+      initAuthTokensTable(db);
+      const tokens = await issueTokens(db, {
+        id: String(record.id),
+        email: String(record.email ?? reqCtx.auth.email),
+        name: typeof record.name === 'string' ? record.name : undefined,
+      });
+
+      res.json({
+        token: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+        record,
+      });
     } catch (err) {
       handleErrorPublic(res, err);
     }

@@ -25,6 +25,7 @@ import {
 
 export interface CollectionDefinition {
   name: string;
+  type?: 'base' | 'view' | 'auth';
   fields: FieldDefinition[];
   indexes?: IndexDefinition[];
   rules?: Partial<CollectionRules>; // M11: opsional, default semua null (admin-only)
@@ -43,7 +44,7 @@ export interface CollectionMeta {
   fields: FieldDefinition[];
   indexes: IndexDefinition[];
   rules: CollectionRules; // M11: API rules per collection
-  type: 'base' | 'view'; // M16a: base = tabel fisik; view = SQL view read-only
+  type: 'base' | 'view' | 'auth'; // M16a: base = tabel fisik; view = SQL view read-only; auth = user auth collection
   viewQuery: string | null; // M16a: SELECT statement (hanya untuk type=view)
   created: string;
   updated: string;
@@ -175,9 +176,11 @@ export function getSchemaVersion(db: DatabaseSync, collectionName: string): numb
 // data → string SQL. Fungsi murni seperti ini mudah di-test!
 
 export function generateCreateTableSql(def: CollectionDefinition): string {
+  const isAuth = def.type === 'auth';
   // Kolom SISTEM — selalu ada, seperti PocketBase (id/created/updated)
   const systemColumns = [
     '"id" TEXT PRIMARY KEY',
+    ...(isAuth ? ['"password_hash" TEXT NOT NULL'] : []),
     `"created" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))`,
     `"updated" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))`,
   ];
@@ -260,11 +263,22 @@ export function defineCollection(
   }
 
   // ── Validasi semua field ──
-  for (const field of def.fields) {
+  const isAuth = def.type === 'auth';
+  const fieldsToUse = [...def.fields];
+  if (isAuth) {
+    if (!fieldsToUse.some((f) => f.name === 'email')) {
+      fieldsToUse.unshift({ name: 'email', type: 'email', required: true });
+    }
+    if (!fieldsToUse.some((f) => f.name === 'verified')) {
+      fieldsToUse.push({ name: 'verified', type: 'bool', required: false });
+    }
+  }
+
+  for (const field of fieldsToUse) {
     if (!isValidName(field.name)) {
       throw new Error(`Invalid field name: '${field.name}'`);
     }
-    if (['id', 'created', 'updated'].includes(field.name)) {
+    if (['id', 'created', 'updated', 'password_hash'].includes(field.name)) {
       throw new Error(`Field name '${field.name}' is reserved (field sistem)`);
     }
   }
@@ -277,23 +291,27 @@ export function defineCollection(
   // M11: validasi field rule terhadap skema (typo rule tidak boleh diam)
   for (const [key, rule] of Object.entries(rules)) {
     if (typeof rule === 'string' && rule.trim() !== '') {
-      const err = validateRuleFields(rule, def.fields);
+      const err = validateRuleFields(rule, fieldsToUse);
       if (err) throw new Error(`${key}: ${err}`);
     }
   }
   db.prepare(
-    'INSERT INTO _collections (id, name, fields, indexes, rules) VALUES (?, ?, ?, ?, ?)'
-  ).run(id, def.name, JSON.stringify(def.fields), JSON.stringify(indexes), JSON.stringify(rules));
+    'INSERT INTO _collections (id, name, fields, indexes, rules, type, viewQuery) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).run(id, def.name, JSON.stringify(fieldsToUse), JSON.stringify(indexes), JSON.stringify(rules), def.type ?? 'base', null);
 
   // ── Generate & eksekusi CREATE TABLE untuk tabel ASLI ──
-  const sql = generateCreateTableSql(def);
+  const sql = generateCreateTableSql({ ...def, fields: fieldsToUse });
   db.exec(sql);
 
   // ── Buat UNIQUE INDEX untuk field unique (D1) ──
-  for (const field of def.fields) {
+  for (const field of fieldsToUse) {
     if (field.unique) {
       db.exec(generateUniqueIndexSql(def.name, field));
     }
+  }
+
+  if (isAuth) {
+    db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS "idx_${def.name}_email" ON "${def.name}" ("email");`);
   }
 
   // ── M17b: FTS5 index untuk field dengan options.fulltext ──
@@ -476,6 +494,10 @@ export function isViewCollection(meta: CollectionMeta): boolean {
   return meta.type === 'view';
 }
 
+export function isAuthCollection(meta: CollectionMeta): boolean {
+  return meta.type === 'auth';
+}
+
 // ─── M11: UPDATE RULES — kebijakan keamanan adalah data, jadi bisa diubah ───
 // Tanpa menyentuh tabel asli — rules hidup di meta, dievaluasi saat request.
 
@@ -542,8 +564,17 @@ export function rebuildCollection(
   }
 
   const tempName = `${name}__rebuild`;
+  const isAuth = existing.type === 'auth';
   const oldFields = existing.fields;
-  const newFields = newDef.fields;
+  let newFields = [...newDef.fields];
+  if (isAuth) {
+    if (!newFields.some((f) => f.name === 'email')) {
+      newFields.unshift({ name: 'email', type: 'email', required: true });
+    }
+    if (!newFields.some((f) => f.name === 'verified')) {
+      newFields.push({ name: 'verified', type: 'bool', required: false });
+    }
+  }
 
   // Kolom yang ada di KEDUA skema (lama & baru) — hanya ini yang bisa di-copy
   const newFieldNames = new Set(newFields.map((f) => f.name));
@@ -561,7 +592,7 @@ export function rebuildCollection(
   db.exec('BEGIN');
   try {
     // ── 1. Buat tabel baru dengan skema baru ──
-    const newTableDef: CollectionDefinition = { name: tempName, fields: newFields };
+    const newTableDef: CollectionDefinition = { name: tempName, fields: newFields, type: existing.type };
     db.exec(generateCreateTableSql(newTableDef));
 
     // ── 2. Copy data dari tabel lama ──
@@ -589,6 +620,12 @@ export function rebuildCollection(
     const oldFieldNames = new Set(oldFields.map((f) => f.name));
     const insertCols: string[] = ['id', 'created', 'updated', ...commonFields.map((f) => `"${f.name}"`)];
     const insertVals: string[] = [...selectCols];
+
+    if (isAuth) {
+      insertCols.push('"password_hash"');
+      insertVals.push('"password_hash"');
+    }
+
     for (const nf of newFields) {
       if (!oldFieldNames.has(nf.name)) {
         // Kolom baru → isi nilai default agar tidak melanggar NOT NULL
@@ -612,6 +649,9 @@ export function rebuildCollection(
       if (field.unique) {
         db.exec(generateUniqueIndexSql(name, field));
       }
+    }
+    if (isAuth) {
+      db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS "idx_${name}_email" ON "${name}" ("email");`);
     }
     const finalIndexes = newDef.indexes !== undefined ? newDef.indexes : existing.indexes;
     for (const index of finalIndexes) {
@@ -700,7 +740,7 @@ function rowToMeta(row: CollectionRow): CollectionMeta {
     fields: JSON.parse(row.fields) as FieldDefinition[],
     indexes: JSON.parse(row.indexes ?? '[]') as IndexDefinition[],
     rules: parseRules(row.rules),
-    type: row.type === 'view' ? 'view' : 'base', // null/unknown → base
+    type: row.type === 'view' ? 'view' : row.type === 'auth' ? 'auth' : 'base', // null/unknown → base
     viewQuery: row.viewQuery ?? null,
     created: row.created,
     updated: row.updated,
