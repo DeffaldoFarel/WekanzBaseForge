@@ -106,12 +106,12 @@ export function Navbar({ projectId, projectName }: NavbarProps) {
         {/* Left: Brand + Slash Separator + Breadcrumb Pill */}
         <div className="flex items-center gap-3">
           <Link href="/projects" className="brand flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-primary text-white flex items-center justify-center shadow-sm">
-              <Zap className="w-4 h-4 fill-white" />
+            <div className="w-7 h-7 rounded-lg bg-[#3ECF8E] flex items-center justify-center shadow-sm">
+              <Zap className="w-4 h-4 text-white fill-white" />
             </div>
-            <div className="font-extrabold text-base tracking-tight text-foreground">
-              wekanz<span className="text-brand-blue">BaseForge</span>
-            </div>
+            <span className="font-bold text-lg tracking-tight text-zinc-900">
+              wekanz<span className="text-[#3ECF8E]">BaseForge</span>
+            </span>
           </Link>
 
           <span className="text-slate-300 font-light select-none text-base">/</span>
