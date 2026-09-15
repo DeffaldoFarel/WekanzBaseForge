@@ -6,51 +6,39 @@
 
 @layer base {
   :root {
-    /* ─── SHADCN LIGHT MODE NEO-TACTILE PALETTE ─── */
-    --background: 215 20% 89%;        /* #DDE3EA Canvas sejuk */
-    --foreground: 220 15% 12%;        /* #1A1D23 Dark charcoal */
+    /* ─── SHADCN NEO-TACTILE LIGHT MODE ─── */
+    --background: 215 20% 89%;        /* #DDE3EA canvas */
+    --foreground: 220 15% 12%;        /* #1A1D23 */
 
-    --card: 0 0% 100%;                /* #FFFFFF White card */
+    --card: 0 0% 100%;                /* #FFFFFF */
     --card-foreground: 220 15% 12%;
 
     --popover: 0 0% 100%;
     --popover-foreground: 220 15% 12%;
 
-    --primary: 225 15% 5%;            /* #0A0B0D Signature Jet Black */
+    --primary: 225 15% 5%;            /* #0A0B0D jet black */
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 214 32% 96%;         /* #EFF3F8 Soft surface */
+    --secondary: 214 32% 96%;         /* #EFF3F8 */
     --secondary-foreground: 220 15% 12%;
 
     --muted: 214 32% 96%;
-    --muted-foreground: 216 11% 54%;  /* #7E8896 Slate abu-abu */
+    --muted-foreground: 216 11% 54%;  /* #7E8896 */
 
-    --accent: 218 35% 93%;            /* #E6ECF5 Hover & selection */
+    --accent: 218 35% 93%;            /* #E6ECF5 */
     --accent-foreground: 225 15% 5%;
 
-    --destructive: 5 76% 66%;         /* #EB7167 Pastel Coral */
+    --destructive: 5 76% 66%;         /* #EB7167 */
     --destructive-foreground: 0 0% 100%;
 
-    --border: 215 25% 86%;            /* Border lembut */
+    --border: 215 25% 86%;
     --input: 215 25% 86%;
     --ring: 225 15% 5%;
 
-    --radius: 1.25rem;                /* 20px rounded curves */
+    --radius: 1.25rem;                /* 20px */
 
-    /* Legacy compatibility tokens */
-    --bg: #DDE3EA;
-    --panel: #FFFFFF;
-    --panel-2: #F1F4F9;
-    --text: #1A1D23;
-    --blue: #5B86E5;
-    --coral: #EB7167;
-    --green: #3EAE7D;
-    --radius-pill: 9999px;
-    --shadow-sm: 0 2px 6px rgba(15, 23, 42, 0.03), 0 1px 2px rgba(15, 23, 42, 0.02);
-    --shadow-md: 0 10px 28px rgba(15, 23, 42, 0.04), 0 2px 6px rgba(15, 23, 42, 0.02);
-    --shadow-lg: 0 18px 42px rgba(15, 23, 42, 0.06), 0 4px 12px rgba(15, 23, 42, 0.03);
-    --shadow-modal: 0 24px 64px rgba(15, 23, 42, 0.12), 0 8px 24px rgba(15, 23, 42, 0.06);
-    --shadow-pill: 0 6px 18px rgba(10, 11, 13, 0.12);
+    /* Brand accent (non-neutral, kept for logo/brand only) */
+    --brand: 151 59% 53%;             /* #3ECF8E emerald */
   }
 
   * {
@@ -62,20 +50,34 @@
   }
 
   body {
-    background-color: #DDE3EA;
+    @apply bg-background text-foreground;
     background-image: radial-gradient(circle at 10% 20%, rgba(255, 255, 255, 0.3) 0%, transparent 40%),
                       radial-gradient(circle at 90% 80%, rgba(215, 225, 238, 0.5) 0%, transparent 40%);
-    color: #1A1D23;
     font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
     min-height: 100vh;
     line-height: 1.5;
   }
 }
 
-/* ─── LEGACY & UTILITY STYLES ─── */
+/* ─── BASE RESET (kept, no component classes) ─── */
 a { color: inherit; text-decoration: none; }
 button { font: inherit; cursor: pointer; }
 input, select, textarea { font: inherit; color: inherit; }
+
+/* M19: spinner for async aggregate runs */
+@keyframes bf-spin {
+  to { transform: rotate(360deg); }
+}
+.spin {
+  animation: bf-spin 0.8s linear infinite;
+}
+
+/* ─── DEPRECATED: Legacy hand-written classes ───
+   These classes are being phased out in M22. They are kept temporarily so
+   pages that still use them do not break. Each class will be removed as the
+   page that uses it is migrated to shadcn/ui components.
+   DO NOT add new usages. Migrate existing usages to components/ui/*.
+*/
 
 .page {
   max-width: 1180px;
@@ -430,12 +432,4 @@ textarea.input {
   max-width: 420px;
   padding: 2.25rem;
   border-radius: 24px;
-}
-
-/* M19: spinner for async aggregate runs */
-@keyframes bf-spin {
-  to { transform: rotate(360deg); }
-}
-.spin {
-  animation: bf-spin 0.8s linear infinite;
 }
