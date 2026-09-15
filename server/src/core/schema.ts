@@ -19,6 +19,8 @@ import {
   fieldToSql,
   isValidName,
   isSystemName,
+  isReservedFieldName,
+  findDuplicateName,
 } from './fieldTypes.js';
 
 // ─── Tipe data meta ──────────────────────────────────────────────────────────
@@ -278,9 +280,22 @@ export function defineCollection(
     if (!isValidName(field.name)) {
       throw new Error(`Invalid field name: '${field.name}'`);
     }
-    if (['id', 'created', 'updated', 'password_hash'].includes(field.name)) {
+    // M21: case-insensitive — SQLite menganggap 'ID' dan 'id' kolom yang sama,
+    // jadi menolak hanya huruf kecil akan meloloskan 'ID' lalu gagal jadi 500.
+    if (isReservedFieldName(field.name) || field.name.toLowerCase() === 'password_hash') {
       throw new Error(`Field name '${field.name}' is reserved (field sistem)`);
     }
+  }
+
+  // M21 (B3): duplikat dideteksi SEBELUM SQL dibangun. Tanpa ini SQLite yang
+  // menolak ("duplicate column name") dan errornya keluar sebagai 500 —
+  // menyalahkan server untuk kesalahan input klien.
+  const dupField = findDuplicateName(fieldsToUse.map((f) => f.name));
+  if (dupField) {
+    throw new Error(
+      `Duplicate field name: '${dupField.second}' bentrok dengan '${dupField.first}' ` +
+        `(nama kolom SQLite tidak membedakan huruf besar/kecil)`
+    );
   }
 
   // ── Simpan definisi ke META table ──
@@ -546,7 +561,15 @@ export function updateCollectionRules(
 export function rebuildCollection(
   db: DatabaseSync,
   name: string,
-  newDef: { fields: FieldDefinition[]; indexes?: IndexDefinition[] }
+  // M21 (B2): `rules` ditambahkan. Sebelumnya tipe ini hanya { fields, indexes }
+  // sementara route tetap mengirim body.rules — TypeScript tidak protes karena
+  // nilainya datang dari variabel (excess property check hanya berlaku untuk
+  // objek literal), sehingga rules dibuang diam-diam dan klien tetap dapat 200.
+  newDef: {
+    fields: FieldDefinition[];
+    indexes?: IndexDefinition[];
+    rules?: Partial<CollectionRules>;
+  }
 ): CollectionMeta {
   const existing = getCollectionByName(db, name);
   if (!existing) {
@@ -558,9 +581,19 @@ export function rebuildCollection(
     if (!isValidName(field.name)) {
       throw new Error(`Invalid field name: '${field.name}'`);
     }
-    if (['id', 'created', 'updated'].includes(field.name)) {
+    // M21: case-insensitive, konsisten dengan defineCollection
+    if (isReservedFieldName(field.name)) {
       throw new Error(`Field name '${field.name}' is reserved (field sistem)`);
     }
+  }
+
+  // M21 (B3): duplikat → error yang bisa dipetakan ke 400, bukan 500 dari SQLite
+  const dupField = findDuplicateName(newDef.fields.map((f) => f.name));
+  if (dupField) {
+    throw new Error(
+      `Duplicate field name: '${dupField.second}' bentrok dengan '${dupField.first}' ` +
+        `(nama kolom SQLite tidak membedakan huruf besar/kecil)`
+    );
   }
 
   const tempName = `${name}__rebuild`;
@@ -663,10 +696,35 @@ export function rebuildCollection(
     }
 
     // ── 6. Update definisi di _collections ──
-    db.prepare(
-      `UPDATE _collections SET fields = ?, indexes = ?,
-       updated = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE name = ?`
-    ).run(JSON.stringify(newFields), JSON.stringify(finalIndexes), name);
+    // M21 (B2): rules ikut disimpan bila dikirim. Sebelumnya parameter `rules`
+    // diterima route lalu hilang di sini — klien mendapat 200 tanpa perubahan.
+    // Semantik: field rule yang TIDAK dikirim dipertahankan (merge, bukan
+    // timpa-total), konsisten dengan updateCollectionRules().
+    if (newDef.rules !== undefined) {
+      const mergedRules: CollectionRules = { ...existing.rules, ...newDef.rules };
+      // Rule divalidasi terhadap skema BARU — rule yang menyebut field yang
+      // baru saja dihapus harus ditolak, bukan disimpan lalu gagal saat request.
+      for (const [key, rule] of Object.entries(mergedRules)) {
+        if (typeof rule === 'string' && rule.trim() !== '') {
+          const err = validateRuleFields(rule, newFields);
+          if (err) throw new Error(`${key}: ${err}`);
+        }
+      }
+      db.prepare(
+        `UPDATE _collections SET fields = ?, indexes = ?, rules = ?,
+         updated = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE name = ?`
+      ).run(
+        JSON.stringify(newFields),
+        JSON.stringify(finalIndexes),
+        JSON.stringify(mergedRules),
+        name
+      );
+    } else {
+      db.prepare(
+        `UPDATE _collections SET fields = ?, indexes = ?,
+         updated = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE name = ?`
+      ).run(JSON.stringify(newFields), JSON.stringify(finalIndexes), name);
+    }
 
     // ── 7. D5: catat migrasi rebuild (dengan before & after) ──
     recordMigration(db, name, 'rebuild', {

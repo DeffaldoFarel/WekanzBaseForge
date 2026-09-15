@@ -44,7 +44,7 @@ BaseForge (1 instalasi)
 | Multipart (M14, M18c) | `@fastify/busboy` | Streaming, memory-safe untuk upload file |
 | Functions (M15, M18a) | `isolated-vm` | Isolate V8 sungguhan, memory cap & async timeout |
 | Rate Limiter (M18d) | `ioredis` + Lua (fallback memory) | Atomic fixed-window, persistent, multi-instance ready |
-| Test | `node:test` + `tsx` | Test runner bawaan Node, 322 tests |
+| Test | `node:test` + `tsx` | Test runner bawaan Node, 335 tests |
 
 ## 🚀 Quick Start
 
@@ -130,6 +130,8 @@ Untuk panduan mendalam tentang penggunaan BaseForge sebagai BaaS (Backend-as-a-S
 - [x] D6 — Nested expand ✅ *(REST dibuka di M19)*
 - [x] D7 — Aggregates (count/sum/avg/min/max, GROUP BY) ✅ *(REST dibuka di M19)*
 - [x] M19 — Wire the orphans: REST agregasi + expand ✅
+- **M20 — Parity check vs Wekanz Dashboard** ✅ 21 koleksi / 162 atribut diuji; 10/10 query produksi lulus; 3 blocker migrasi ditemukan
+- **M21 — Unblock migration** ✅ camelCase diizinkan, rules tersimpan lewat PUT, duplikat → 400; skema asli 21/21 tanpa rename
 
   > **Catatan audit:** `aggregates.ts` dan `relations.ts` sudah lengkap & teruji
   > sejak D7/M12, tetapi **tidak diimpor satu pun route** — fitur hijau di test
@@ -162,7 +164,7 @@ Untuk panduan mendalam tentang penggunaan BaseForge sebagai BaaS (Backend-as-a-S
 
 > Prinsip M18: single-gate module membuat swap tanpa mengubah satu pun route
 > handler; `scrypt node:crypto`, `node:sqlite`, SSE, cron parser TIDAK diganti
-> (sudah production-grade). 322 test hijau.
+> (sudah production-grade). 335 test hijau.
 
 ### 🔐 Auth (per project) — ✅ FASE SELESAI (email/password)
 - [x] M08 — Password hashing (scrypt) ✅

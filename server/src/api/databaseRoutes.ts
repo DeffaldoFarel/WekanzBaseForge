@@ -34,6 +34,7 @@ import {
   listRecords,
 } from '../core/records.js';
 import type { CollectionDefinition, IndexDefinition } from '../core/schema.js';
+import type { CollectionRules } from '../core/rules.js';
 import type { FieldDefinition } from '../core/fieldTypes.js';
 
 export function createDatabaseRouter(): Router {
@@ -160,7 +161,11 @@ export function createDatabaseRouter(): Router {
   router.put('/api/admin/projects/:pid/collections/:name', requireAdmin, (req, res) => {
     try {
       const db = getProjectDb(req.params.pid);
-      const body = req.body as { fields?: FieldDefinition[]; indexes?: IndexDefinition[] } | undefined;
+      const body = req.body as {
+        fields?: FieldDefinition[];
+        indexes?: IndexDefinition[];
+        rules?: Partial<CollectionRules>;
+      } | undefined;
       if (!Array.isArray(body?.fields)) {
         res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'fields harus berupa array' } });
         return;
@@ -168,6 +173,10 @@ export function createDatabaseRouter(): Router {
       const updated = rebuildCollection(db, req.params.name, {
         fields: body.fields,
         indexes: Array.isArray(body.indexes) ? body.indexes : undefined,
+        // M21 (B2): sebelumnya rules tidak pernah diteruskan ke sini, sehingga
+        // PUT dengan rules membalas 200 tanpa menyimpan apa pun.
+        rules:
+          body.rules && typeof body.rules === 'object' ? body.rules : undefined,
       });
       res.json({ collection: updated });
     } catch (err) {
@@ -407,7 +416,9 @@ function handleError(res: { status: (c: number) => { json: (d: unknown) => void 
     return;
   }
   // Error validasi (user input salah)
-  if (/required|must be|Invalid|tidak ada|already exists|reserved/i.test(message)) {
+  // M21 (B3): 'Duplicate' ditambahkan — field duplikat adalah kesalahan input
+  // klien, sebelumnya lolos ke cabang 500 karena SQLite yang melaporkannya.
+  if (/required|must be|Invalid|tidak ada|already exists|reserved|Duplicate|duplicate column/i.test(message)) {
     res.status(400).json({ error: { code: 'VALIDATION_ERROR', message } });
     return;
   }

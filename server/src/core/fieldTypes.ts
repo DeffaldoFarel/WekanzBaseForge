@@ -67,13 +67,50 @@ export interface FieldDefinition {
 // TIDAK BISA dipakai untuk nama tabel/kolom — hanya untuk nilai!
 //
 // Jadi satu-satunya pertahanan terhadap SQL injection di nama adalah:
-// validasi ketat. Hanya huruf kecil, angka, underscore. Titik.
-// PocketBase melakukan hal yang persis sama.
+// validasi ketat. Huruf, angka, underscore. Titik.
+//
+// M21: huruf KAPITAL diizinkan (sebelumnya hanya a-z). Alasannya: skema dunia
+// nyata memakai camelCase (userId, namaTagihan, dueDate) — menolaknya memaksa
+// rename massal di sisi klien. Ketatnya validasi TIDAK berkurang: tetap wajib
+// diawali huruf, tetap hanya alfanumerik + underscore, tetap tanpa spasi,
+// tanda kutip, titik koma, atau tanda hubung. Huruf kapital tidak punya makna
+// khusus di SQL sehingga permukaan serangan tidak bertambah.
+//
+// PENTING: SQLite membandingkan nama kolom secara CASE-INSENSITIVE
+// (CREATE TABLE t ("userId" TEXT, "userid" TEXT) → "duplicate column name").
+// Karena itu pengecekan duplikat dan pengecekan nama sistem WAJIB memakai
+// perbandingan case-insensitive — lihat isReservedFieldName() di bawah.
 
-const NAME_PATTERN = /^[a-z][a-z0-9_]*$/;
+const NAME_PATTERN = /^[A-Za-z][A-Za-z0-9_]*$/;
 
 export function isValidName(name: string): boolean {
   return NAME_PATTERN.test(name) && name.length <= 64;
+}
+
+/**
+ * M21: field sistem tidak boleh ditimpa user.
+ * Case-insensitive karena SQLite menganggap "ID" dan "id" kolom yang sama —
+ * menolak hanya huruf kecil akan meloloskan 'ID' lalu gagal sebagai 500.
+ */
+export const SYSTEM_FIELD_NAMES = ['id', 'created', 'updated'] as const;
+
+export function isReservedFieldName(name: string): boolean {
+  return SYSTEM_FIELD_NAMES.includes(name.toLowerCase() as (typeof SYSTEM_FIELD_NAMES)[number]);
+}
+
+/**
+ * M21: mencari nama yang bentrok secara case-insensitive.
+ * Mengembalikan pasangan pertama yang bertabrakan, atau null bila aman.
+ */
+export function findDuplicateName(names: string[]): { first: string; second: string } | null {
+  const seen = new Map<string, string>();
+  for (const n of names) {
+    const key = n.toLowerCase();
+    const prev = seen.get(key);
+    if (prev !== undefined) return { first: prev, second: n };
+    seen.set(key, n);
+  }
+  return null;
 }
 
 // Nama yang diawali underscore = tabel SISTEM (seperti _collections).
