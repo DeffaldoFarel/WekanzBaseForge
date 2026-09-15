@@ -5,3 +5,8 @@ dist/
 Thumbs.db
 .env
 data/
+
+# Next.js build output (dashboard)
+dashboard/.next/
+dashboard/out/
+*.tsbuildinfo
