@@ -20,6 +20,9 @@ import { saveFile, deleteFile, deleteRecordFiles, storedFilenames } from './stor
 import { isViewCollection } from './schema.js';
 import { hashPassword, verifyPassword, validatePasswordStrength } from '../auth/password.js';
 import { ftsTableName, sanitizeFtsQuery, ftsFields } from './fts.js';
+// M19: expand relasi — modul ini sudah lengkap sejak M12/D6 tetapi tidak
+// pernah diimpor oleh lapisan mana pun (modul yatim). M19 menyambungkannya.
+import { expandRecords } from './relations.js';
 
 // M16a: error khusus write ke view collection
 export class ViewWriteError extends Error {
@@ -49,6 +52,10 @@ export interface ListOptions {
   perPage?: number;
   reqCtx?: RequestContext; // M11: identitas user untuk rules
   search?: string; // M17b: full-text search (jika collection punya FTS index)
+  // M19: expand relasi ('author' atau nested 'author.profile').
+  // Sebelum M19 route MENGIRIM opsi ini tetapi ListOptions tidak memilikinya,
+  // sehingga dibuang diam-diam — klien dapat 200 tanpa key `expand`.
+  expand?: string;
 }
 
 export interface ListResult {
@@ -384,7 +391,7 @@ export function createRecord(
       throw new Error('Password wajib diisi untuk auth collection');
     }
     const pwdErr = validatePasswordStrength(pwd);
-    if (pwdErr) throw new Error(pwdErr.message);
+    if (pwdErr) throw new Error(pwdErr);
   }
 
   // ── Bangun INSERT secara dinamis dari skema ──
@@ -460,7 +467,8 @@ export function getRecord(
   db: DatabaseSync,
   collection: string,
   id: string,
-  reqCtx?: RequestContext
+  reqCtx?: RequestContext,
+  options?: { expand?: string } // M19
 ): ForgeRecord | null {
   const meta = mustGetCollection(db, collection);
   const record = getRecordRaw(db, meta, collection, id);
@@ -473,6 +481,13 @@ export function getRecord(
     if (vRule.trim() !== '' && !evaluateRuleOnData(vRule, record as Record<string, unknown>, reqCtx)) {
       return null; // tidak lolos rule → null (bukan error — semantik PocketBase)
     }
+  }
+
+  // ── M19: expand dijalankan SETELAH viewRule lolos ──
+  // Kalau dibalik, relasi record yang tak boleh dilihat ikut ter-query.
+  if (options?.expand && options.expand.trim() !== '') {
+    const [expanded] = expandRecords(db, [record], meta, options.expand.trim());
+    return expanded ?? record;
   }
 
   return record;
@@ -543,7 +558,7 @@ export function updateRecord(
     const pwd = data.password;
     if (typeof pwd === 'string' && pwd.length > 0) {
       const pwdErr = validatePasswordStrength(pwd);
-      if (pwdErr) throw new Error(pwdErr.message);
+      if (pwdErr) throw new Error(pwdErr);
       setClauses.push('"password_hash" = ?');
       params.push(hashPassword(pwd));
     }
@@ -810,12 +825,22 @@ export function listRecords(
     .prepare(`SELECT "${collection}".* FROM ${fromClause} ${whereSqlFts} ${orderSql} LIMIT ? OFFSET ?`)
     .all(...([...params, ...searchParams, perPage, offset] as never[])) as Record<string, unknown>[];
 
+  // ── M19: expand relasi (D2/D6) ──
+  // expandRecords() memakai batch loading (1 query per level, bukan N+1),
+  // jadi dipanggil SEKALI pada seluruh halaman — bukan per record.
+  // Dijalankan setelah deserialize agar field multi-relation sudah berupa
+  // array, bukan string JSON mentah.
+  let items = rows.map((r) => deserializeRow(meta, r));
+  if (options.expand && options.expand.trim() !== '') {
+    items = expandRecords(db, items, meta, options.expand.trim());
+  }
+
   return {
     page,
     perPage,
     totalItems,
     totalPages,
-    items: rows.map((r) => deserializeRow(meta, r)),
+    items,
   };
 }
 

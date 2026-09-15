@@ -431,3 +431,11 @@ textarea.input {
   padding: 2.25rem;
   border-radius: 24px;
 }
+
+/* M19: spinner for async aggregate runs */
+@keyframes bf-spin {
+  to { transform: rotate(360deg); }
+}
+.spin {
+  animation: bf-spin 0.8s linear infinite;
+}

@@ -23,6 +23,8 @@ import {
   updateCollection,
   rebuildCollection,
 } from '../core/schema.js';
+// M19: agregasi — modul core D7 yang sebelumnya tidak punya pintu REST.
+import { aggregate, AggregateFunction } from '../core/aggregates.js';
 import {
   createRecord,
   createRecordsBatch,
@@ -32,6 +34,7 @@ import {
   listRecords,
 } from '../core/records.js';
 import type { CollectionDefinition, IndexDefinition } from '../core/schema.js';
+import type { FieldDefinition } from '../core/fieldTypes.js';
 
 export function createDatabaseRouter(): Router {
   const router = new Router();
@@ -190,6 +193,46 @@ export function createDatabaseRouter(): Router {
   // ════════════════════════════════════════════════════════════════════════
   // RECORDS (DATA)
   // ════════════════════════════════════════════════════════════════════════
+
+  // M19: GET /api/admin/projects/:pid/collections/:name/aggregate
+  //   ?function=count|sum|avg|min|max&field=&filter=&groupBy=
+  // Admin → reqCtx undefined → bypass rules (konsisten dgn route records).
+  router.get('/api/admin/projects/:pid/collections/:name/aggregate', requireAdmin, (req, res) => {
+    try {
+      const fn = req.query.get('function');
+      if (!fn) {
+        res.status(400).json({
+          error: { code: 'BAD_REQUEST', message: "Query param 'function' wajib (count|sum|avg|min|max)" },
+        });
+        return;
+      }
+      if (!['count', 'sum', 'avg', 'min', 'max'].includes(fn)) {
+        res.status(400).json({
+          error: { code: 'BAD_REQUEST', message: `Aggregate function tidak dikenal: '${fn}'` },
+        });
+        return;
+      }
+      // sum/avg/min/max tanpa field = permintaan tidak masuk akal → 400,
+      // bukan 500. Validasi di core melempar Error biasa yang jatuh ke 500.
+      const field = req.query.get('field') ?? undefined;
+      if (fn !== 'count' && !field) {
+        res.status(400).json({
+          error: { code: 'BAD_REQUEST', message: `Aggregate '${fn}' membutuhkan query param 'field'` },
+        });
+        return;
+      }
+      const db = getProjectDb(req.params.pid);
+      const result = aggregate(db, req.params.name, {
+        function: fn as AggregateFunction,
+        field,
+        filter: req.query.get('filter') ?? undefined,
+        groupBy: req.query.get('groupBy') ?? undefined,
+      });
+      res.json(result);
+    } catch (err) {
+      handleError(res, err);
+    }
+  });
 
   // GET /api/admin/projects/:pid/collections/:name/records
   //   ?filter=&sort=&page=&perPage=

@@ -260,6 +260,45 @@ export async function listRecords(
   );
 }
 
+// ── M19: Aggregations ────────────────────────────────────────────────────
+// Server-side computation. The whole point is NOT transferring rows to the
+// browser just to reduce them here — SUM over 100k rows returns ~20 bytes.
+
+export type AggregateFunction = 'count' | 'sum' | 'avg' | 'min' | 'max';
+
+export interface AggregateGroup {
+  group: string | number | null;
+  value: number | null;
+}
+
+// Server returns ONLY the payload — `{ value }` for scalars, `{ groups }` when
+// grouping. It does NOT echo back `function`/`field`, so the caller must keep
+// track of what it asked for. Typing those as present crashes the UI.
+export interface AggregateResult {
+  value?: number | null;
+  groups?: AggregateGroup[];
+}
+
+export async function aggregateRecords(
+  projectId: string,
+  collection: string,
+  opts: {
+    function: AggregateFunction;
+    field?: string;
+    filter?: string;
+    groupBy?: string;
+  }
+): Promise<AggregateResult> {
+  const params = new URLSearchParams();
+  params.set('function', opts.function);
+  if (opts.field) params.set('field', opts.field);
+  if (opts.filter) params.set('filter', opts.filter);
+  if (opts.groupBy) params.set('groupBy', opts.groupBy);
+  return request<AggregateResult>(
+    `/api/admin/projects/${projectId}/collections/${collection}/aggregate?${params.toString()}`
+  );
+}
+
 export async function createRecord(
   projectId: string,
   collection: string,

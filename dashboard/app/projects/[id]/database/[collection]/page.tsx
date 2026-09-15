@@ -32,6 +32,7 @@ import { IndexesEditor } from "@/components/IndexesEditor";
 import { CreateCollectionModal } from "@/components/CreateCollectionModal";
 import { Navbar } from "@/components/Navbar";
 import { ProjectSidebar } from "@/components/ProjectSidebar";
+import AggregatePanel from "@/components/AggregatePanel";
 import {
   Database,
   Eye,
@@ -90,7 +91,7 @@ export default function AdvancedDatabaseStudioPage() {
   const [collections, setCollections] = useState<CollectionInfo[]>([]);
   const [colFilter, setColFilter] = useState("");
   const [collection, setCollection] = useState<CollectionInfo | null>(null);
-  const [activeTab, setActiveTab] = useState<"records" | "schema" | "rules" | "io">("records");
+  const [activeTab, setActiveTab] = useState<"records" | "schema" | "rules" | "agg" | "io">("records");
 
   // Records Table State
   const [result, setResult] = useState<ListResult | null>(null);
@@ -495,6 +496,12 @@ export default function AdvancedDatabaseStudioPage() {
             onClick={() => setActiveTab("rules")}
           >
             🔒 API Rules
+          </button>
+          <button
+            className={`studio-tab ${activeTab === "agg" ? "active" : ""}`}
+            onClick={() => setActiveTab("agg")}
+          >
+            🧮 Aggregations
           </button>
           <button
             className={`studio-tab ${activeTab === "io" ? "active" : ""}`}
@@ -1025,7 +1032,16 @@ export default function AdvancedDatabaseStudioPage() {
           </div>
         )}
 
-        {/* ─── TAB 4: EXPORT / IMPORT ─── */}
+        {/* ─── TAB 4: AGGREGATIONS (M19) ─── */}
+        {activeTab === "agg" && collection && (
+          <AggregatePanel
+            projectId={projectId}
+            collection={collection}
+            initialFilter={filterQuery}
+          />
+        )}
+
+        {/* ─── TAB 5: EXPORT / IMPORT ─── */}
         {activeTab === "io" && (
           <div className="card">
             <h3 style={{ marginBottom: "0.5rem" }}>Backup & Data Migration (JSON)</h3>

@@ -10,7 +10,8 @@
 
 import { DatabaseSync } from 'node:sqlite';
 import { getCollectionByName } from './schema.js';
-import { filterToSql } from './query/sqlBuilder.js';
+import { filterToSql, RequestContext } from './query/sqlBuilder.js';
+import { decideRule } from './rules.js';
 
 // ─── Tipe ────────────────────────────────────────────────────────────────────
 
@@ -21,6 +22,11 @@ export interface AggregateOptions {
   field?: string; // wajib untuk sum/avg/min/max; opsional untuk count
   filter?: string; // reuse query parser M04
   groupBy?: string; // hasil per kelompok
+  // M19: identitas pemanggil — WAJIB diteruskan dari route publik.
+  //   undefined            → admin (bypass rules, sama seperti listRecords)
+  //   { auth: null }       → anonim (listRule tetap berlaku)
+  //   { auth: { id, ... }} → end user
+  reqCtx?: RequestContext;
 }
 
 // Hasil tanpa grouping
@@ -76,14 +82,40 @@ export function aggregate(
   // ── Bangun ekspresi agregat ──
   const aggExpr = buildAggregateExpr(fn, field);
 
-  // ── WHERE dari filter (reuse M04) ──
-  let whereSql = '';
+  // ── WHERE: rule dulu (keamanan), filter user belakangan ──
+  // Urutan ini WAJIB sama dengan listRecords (records.ts) — kalau terbalik,
+  // filter user bisa dievaluasi pada baris yang seharusnya tak terlihat.
+  const whereParts: string[] = [];
   const params: unknown[] = [];
+
+  // M19: listRule — agregat membocorkan info tentang baris yang tak boleh
+  // dibaca (COUNT saja sudah bocor), jadi rule HARUS diterapkan di sini,
+  // bukan hanya di listRecords. Hanya END USER; admin (undefined) bypass.
+  if (options.reqCtx !== undefined) {
+    // ruleFor() di records.ts adalah helper privat; logikanya satu baris,
+    // jadi dibaca langsung di sini daripada menambah kopling antar modul.
+    const lRule = meta.rules.listRule ?? null;
+    if (lRule === null) {
+      // admin-only collection + end user → tidak ada baris sama sekali
+      return groupBy ? { groups: [] } : { value: 0 };
+    }
+    if (lRule.trim() !== '') {
+      const decided = decideRule(lRule, options.reqCtx, meta.fields);
+      if (decided.mode === 'filter' && decided.sql) {
+        whereParts.push(`(${decided.sql})`);
+        params.push(...(decided.params ?? []));
+      }
+      // mode 'public' tidak menambah WHERE
+    }
+  }
+
   if (filter && filter.trim().length > 0) {
-    const parsed = filterToSql(filter, meta.fields);
-    whereSql = `WHERE ${parsed.where}`;
+    const parsed = filterToSql(filter, meta.fields, options.reqCtx);
+    whereParts.push(`(${parsed.where})`);
     params.push(...parsed.params);
   }
+
+  const whereSql = whereParts.length > 0 ? `WHERE ${whereParts.join(' AND ')}` : '';
 
   // ── GROUP BY atau single value ──
   if (groupBy) {

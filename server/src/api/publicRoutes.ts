@@ -32,6 +32,9 @@ import type { DatabaseSync } from 'node:sqlite';
 import { deleteRecordFiles } from '../core/storage.js';
 import { realtimeHub } from '../core/realtime.js';
 import { checkSearchRateLimit } from '../core/searchGuard.js'; // M18e
+// M19: agregasi lewat REST publik — WAJIB meneruskan reqCtx supaya listRule
+// ikut membatasi baris yang dihitung (COUNT saja sudah membocorkan data).
+import { aggregate, AggregateFunction } from '../core/aggregates.js';
 import { fireTriggersSafe } from '../core/triggerExecutor.js';
 
 // ─── Helper: identitas pemanggil (admin ATAU end user) ──────────────────────
@@ -211,10 +214,53 @@ export function createPublicRouter(): Router {
       const result = listRecords(db, req.params.name, {
         filter: req.query.get('filter') ?? undefined,
         sort: req.query.get('sort') ?? undefined,
+        expand: req.query.get('expand') ?? undefined, // M19
         page: req.query.get('page') ? parseInt(req.query.get('page')!, 10) : 1,
         perPage: req.query.get('perPage') ? parseInt(req.query.get('perPage')!, 10) : 20,
         reqCtx,
         search: searchQ,
+      });
+      res.json(result);
+    } catch (err) {
+      handleErrorPublic(res, err);
+    }
+  });
+
+  // M19: GET /api/p/:pid/collections/:name/aggregate
+  //   ?function=count|sum|avg|min|max&field=&filter=&groupBy=
+  // Berbeda dari jalur admin: reqCtx DITERUSKAN, sehingga listRule membatasi
+  // baris yang ikut dihitung. Tanpa ini, end user bisa meng-COUNT baris milik
+  // user lain meski tidak satu pun record bisa dibaca.
+  router.get('/api/p/:pid/collections/:name/aggregate', async (req, res) => {
+    try {
+      const fn = req.query.get('function');
+      if (!fn) {
+        res.status(400).json({
+          error: { code: 'BAD_REQUEST', message: "Query param 'function' wajib (count|sum|avg|min|max)" },
+        });
+        return;
+      }
+      if (!['count', 'sum', 'avg', 'min', 'max'].includes(fn)) {
+        res.status(400).json({
+          error: { code: 'BAD_REQUEST', message: `Aggregate function tidak dikenal: '${fn}'` },
+        });
+        return;
+      }
+      const db = getProjectDb(req.params.pid);
+      const reqCtx = await resolveEndUserCtx(req);
+      const field = req.query.get('field') ?? undefined;
+      if (fn !== 'count' && !field) {
+        res.status(400).json({
+          error: { code: 'BAD_REQUEST', message: `Aggregate '${fn}' membutuhkan query param 'field'` },
+        });
+        return;
+      }
+      const result = aggregate(db, req.params.name, {
+        function: fn as AggregateFunction,
+        field,
+        filter: req.query.get('filter') ?? undefined,
+        groupBy: req.query.get('groupBy') ?? undefined,
+        reqCtx,
       });
       res.json(result);
     } catch (err) {
@@ -227,7 +273,9 @@ export function createPublicRouter(): Router {
     try {
       const db = getProjectDb(req.params.pid);
       const reqCtx = await resolveEndUserCtx(req);
-      const record = getRecord(db, req.params.name, req.params.id, reqCtx);
+      const record = getRecord(db, req.params.name, req.params.id, reqCtx, {
+        expand: req.query.get('expand') ?? undefined, // M19
+      });
       if (!record) {
         res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Record tidak ditemukan' } });
         return;
@@ -366,7 +414,10 @@ export function createPublicRouter(): Router {
       const tokens = await issueTokens(db, {
         id: String(row.id),
         email: String(row.email),
-        name: typeof row.name === 'string' ? row.name : undefined,
+        name: typeof row.name === 'string' ? row.name : null,
+        verified: row.verified === true || row.verified === 1,
+        created: typeof row.created === 'string' ? row.created : '',
+        updated: typeof row.updated === 'string' ? row.updated : '',
       });
 
       const record = getRecord(db, meta.name, String(row.id));
@@ -406,7 +457,10 @@ export function createPublicRouter(): Router {
       const tokens = await issueTokens(db, {
         id: String(record.id),
         email: String(record.email ?? reqCtx.auth.email),
-        name: typeof record.name === 'string' ? record.name : undefined,
+        name: typeof record.name === 'string' ? record.name : null,
+        verified: record.verified === true || record.verified === 1,
+        created: typeof record.created === 'string' ? record.created : '',
+        updated: typeof record.updated === 'string' ? record.updated : '',
       });
 
       res.json({

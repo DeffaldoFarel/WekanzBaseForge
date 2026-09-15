@@ -44,7 +44,7 @@ BaseForge (1 instalasi)
 | Multipart (M14, M18c) | `@fastify/busboy` | Streaming, memory-safe untuk upload file |
 | Functions (M15, M18a) | `isolated-vm` | Isolate V8 sungguhan, memory cap & async timeout |
 | Rate Limiter (M18d) | `ioredis` + Lua (fallback memory) | Atomic fixed-window, persistent, multi-instance ready |
-| Test | `node:test` + `tsx` | Test runner bawaan Node, 289 tests |
+| Test | `node:test` + `tsx` | Test runner bawaan Node, 322 tests |
 
 ## 🚀 Quick Start
 
@@ -88,7 +88,7 @@ Buka browser ke **http://localhost:7701**:
 ### 4. Menjalankan Test Suite
 ```bash
 npm test
-# Menjalankan 289 unit & integration tests (semua suite hijau)
+# Menjalankan 322 unit & integration tests (semua suite hijau)
 ```
 
 ## 📚 Dokumentasi Lengkap
@@ -118,17 +118,26 @@ Untuk panduan mendalam tentang penggunaan BaseForge sebagai BaaS (Backend-as-a-S
 - [x] M05 — Record API + REST endpoints generik ✅
 - [x] M06 — Indexing & EXPLAIN QUERY PLAN ✅
 - [x] M07 — Transactions, ACID & WAL ✅
-- [x] M12 — Relations & expand (JOIN dinamis, N+1) ✅
+- [x] M12 — Relations & expand (JOIN dinamis, N+1) ✅ *(REST dibuka di M19)*
 - [x] M05u 🖥️ — Dashboard: schema builder + data browser ✅
 
 ### 🔬 Deepening Database (production-grade)
 - [x] D1 — Unique constraint ✅
-- [x] D2 — Multi-relation ✅
+- [x] D2 — Multi-relation ✅ *(REST dibuka di M19)*
 - [x] D3 — Cascade delete (referential integrity) ✅
 - [x] D4 — Table rebuild (schema evolution) ✅
 - [x] D5 — Migration history ✅
-- [x] D6 — Nested expand ✅
-- [x] D7 — Aggregates (count/sum/avg/min/max, GROUP BY) ✅
+- [x] D6 — Nested expand ✅ *(REST dibuka di M19)*
+- [x] D7 — Aggregates (count/sum/avg/min/max, GROUP BY) ✅ *(REST dibuka di M19)*
+- [x] M19 — Wire the orphans: REST agregasi + expand ✅
+
+  > **Catatan audit:** `aggregates.ts` dan `relations.ts` sudah lengkap & teruji
+  > sejak D7/M12, tetapi **tidak diimpor satu pun route** — fitur hijau di test
+  > namun tidak terjangkau klien. M19 membuka pintunya:
+  > `GET .../collections/:name/aggregate` (admin + publik, listRule ditegakkan)
+  > dan `?expand=` yang benar-benar terpasang di `listRecords`/`getRecord`.
+  > Dashboard mendapat tab **Aggregations** (query builder + live request
+  > preview + bar chart per grup) di Database Studio.
 
 ### 📦 Batch: Melengkapi fitur database (~90% PocketBase)
 - [x] B1 — Field types: select, autodate, url ✅
@@ -153,7 +162,7 @@ Untuk panduan mendalam tentang penggunaan BaseForge sebagai BaaS (Backend-as-a-S
 
 > Prinsip M18: single-gate module membuat swap tanpa mengubah satu pun route
 > handler; `scrypt node:crypto`, `node:sqlite`, SSE, cron parser TIDAK diganti
-> (sudah production-grade). 289 test hijau.
+> (sudah production-grade). 322 test hijau.
 
 ### 🔐 Auth (per project) — ✅ FASE SELESAI (email/password)
 - [x] M08 — Password hashing (scrypt) ✅
