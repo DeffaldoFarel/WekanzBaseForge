@@ -102,15 +102,15 @@ export function Navbar({ projectId, projectName }: NavbarProps) {
 
   return (
     <>
-      <header className="topbar">
+      <header className="flex items-center justify-between px-8 py-3.5 bg-white/85 backdrop-blur-md border-b border-border sticky top-0 z-40">
         {/* Left: Brand + Slash Separator + Breadcrumb Pill */}
         <div className="flex items-center gap-3">
-          <Link href="/projects" className="brand flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-lg bg-[#3ECF8E] flex items-center justify-center shadow-sm">
+          <Link href="/projects" className="flex items-center gap-2.5 font-bold text-lg tracking-tight">
+            <div className="w-7 h-7 rounded-lg bg-brand flex items-center justify-center shadow-sm">
               <Zap className="w-4 h-4 text-white fill-white" />
             </div>
-            <span className="font-bold text-lg tracking-tight text-zinc-900">
-              wekanz<span className="text-[#3ECF8E]">BaseForge</span>
+            <span className="text-zinc-900">
+              wekanz<span className="text-brand">BaseForge</span>
             </span>
           </Link>
 
@@ -135,39 +135,55 @@ export function Navbar({ projectId, projectName }: NavbarProps) {
 
         {/* Center Navigation Chips (Signature Soft UI / SugarCRM Pill Style) */}
         {projectId ? (
-          <nav className="nav-chips hidden md:flex">
+          <nav className="hidden md:flex items-center gap-1 bg-secondary p-1 rounded-full border border-border">
             <Link
               href={`/projects/${projectId}`}
-              className={`nav-chip ${isOverview ? "active" : ""}`}
+              className={`inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-semibold transition-all ${
+                isOverview
+                  ? "bg-primary text-primary-foreground shadow-pill"
+                  : "text-muted-foreground hover:text-foreground hover:bg-white/60"
+              }`}
             >
               <LayoutDashboard className="w-3.5 h-3.5" />
               <span>Overview</span>
             </Link>
             <Link
               href={`/projects/${projectId}/database`}
-              className={`nav-chip ${isDatabase ? "active" : ""}`}
+              className={`inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-semibold transition-all ${
+                isDatabase
+                  ? "bg-primary text-primary-foreground shadow-pill"
+                  : "text-muted-foreground hover:text-foreground hover:bg-white/60"
+              }`}
             >
               <Database className="w-3.5 h-3.5" />
               <span>Collections</span>
             </Link>
             <Link
               href={`/projects/${projectId}/storage`}
-              className={`nav-chip ${isStorage ? "active" : ""}`}
+              className={`inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-semibold transition-all ${
+                isStorage
+                  ? "bg-primary text-primary-foreground shadow-pill"
+                  : "text-muted-foreground hover:text-foreground hover:bg-white/60"
+              }`}
             >
               <HardDrive className="w-3.5 h-3.5" />
               <span>Storage</span>
             </Link>
             <Link
               href={`/projects/${projectId}/functions`}
-              className={`nav-chip ${isFunctions ? "active" : ""}`}
+              className={`inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-semibold transition-all ${
+                isFunctions
+                  ? "bg-primary text-primary-foreground shadow-pill"
+                  : "text-muted-foreground hover:text-foreground hover:bg-white/60"
+              }`}
             >
               <Code2 className="w-3.5 h-3.5" />
               <span>Functions</span>
             </Link>
           </nav>
         ) : (
-          <nav className="nav-chips hidden md:flex">
-            <div className="nav-chip active flex items-center gap-1.5">
+          <nav className="hidden md:flex items-center gap-1 bg-secondary p-1 rounded-full border border-border">
+            <div className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-semibold bg-primary text-primary-foreground shadow-pill">
               <FolderGit2 className="w-3.5 h-3.5" />
               <span>All Projects</span>
             </div>

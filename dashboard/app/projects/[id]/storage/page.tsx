@@ -155,7 +155,7 @@ export default function StorageExplorerPage() {
     <>
       <Navbar projectId={projectId} />
 
-      <div className="page" style={{ display: "flex", gap: "1.5rem", alignItems: "flex-start", maxWidth: "1400px" }}>
+      <div className="max-w-[1400px] mx-auto px-6 py-6 flex gap-6 items-start">
         {/* ─── PROJECT SIDEBAR ─── */}
         <ProjectSidebar projectId={projectId} />
 

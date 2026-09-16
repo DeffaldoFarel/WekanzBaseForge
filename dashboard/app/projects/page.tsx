@@ -77,14 +77,14 @@ export default function ProjectsPage() {
     <>
       <Navbar />
 
-      <div className="page" style={{ maxWidth: "1200px" }}>
+      <div className="max-w-[1200px] mx-auto px-6 py-6">
         {projects.length === 0 ? (
           /* ─── ZERO-STATE GUIDED ONBOARDING (SUPABASE PATTERN) ─── */
           <div className="max-w-2xl mx-auto py-8 sm:py-14 px-4 text-left">
             <div className="border border-zinc-200 rounded-2xl bg-white shadow-sm overflow-hidden">
               {/* Card Header */}
               <div className="p-6 sm:p-8 border-b border-zinc-100">
-                <div className="w-10 h-10 rounded-xl bg-[#3ECF8E] text-white flex items-center justify-center mb-4 shadow-sm">
+                <div className="w-10 h-10 rounded-xl bg-brand text-white flex items-center justify-center mb-4 shadow-sm">
                   <Zap className="w-5 h-5 fill-white" />
                 </div>
                 <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-zinc-900">
@@ -118,7 +118,7 @@ export default function ProjectsPage() {
                         onChange={(e) => setFirstProjectName(e.target.value)}
                         placeholder="e.g. my-first-app"
                         required
-                        className="h-10 bg-[#f9fafb] border-zinc-300 rounded-md text-sm px-3.5 focus-visible:ring-1 focus-visible:ring-zinc-400"
+                        className="h-10 bg-zinc-50 border-zinc-300 rounded-md text-sm px-3.5 focus-visible:ring-1 focus-visible:ring-zinc-400"
                       />
                       <p className="text-xs text-zinc-500">
                         What is the name of your application? You can change this later.
@@ -176,7 +176,7 @@ export default function ProjectsPage() {
                   <Button
                     type="submit"
                     disabled={creating || !firstProjectName.trim()}
-                    className="h-10 px-6 bg-[#3ECF8E] hover:bg-[#34b27b] text-zinc-900 font-semibold rounded-md border-0 gap-2 shadow-sm transition-all"
+                    className="h-10 px-6 bg-brand hover:bg-emerald-600 text-white font-semibold rounded-md border-0 gap-2 shadow-sm transition-all"
                   >
                     {creating ? (
                       <>
@@ -249,7 +249,7 @@ export default function ProjectsPage() {
                   )}
                 </Button>
               </form>
-              {error && <p className="error-text mt-3 text-xs">{error}</p>}
+              {error && <p className="text-destructive text-xs font-medium mt-3">{error}</p>}
             </Card>
 
             {/* Project Grid */}

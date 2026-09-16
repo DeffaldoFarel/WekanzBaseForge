@@ -32,6 +32,18 @@ import { IndexesEditor } from "@/components/IndexesEditor";
 import { CreateCollectionModal } from "@/components/CreateCollectionModal";
 import { Navbar } from "@/components/Navbar";
 import { ProjectSidebar } from "@/components/ProjectSidebar";
+import { StudioSidebar } from "@/components/studio/StudioSidebar";
+import { StudioTabs } from "@/components/studio/StudioTabs";
+import { RecordsTab } from "@/components/studio/RecordsTab";
+import { SchemaTab } from "@/components/studio/SchemaTab";
+import { RulesTab } from "@/components/studio/RulesTab";
+import { ImportExportTab } from "@/components/studio/ImportExportTab";
+import { RawJsonModal } from "@/components/studio/RawJsonModal";
+import { DuplicateModal } from "@/components/studio/DuplicateModal";
+import { RecordFormModal } from "@/components/studio/RecordFormModal";
+import { RenderTableCell } from "@/components/studio/RenderTableCell";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import AggregatePanel from "@/components/AggregatePanel";
 import {
   Database,
@@ -346,690 +358,187 @@ export default function AdvancedDatabaseStudioPage() {
   return (
     <>
       <Navbar projectId={projectId} />
-      <div className="studio-layout">
+      <div className="flex min-h-[calc(100vh-60px)] p-5 gap-5 items-start">
         {/* ─── GLOBAL PROJECT SIDEBAR ─── */}
         <ProjectSidebar projectId={projectId} />
 
         {/* ─── SIDEBAR MASTER COLLECTIONS ─── */}
-      <aside className="studio-sidebar">
-        <div style={{ marginBottom: "0.85rem" }}>
-          <div className="studio-sidebar-header">
-            <span>Collections ({collections.length})</span>
-            <button
-              className="btn btn-secondary"
-              style={{ padding: "0.25rem 0.55rem", fontSize: "0.78rem" }}
-              onClick={() => setShowNewCol(true)}
-              title="Create new collection"
-            >
-              + New
-            </button>
-          </div>
-
-          <input
-            className="input"
-            placeholder="Search collections..."
-            value={colFilter}
-            onChange={(e) => setColFilter(e.target.value)}
-            style={{ fontSize: "0.8rem", padding: "0.4rem 0.65rem", marginBottom: "0.5rem" }}
-          />
-        </div>
-
-        <div className="studio-sidebar-list">
-          {filteredCollections.map((c) => {
-            const isActive = c.name === collectionName;
-            return (
-              <Link
-                key={c.name}
-                href={`/projects/${projectId}/database/${encodeURIComponent(c.name)}`}
-                className={`studio-col-link ${isActive ? "active" : ""}`}
-              >
-                <div style={{ display: "flex", alignItems: "center", gap: "0.55rem", overflow: "hidden" }}>
-                  {c.type === "view" ? (
-                    <Eye className="w-4 h-4 text-purple-600 shrink-0" />
-                  ) : c.type === "auth" ? (
-                    <Users className="w-4 h-4 text-emerald-600 shrink-0" />
-                  ) : (
-                    <Database className="w-4 h-4 text-slate-600 shrink-0" />
-                  )}
-                  <span style={{ textOverflow: "ellipsis", overflow: "hidden", whiteSpace: "nowrap" }}>
-                    {c.name}
-                  </span>
-                </div>
-                <span className="badge badge-gray" style={{ fontSize: "0.7rem", padding: "0.1rem 0.4rem" }}>
-                  {c.recordCount ?? 0}
-                </span>
-              </Link>
-            );
-          })}
-        </div>
-      </aside>
+        <StudioSidebar
+          projectId={projectId}
+          collectionName={collectionName}
+          collections={collections}
+          colFilter={colFilter}
+          onColFilterChange={setColFilter}
+          onNewCollection={() => setShowNewCol(true)}
+        />
 
       {/* ─── MAIN CONTENT STUDIO ─── */}
-      <main className="studio-main">
+      <main className="flex-1 bg-card border border-border rounded-3xl p-7 shadow-soft overflow-x-auto">
         {/* Header Koleksi */}
-        <div className="header-row" style={{ marginBottom: "1rem" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-            <div className="w-11 h-11 rounded-2xl bg-slate-100 flex items-center justify-center border border-border">
+        <div className="flex justify-between items-start mb-4 flex-wrap gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-2xl bg-secondary flex items-center justify-center border border-border">
               {collection?.type === "view" ? (
                 <Eye className="w-5 h-5 text-purple-600" />
               ) : collection?.type === "auth" ? (
                 <Users className="w-5 h-5 text-emerald-600" />
               ) : (
-                <Database className="w-5 h-5 text-slate-800" />
+                <Database className="w-5 h-5 text-foreground" />
               )}
             </div>
             <div>
-              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                <h1 style={{ fontSize: "1.4rem", margin: 0 }}>{collectionName}</h1>
-                <span
-                  className={`badge ${
+              <div className="flex items-center gap-2">
+                <h1 className="text-2xl font-bold m-0">{collectionName}</h1>
+                <Badge
+                  variant={
                     collection?.type === "view"
-                      ? "badge-purple"
+                      ? "secondary"
                       : collection?.type === "auth"
-                      ? "badge-green"
-                      : "badge-accent"
-                  }`}
-                  style={{ textTransform: "uppercase" }}
+                      ? "default"
+                      : "outline"
+                  }
+                  className={
+                    collection?.type === "view"
+                      ? "bg-purple-100 text-purple-700 border-purple-200"
+                      : collection?.type === "auth"
+                      ? "bg-emerald-100 text-emerald-700 border-emerald-200"
+                      : ""
+                  }
                 >
                   {collection?.type === "view"
                     ? "SQL View"
                     : collection?.type === "auth"
                     ? "Auth Collection"
                     : "Base Collection"}
-                </span>
+                </Badge>
               </div>
-              <p className="muted" style={{ fontSize: "0.82rem", margin: "0.2rem 0 0" }}>
+              <p className="text-sm text-muted-foreground mt-0.5">
                 {collection?.fields.length ?? 0} fields · {collection?.recordCount ?? 0} records
               </p>
             </div>
           </div>
 
-          <div style={{ display: "flex", gap: "0.5rem" }}>
-            <button
-              className="btn btn-secondary flex items-center gap-1.5"
-              style={{ fontSize: "0.82rem", padding: "0.45rem 0.85rem" }}
+          <div className="flex gap-2">
+            <Button
+              variant="secondary"
+              size="sm"
               onClick={() => {
                 setDuplicateName(`${collectionName}_copy`);
                 setShowDuplicateCol(true);
               }}
               title="Duplikasi struktur atau data collection ini"
             >
-              <Copy className="w-3.5 h-3.5" />
-              <span>Duplicate</span>
-            </button>
-            <button
-              className="btn btn-secondary flex items-center gap-1.5"
-              style={{ fontSize: "0.82rem", padding: "0.45rem 0.85rem" }}
+              <Copy className="w-3.5 h-3.5 mr-1.5" />
+              Duplicate
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
               onClick={handleExportJson}
               title="Download backup JSON"
             >
-              <Download className="w-3.5 h-3.5" />
-              <span>Export JSON</span>
-            </button>
-            <button
-              className="btn btn-danger flex items-center gap-1.5"
-              style={{ fontSize: "0.82rem", padding: "0.45rem 0.85rem" }}
+              <Download className="w-3.5 h-3.5 mr-1.5" />
+              Export JSON
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
               onClick={handleDeleteCollection}
             >
-              <Trash2 className="w-3.5 h-3.5" />
-              <span>Delete</span>
-            </button>
+              <Trash2 className="w-3.5 h-3.5 mr-1.5" />
+              Delete
+            </Button>
           </div>
         </div>
 
         {/* Studio Sub-Tabs */}
-        <div className="studio-tabs">
-          <button
-            className={`studio-tab ${activeTab === "records" ? "active" : ""}`}
-            onClick={() => setActiveTab("records")}
-          >
-            📊 Records ({result?.totalItems ?? 0})
-          </button>
-          <button
-            className={`studio-tab ${activeTab === "schema" ? "active" : ""}`}
-            onClick={() => setActiveTab("schema")}
-          >
-            📐 Schema & Fields ({collection?.fields.length ?? 0})
-          </button>
-          <button
-            className={`studio-tab ${activeTab === "rules" ? "active" : ""}`}
-            onClick={() => setActiveTab("rules")}
-          >
-            🔒 API Rules
-          </button>
-          <button
-            className={`studio-tab ${activeTab === "agg" ? "active" : ""}`}
-            onClick={() => setActiveTab("agg")}
-          >
-            🧮 Aggregations
-          </button>
-          <button
-            className={`studio-tab ${activeTab === "io" ? "active" : ""}`}
-            onClick={() => setActiveTab("io")}
-          >
-            💾 Export / Import
-          </button>
-        </div>
+        <StudioTabs
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+          recordCount={result?.totalItems ?? 0}
+          fieldCount={collection?.fields.length ?? 0}
+        />
 
-        {error && <div className="error-text" style={{ marginBottom: "1rem" }}>{error}</div>}
+        {error && <div className="text-destructive text-sm font-medium mb-4">{error}</div>}
 
         {/* ─── TAB 1: RECORDS (DATA BROWSER) ─── */}
         {activeTab === "records" && (
-          <div>
-            {/* Search, Filter & Action Toolbar */}
-            <div className="studio-toolbar">
-              <form onSubmit={handleSearch} className="studio-search-group">
-                <input
-                  className="input"
-                  placeholder="🔎 Search (?search=... FTS5)"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  style={{ fontSize: "0.85rem" }}
-                />
-                <input
-                  className="input"
-                  placeholder="Filter: status = 'active' && streak > 5"
-                  value={filterQuery}
-                  onChange={(e) => setFilterQuery(e.target.value)}
-                  style={{ fontSize: "0.85rem", flex: 1.5 }}
-                />
-                <button type="submit" className="btn btn-secondary" style={{ padding: "0.55rem 0.9rem" }}>
-                  Filter
-                </button>
-                {(searchQuery || filterQuery) && (
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    onClick={() => {
-                      setSearchQuery("");
-                      setFilterQuery("");
-                      setPage(1);
-                    }}
-                  >
-                    Reset
-                  </button>
-                )}
-              </form>
-
-              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                <select
-                  className="input"
-                  value={sortQuery}
-                  onChange={(e) => setSortQuery(e.target.value)}
-                  style={{ fontSize: "0.85rem", width: "auto" }}
-                >
-                  {SORT_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                  ))}
-                </select>
-
-                {selectedIds.size > 0 && (
-                  <button className="btn btn-danger" onClick={handleBulkDelete} style={{ fontSize: "0.85rem" }}>
-                    🗑️ Delete ({selectedIds.size})
-                  </button>
-                )}
-
-                {isView ? (
-                  <span
-                    className="badge badge-purple"
-                    style={{ padding: "0.45rem 0.85rem", fontSize: "0.82rem", whiteSpace: "nowrap" }}
-                  >
-                    👁️ Read-only View
-                  </span>
-                ) : (
-                  <button
-                    className="btn"
-                    onClick={() => {
-                      setEditingRecord(null);
-                      setShowNewRecord(true);
-                    }}
-                    style={{ fontSize: "0.85rem", whiteSpace: "nowrap" }}
-                  >
-                    + New Record
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {/* Records Data Table */}
-            <div className="table-container">
-              {loading ? (
-                <div style={{ padding: "2.5rem", textAlign: "center" }} className="muted">
-                  Memuat data records…
-                </div>
-              ) : !result || result.items.length === 0 ? (
-                <div className="empty-state">
-                  <div className="big">📄</div>
-                  <p>Tidak ada record yang cocok.</p>
-                </div>
-              ) : (
-                <div className="table-wrap" style={{ margin: 0 }}>
-                  <table className="data-table">
-                    <thead>
-                      <tr>
-                        <th style={{ width: "36px" }}>
-                          <input
-                            type="checkbox"
-                            checked={selectedIds.size === result.items.length && result.items.length > 0}
-                            onChange={handleSelectAll}
-                          />
-                        </th>
-                        <th style={{ width: "140px" }}>ID</th>
-                        {collection?.fields.map((f) => (
-                          <th key={f.name}>
-                            <div style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}>
-                              <span>{f.name}</span>
-                              <span className="type-badge" style={{ fontSize: "0.68rem" }}>{f.type}</span>
-                            </div>
-                          </th>
-                        ))}
-                        <th style={{ width: "150px" }}>Created</th>
-                        <th style={{ width: "90px", textAlign: "right" }}>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {result.items.map((row) => {
-                        const id = String(row.id);
-                        const isSelected = selectedIds.has(id);
-                        return (
-                          <tr key={id} style={{ background: isSelected ? "rgba(249, 115, 22, 0.08)" : undefined }}>
-                            <td onClick={(e) => e.stopPropagation()}>
-                              <input
-                                type="checkbox"
-                                checked={isSelected}
-                                onChange={() => handleToggleRow(id)}
-                              />
-                            </td>
-                            <td style={{ color: "var(--accent)", fontWeight: 600 }}>{id}</td>
-                            {collection?.fields.map((f) => {
-                              const val = row[f.name];
-                              return (
-                                <td key={f.name}>
-                                  <RenderTableCell
-                                    field={f}
-                                    value={val}
-                                    record={row}
-                                    projectId={projectId}
-                                    collectionName={collectionName}
-                                    onViewJson={() => setRawJsonView(row)}
-                                  />
-                                </td>
-                              );
-                            })}
-                            <td className="muted" style={{ fontSize: "0.78rem" }}>
-                              {String(row.created || "").slice(0, 19).replace("T", " ")}
-                            </td>
-                            <td style={{ textAlign: "right", whiteSpace: "nowrap" }} onClick={(e) => e.stopPropagation()}>
-                              {!isView && (
-                                <>
-                                  <button
-                                    className="btn-icon"
-                                    style={{ marginRight: "0.3rem" }}
-                                    onClick={() => {
-                                      setEditingRecord(row);
-                                      setShowNewRecord(true);
-                                    }}
-                                    title="Edit record"
-                                  >
-                                    ✏️
-                                  </button>
-                                  <button
-                                    className="btn-icon"
-                                    style={{ marginRight: "0.3rem" }}
-                                    onClick={() => {
-                                      // Duplicate record
-                                      const clone = { ...row };
-                                      delete clone.id;
-                                      delete clone.created;
-                                      delete clone.updated;
-                                      setEditingRecord(clone);
-                                      setShowNewRecord(true);
-                                    }}
-                                    title="Duplicate record"
-                                  >
-                                    📑
-                                  </button>
-                                </>
-                              )}
-                              <button
-                                className="btn-icon"
-                                style={{ marginRight: isView ? 0 : "0.3rem" }}
-                                onClick={() => setRawJsonView(row)}
-                                title="View Raw JSON"
-                              >
-                                🔍
-                              </button>
-                              {!isView && (
-                                <button
-                                  className="btn-icon"
-                                  onClick={() => handleDeleteRecord(id)}
-                                  title="Delete record"
-                                >
-                                  ✕
-                                </button>
-                              )}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-
-            {/* Pagination Controls */}
-            {result && result.totalPages > 1 && (
-              <div className="pagination">
-                <button
-                  className="btn btn-secondary"
-                  disabled={page <= 1}
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
-                >
-                  ← Previous
-                </button>
-                <span className="page-info">
-                  Halaman {page} dari {result.totalPages} ({result.totalItems} records)
-                </span>
-                <button
-                  className="btn btn-secondary"
-                  disabled={page >= result.totalPages}
-                  onClick={() => setPage((p) => p + 1)}
-                >
-                  Next →
-                </button>
-              </div>
-            )}
-          </div>
+          <RecordsTab
+            projectId={projectId}
+            collectionName={collectionName}
+            collection={collection}
+            result={result}
+            loading={loading}
+            error={error}
+            searchQuery={searchQuery}
+            filterQuery={filterQuery}
+            sortQuery={sortQuery}
+            page={page}
+            selectedIds={selectedIds}
+            isView={isView}
+            onSearchSubmit={handleSearch}
+            onSearchChange={setSearchQuery}
+            onFilterChange={setFilterQuery}
+            onSortChange={setSortQuery}
+            onPageChange={setPage}
+            onSelectAll={(checked) => {
+              if (checked && result) {
+                setSelectedIds(new Set(result.items.map((it) => String(it.id))));
+              } else {
+                setSelectedIds(new Set());
+              }
+            }}
+            onToggleRow={handleToggleRow}
+            onNewRecord={() => {
+              setEditingRecord(null);
+              setShowNewRecord(true);
+            }}
+            onEditRecord={(row) => {
+              setEditingRecord(row);
+              setShowNewRecord(true);
+            }}
+            onDuplicateRecord={(row) => {
+              const clone = { ...row };
+              delete clone.id;
+              delete clone.created;
+              delete clone.updated;
+              setEditingRecord(clone);
+              setShowNewRecord(true);
+            }}
+            onDeleteRecord={handleDeleteRecord}
+            onBulkDelete={handleBulkDelete}
+            onViewJson={setRawJsonView}
+            renderCell={(props) => <RenderTableCell {...props} />}
+          />
         )}
 
         {/* ─── TAB 2: SCHEMA & FIELDS (OR VIEW QUERY) ─── */}
         {activeTab === "schema" && (
-          <div className="card">
-            {isView ? (
-              <div>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.25rem" }}>
-                  <div>
-                    <h3 style={{ margin: 0, display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                      <span>👁️</span> SQL View Definition — "{collectionName}"
-                    </h3>
-                    <p className="muted" style={{ fontSize: "0.85rem", margin: "0.25rem 0 0" }}>
-                      This collection is a read-only SQL View compiled and executed directly by SQLite.
-                    </p>
-                  </div>
-                  <span className="badge badge-purple" style={{ padding: "0.35rem 0.75rem", fontSize: "0.82rem" }}>
-                    Read-only View
-                  </span>
-                </div>
-
-                <div style={{ background: "var(--panel-2)", padding: "1.25rem", borderRadius: "10px", border: "1px solid var(--border)", marginBottom: "1.5rem" }}>
-                  <div style={{ fontSize: "0.8rem", fontWeight: 600, color: "var(--accent)", marginBottom: "0.5rem", textTransform: "uppercase", letterSpacing: "0.5px" }}>
-                    SQL SELECT Query:
-                  </div>
-                  <pre
-                    style={{
-                      background: "var(--bg)",
-                      padding: "1rem",
-                      borderRadius: "8px",
-                      border: "1px solid var(--border)",
-                      fontFamily: "ui-monospace, monospace",
-                      fontSize: "0.88rem",
-                      overflowX: "auto",
-                      color: "var(--text)",
-                      lineHeight: "1.5",
-                      margin: 0,
-                    }}
-                  >
-                    {collection?.viewQuery || "SELECT ..."}
-                  </pre>
-                </div>
-
-                <div>
-                  <h4 style={{ margin: "0 0 0.75rem 0", fontSize: "0.95rem" }}>
-                    Inferred Columns ({collection?.fields.length ?? 0})
-                  </h4>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: "0.6rem" }}>
-                    {collection?.fields.map((f) => (
-                      <div
-                        key={f.name}
-                        style={{
-                          background: "var(--panel-2)",
-                          border: "1px solid var(--border)",
-                          borderRadius: "8px",
-                          padding: "0.6rem 0.85rem",
-                          display: "flex",
-                          justifyContent: "space-between",
-                          alignItems: "center",
-                        }}
-                      >
-                        <span style={{ fontWeight: 600, fontSize: "0.85rem" }}>{f.name}</span>
-                        <span className="badge badge-gray" style={{ fontSize: "0.72rem" }}>
-                          {f.type}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.25rem", flexWrap: "wrap", gap: "0.5rem" }}>
-                  <div>
-                    <h3 style={{ margin: 0 }}>Schema Editor — "{collectionName}"</h3>
-                    <p className="muted" style={{ fontSize: "0.85rem", margin: "0.25rem 0 0" }}>
-                      Ubah tipe kolom, tambah, atau hapus field. Perubahan dijalankan via SQLite Table Rebuild (data tetap selamat!).
-                    </p>
-                  </div>
-                  <div style={{ display: "flex", gap: "0.5rem" }}>
-                    <button
-                      type="button"
-                      className="btn btn-secondary"
-                      onClick={() => {
-                        setFieldsDraft([
-                          ...fieldsDraft,
-                          { name: "", type: "text", required: false },
-                        ]);
-                      }}
-                    >
-                      + Add Field
-                    </button>
-                    <button
-                      type="button"
-                      className="btn"
-                      onClick={handleSaveSchema}
-                      disabled={schemaSaving}
-                    >
-                      {schemaSaving ? "Menyimpan Skema…" : "💾 Save Schema Changes"}
-                    </button>
-                  </div>
-                </div>
-
-                {schemaError && <div className="error-text" style={{ marginBottom: "1rem" }}>{schemaError}</div>}
-
-                <div style={{ display: "grid", gap: "0.75rem" }}>
-                  {fieldsDraft.map((f, i) => (
-                    <div key={i} className="field-card" style={{ background: "var(--panel-2)" }}>
-                      <div className="field-card-header">
-                        <input
-                          className="input"
-                          placeholder="nama field"
-                          value={f.name}
-                          onChange={(e) => {
-                            const updated = [...fieldsDraft];
-                            updated[i].name = e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "");
-                            setFieldsDraft(updated);
-                          }}
-                          style={{ flex: 2, fontWeight: 600 }}
-                        />
-
-                        <select
-                          className="input"
-                          value={f.type}
-                          onChange={(e) => {
-                            const updated = [...fieldsDraft];
-                            updated[i].type = e.target.value;
-                            setFieldsDraft(updated);
-                          }}
-                          style={{ flex: 1.5 }}
-                        >
-                          {FIELD_TYPES.map((t) => (
-                            <option key={t} value={t}>{t}</option>
-                          ))}
-                        </select>
-
-                        <label style={{ display: "flex", alignItems: "center", gap: "0.3rem", fontSize: "0.82rem", whiteSpace: "nowrap", cursor: "pointer" }}>
-                          <input
-                            type="checkbox"
-                            checked={!!f.required}
-                            onChange={(e) => {
-                              const updated = [...fieldsDraft];
-                              updated[i].required = e.target.checked;
-                              setFieldsDraft(updated);
-                            }}
-                          />
-                          Req
-                        </label>
-
-                        <button
-                          type="button"
-                          className="btn-icon"
-                          onClick={() => {
-                            if (confirm(`Delete column "${f.name || 'new'}"? This column will be dropped when the schema is saved.`)) {
-                              setFieldsDraft(fieldsDraft.filter((_, idx) => idx !== i));
-                            }
-                          }}
-                          title="Delete column"
-                        >
-                          ✕
-                        </button>
-                      </div>
-
-                      {/* Field Specific Options for All 14 Types */}
-                      <FieldOptionsEditor
-                        field={f}
-                        allCollections={collections}
-                        onChange={(patch) => {
-                          const updated = [...fieldsDraft];
-                          updated[i] = { ...updated[i], ...patch };
-                          setFieldsDraft(updated);
-                        }}
-                      />
-                    </div>
-                  ))}
-                </div>
-
-                {/* ─── POCKETBASE-STYLE INDEXES & UNIQUE CONSTRAINTS SECTION ─── */}
-                <IndexesEditor
-                  collectionName={collectionName}
-                  indexes={indexesDraft}
-                  fields={fieldsDraft}
-                  onChange={setIndexesDraft}
-                />
-
-                <div style={{ marginTop: "1.5rem", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    onClick={() => {
-                      setFieldsDraft([
-                        ...fieldsDraft,
-                        { name: "", type: "text", required: false },
-                      ]);
-                    }}
-                  >
-                    + Add Field
-                  </button>
-                  <button
-                    type="button"
-                    className="btn"
-                    onClick={handleSaveSchema}
-                    disabled={schemaSaving}
-                  >
-                    {schemaSaving ? "Menyimpan Skema…" : "💾 Save Schema Changes"}
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
+          <SchemaTab
+            projectId={projectId}
+            collectionName={collectionName}
+            collection={collection}
+            collections={collections}
+            isView={isView}
+            fieldsDraft={fieldsDraft}
+            indexesDraft={indexesDraft}
+            schemaSaving={schemaSaving}
+            schemaError={schemaError}
+            onFieldsChange={setFieldsDraft}
+            onIndexesChange={setIndexesDraft}
+            onSaveSchema={handleSaveSchema}
+          />
         )}
 
         {/* ─── TAB 3: API RULES ─── */}
         {activeTab === "rules" && (
-          <div className="card">
-            <div style={{ marginBottom: "1.25rem" }}>
-              <h3 style={{ margin: 0 }}>API Rules (Row-Level Security)</h3>
-              <p className="muted" style={{ fontSize: "0.85rem", marginTop: "0.25rem" }}>
-                Atur otorisasi siapa yang boleh membaca, menulis, mengubah, dan menghapus data pada koleksi ini.
-              </p>
-            </div>
-
-            {rulesError && <div className="error-text" style={{ marginBottom: "1rem" }}>{rulesError}</div>}
-
-            <div style={{ display: "grid", gap: "1rem" }}>
-              {(
-                [
-                  { key: "listRule", label: "List Rule", hint: "Siapa boleh melihat daftar record (GET .../records)" },
-                  { key: "viewRule", label: "View Rule", hint: "Siapa boleh melihat 1 record spesifik (GET .../records/:id)" },
-                  { key: "createRule", label: "Create Rule", hint: "Siapa boleh menambah record baru (POST .../records)" },
-                  { key: "updateRule", label: "Update Rule", hint: "Siapa boleh mengubah record (PATCH .../records/:id)" },
-                  { key: "deleteRule", label: "Delete Rule", hint: "Siapa boleh menghapus record (DELETE .../records/:id)" },
-                ] as const
-              ).map((r) => {
-                const val = rulesDraft ? rulesDraft[r.key] : null;
-                const isLocked = val === null || val === undefined;
-                const isPublic = val === "";
-                const isCustom = !isLocked && !isPublic;
-
-                return (
-                  <div key={r.key} style={{ background: "var(--panel-2)", padding: "1rem", borderRadius: "8px" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.35rem" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                        <strong>{r.label}</strong>
-                        {isLocked && <span className="badge badge-accent">🔒 Admin Only (null)</span>}
-                        {isPublic && <span className="badge badge-green">🌐 Publik ("")</span>}
-                        {isCustom && <span className="badge badge-blue">🧮 Custom Rule</span>}
-                      </div>
-                      <div style={{ display: "flex", gap: "0.3rem" }}>
-                        <button
-                          type="button"
-                          className="btn btn-secondary"
-                          style={{ padding: "0.2rem 0.5rem", fontSize: "0.75rem" }}
-                          onClick={() => setRulesDraft((prev) => ({ ...(prev || DEFAULT_RULES), [r.key]: null }))}
-                        >
-                          🔒 Kunci (null)
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn-secondary"
-                          style={{ padding: "0.2rem 0.5rem", fontSize: "0.75rem" }}
-                          onClick={() => setRulesDraft((prev) => ({ ...(prev || DEFAULT_RULES), [r.key]: "" }))}
-                        >
-                          🌐 Buka ("")
-                        </button>
-                      </div>
-                    </div>
-                    <p className="muted" style={{ fontSize: "0.78rem", marginBottom: "0.5rem" }}>{r.hint}</p>
-                    <input
-                      className="input"
-                      placeholder="null (admin only), atau ekspresi: user = @request.auth.id"
-                      value={val === null || val === undefined ? "" : val}
-                      onChange={(e) => {
-                        const nextVal = e.target.value === "" ? null : e.target.value;
-                        setRulesDraft((prev) => ({ ...(prev || DEFAULT_RULES), [r.key]: nextVal }));
-                      }}
-                      style={{ fontFamily: "ui-monospace, monospace", fontSize: "0.85rem" }}
-                    />
-                  </div>
-                );
-              })}
-            </div>
-
-            <div style={{ marginTop: "1.5rem", display: "flex", justifyContent: "flex-end" }}>
-              <button className="btn" onClick={handleSaveRules} disabled={rulesSaving}>
-                {rulesSaving ? "Saving Rules…" : "Save API Rules Changes"}
-              </button>
-            </div>
-          </div>
+          <RulesTab
+            rulesDraft={rulesDraft}
+            rulesSaving={rulesSaving}
+            rulesError={rulesError}
+            onRulesChange={setRulesDraft}
+            onSaveRules={handleSaveRules}
+          />
         )}
 
         {/* ─── TAB 4: AGGREGATIONS (M19) ─── */}
@@ -1043,65 +552,17 @@ export default function AdvancedDatabaseStudioPage() {
 
         {/* ─── TAB 5: EXPORT / IMPORT ─── */}
         {activeTab === "io" && (
-          <div className="card">
-            <h3 style={{ marginBottom: "0.5rem" }}>Backup & Data Migration (JSON)</h3>
-            <p className="muted" style={{ fontSize: "0.85rem", marginBottom: "1.5rem" }}>
-              Export full collection schema and record rows to portable JSON format, or import from a previous backup.
-            </p>
-
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.5rem" }}>
-              {/* Export Box */}
-              <div style={{ background: "var(--panel-2)", padding: "1.25rem", borderRadius: "10px" }}>
-                <h4 style={{ marginBottom: "0.5rem" }}>📥 Export Collection</h4>
-                <p className="muted" style={{ fontSize: "0.82rem", marginBottom: "1rem" }}>
-                  Download <code>{collectionName}-export.json</code> containing all field definitions and data rows.
-                </p>
-                <button className="btn" onClick={handleExportJson}>
-                  Download Export JSON File
-                </button>
-              </div>
-
-              {/* Import Box */}
-              <div style={{ background: "var(--panel-2)", padding: "1.25rem", borderRadius: "10px" }}>
-                <h4 style={{ marginBottom: "0.5rem" }}>📤 Import JSON Data</h4>
-                <div className="field">
-                  <label>Import Mode:</label>
-                  <select
-                    className="input"
-                    value={importMode}
-                    onChange={(e) => setImportMode(e.target.value as "create" | "replace" | "merge")}
-                    style={{ fontSize: "0.85rem" }}
-                  >
-                    <option value="create">create — create new (fails if already exists)</option>
-                    <option value="replace">replace — drop old collection and replace</option>
-                    <option value="merge">merge — upsert rows by record ID</option>
-                  </select>
-                </div>
-
-                <div className="field">
-                  <label>Paste Export JSON Payload:</label>
-                  <textarea
-                    className="input"
-                    rows={4}
-                    placeholder='{"collection": {"name": "..."}, "records": [...]}'
-                    value={importJsonText}
-                    onChange={(e) => setImportJsonText(e.target.value)}
-                    style={{ fontFamily: "ui-monospace, monospace", fontSize: "0.8rem" }}
-                  />
-                </div>
-
-                {ioMessage && (
-                  <div style={{ fontSize: "0.82rem", marginBottom: "0.75rem", color: ioMessage.includes("Successfully") ? "var(--green)" : "var(--red)" }}>
-                    {ioMessage}
-                  </div>
-                )}
-
-                <button className="btn" onClick={handleImportJson} disabled={importing || !importJsonText.trim()}>
-                  {importing ? "Importing…" : "Start JSON Import"}
-                </button>
-              </div>
-            </div>
-          </div>
+          <ImportExportTab
+            collectionName={collectionName}
+            importMode={importMode}
+            importJsonText={importJsonText}
+            importing={importing}
+            ioMessage={ioMessage}
+            onImportModeChange={setImportMode}
+            onImportJsonChange={setImportJsonText}
+            onExport={handleExportJson}
+            onImport={handleImportJson}
+          />
         )}
       </main>
 
@@ -1124,61 +585,19 @@ export default function AdvancedDatabaseStudioPage() {
       )}
 
       {/* ─── MODAL: VIEW RAW JSON ─── */}
-      {rawJsonView && (
-        <div className="modal-overlay" onClick={() => setRawJsonView(null)}>
-          <div className="modal-box-lg card" onClick={(e) => e.stopPropagation()}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
-              <h3 style={{ margin: 0 }}>Record Raw JSON ({String(rawJsonView.id || "")})</h3>
-              <div style={{ display: "flex", gap: "0.5rem" }}>
-                <button
-                  className="btn btn-secondary"
-                  style={{ fontSize: "0.8rem", padding: "0.3rem 0.7rem" }}
-                  onClick={() => {
-                    navigator.clipboard.writeText(JSON.stringify(rawJsonView, null, 2));
-                    alert("JSON berhasil di-copy ke clipboard!");
-                  }}
-                >
-                  📋 Copy JSON
-                </button>
-                <button className="btn-icon" onClick={() => setRawJsonView(null)}>✕</button>
-              </div>
-            </div>
-            <pre style={{ background: "var(--panel-2)", padding: "1rem", borderRadius: "8px", overflowX: "auto", fontSize: "0.82rem", color: "var(--accent)" }}>
-              {JSON.stringify(rawJsonView, null, 2)}
-            </pre>
-          </div>
-        </div>
-      )}
+      <RawJsonModal data={rawJsonView} onClose={() => setRawJsonView(null)} />
 
       {/* ─── MODAL: DUPLICATE COLLECTION ─── */}
-      {showDuplicateCol && (
-        <div className="modal-overlay" onClick={() => setShowDuplicateCol(false)}>
-          <div className="modal-box card" onClick={(e) => e.stopPropagation()}>
-            <h3 style={{ marginBottom: "1rem" }}>Duplicate Collection "{collectionName}"</h3>
-            <div className="field">
-              <label>Nama Collection Baru</label>
-              <input
-                className="input"
-                value={duplicateName}
-                onChange={(e) => setDuplicateName(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ""))}
-                placeholder="nama_koleksi_baru"
-              />
-            </div>
-            <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.88rem", cursor: "pointer", marginBottom: "1.25rem" }}>
-              <input
-                type="checkbox"
-                checked={duplicateWithData}
-                onChange={(e) => setDuplicateWithData(e.target.checked)}
-              />
-              <span>Include all record data rows (withData)</span>
-            </label>
-            <div className="form-actions">
-              <button className="btn btn-secondary" onClick={() => setShowDuplicateCol(false)}>Cancel</button>
-              <button className="btn" onClick={handleDuplicateCollection}>Duplicate Collection</button>
-            </div>
-          </div>
-        </div>
-      )}
+      <DuplicateModal
+        open={showDuplicateCol}
+        collectionName={collectionName}
+        duplicateName={duplicateName}
+        duplicateWithData={duplicateWithData}
+        onNameChange={setDuplicateName}
+        onWithDataChange={setDuplicateWithData}
+        onCancel={() => setShowDuplicateCol(false)}
+        onDuplicate={handleDuplicateCollection}
+      />
 
       {/* ─── MODAL: NEW COLLECTION (POCKETBASE STYLE) ─── */}
       {showNewCol && (
@@ -1198,267 +617,4 @@ export default function AdvancedDatabaseStudioPage() {
   );
 }
 
-// ─── HELPER: CELL RENDERING ──────────────────────────────────────────────────
-
-function RenderTableCell({
-  field,
-  value,
-  record,
-  projectId,
-  collectionName,
-  onViewJson,
-}: {
-  field: FieldDef;
-  value: unknown;
-  record: Record<string, unknown>;
-  projectId: string;
-  collectionName: string;
-  onViewJson: () => void;
-}) {
-  if (value === null || value === undefined) {
-    return <span className="muted" style={{ fontStyle: "italic", fontSize: "0.8rem" }}>null</span>;
-  }
-
-  if (field.type === "bool") {
-    return value ? (
-      <span className="badge badge-green">✓ true</span>
-    ) : (
-      <span className="badge badge-gray">✕ false</span>
-    );
-  }
-
-  if (field.type === "file") {
-    const filename = String(value);
-    const url = fileUrl(projectId, collectionName, String(record.id), filename);
-    const isImg = /\.(png|jpe?g|gif|webp|avif)$/i.test(filename);
-
-    return (
-      <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
-        {isImg && url ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={`${url}?thumb=100x100`}
-            alt={filename}
-            style={{ width: 26, height: 26, borderRadius: 4, objectFit: "cover" }}
-          />
-        ) : null}
-        <a href={url} target="_blank" rel="noreferrer" style={{ color: "var(--accent)" }}>
-          📎 {filename.slice(0, 18)}
-        </a>
-      </div>
-    );
-  }
-
-  if (field.type === "json") {
-    return (
-      <button
-        type="button"
-        className="badge badge-gray"
-        onClick={onViewJson}
-        style={{ cursor: "pointer", fontFamily: "ui-monospace, monospace" }}
-      >
-        {typeof value === "object" ? JSON.stringify(value).slice(0, 24) + "…" : String(value)}
-      </button>
-    );
-  }
-
-  if (field.type === "password") {
-    return <span className="muted">•••••••• (hash)</span>;
-  }
-
-  return <span>{String(value).slice(0, 36)}</span>;
-}
-
-// ─── HELPER: RECORD FORM MODAL ───────────────────────────────────────────────
-
-function RecordFormModal({
-  collection,
-  initialData,
-  projectId,
-  onClose,
-  onSuccess,
-}: {
-  collection: CollectionInfo;
-  initialData: Record<string, unknown> | null;
-  projectId: string;
-  onClose: () => void;
-  onSuccess: () => void;
-}) {
-  const isEdit = !!initialData?.id;
-  const [formData, setFormData] = useState<Record<string, unknown>>(() => {
-    if (initialData) {
-      const copy = { ...initialData };
-      return copy;
-    }
-    const empty: Record<string, unknown> = {};
-    for (const f of collection.fields) {
-      if (f.type === "bool") empty[f.name] = false;
-      else if (f.type === "number") empty[f.name] = null;
-      else empty[f.name] = "";
-    }
-    return empty;
-  });
-
-  const [files, setFiles] = useState<Record<string, File | File[]>>({});
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setSaving(true);
-    setError("");
-
-    try {
-      const hasFiles = Object.keys(files).length > 0;
-      const payload = { ...formData };
-      if (collection.type === "auth" && isEdit && !payload.password) {
-        delete payload.password;
-      }
-
-      if (hasFiles) {
-        if (isEdit) {
-          await updateRecordWithFiles(projectId, collection.name, String(initialData!.id), payload, files);
-        } else {
-          await createRecordWithFiles(projectId, collection.name, payload, files);
-        }
-      } else {
-        if (isEdit) {
-          await updateRecord(projectId, collection.name, String(initialData!.id), payload);
-        } else {
-          await createRecord(projectId, collection.name, payload);
-        }
-      }
-
-      onSuccess();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save record");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-box card" onClick={(e) => e.stopPropagation()}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.25rem" }}>
-          <h3 style={{ margin: 0 }}>{isEdit ? `Edit Record (${initialData.id})` : "New Record"}</h3>
-          <button className="btn-icon" onClick={onClose}>✕</button>
-        </div>
-
-        {error && <div className="error-text" style={{ marginBottom: "1rem" }}>{error}</div>}
-
-        <form onSubmit={handleSubmit}>
-          {collection.type === "auth" && (
-            <div className="field">
-              <label style={{ display: "flex", justifyContent: "space-between" }}>
-                <span>Password {!isEdit && <span style={{ color: "var(--red)" }}>*</span>}</span>
-                <span className="type-badge" style={{ fontSize: "0.7rem" }}>password</span>
-              </label>
-              <input
-                type="password"
-                className="input"
-                placeholder={isEdit ? "Kosongkan jika tidak ingin mengubah password" : "Minimal 8 karakter"}
-                value={String(formData.password ?? "")}
-                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                required={!isEdit}
-              />
-            </div>
-          )}
-
-          {collection.fields.map((f) => (
-            <div key={f.name} className="field">
-              <label style={{ display: "flex", justifyContent: "space-between" }}>
-                <span>{f.name} {f.required && <span style={{ color: "var(--red)" }}>*</span>}</span>
-                <span className="type-badge" style={{ fontSize: "0.7rem" }}>{f.type}</span>
-              </label>
-
-              {f.type === "bool" ? (
-                <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer" }}>
-                  <input
-                    type="checkbox"
-                    checked={formData[f.name] === true}
-                    onChange={(e) => setFormData({ ...formData, [f.name]: e.target.checked })}
-                  />
-                  <span>{formData[f.name] === true ? "True" : "False"}</span>
-                </label>
-              ) : f.type === "select" ? (
-                <select
-                  className="input"
-                  value={String(formData[f.name] ?? "")}
-                  onChange={(e) => setFormData({ ...formData, [f.name]: e.target.value || null })}
-                >
-                  <option value="">— pilih opsi —</option>
-                  {(f.options?.values || []).map((v) => (
-                    <option key={v} value={v}>{v}</option>
-                  ))}
-                </select>
-              ) : f.type === "file" ? (
-                <div>
-                  <input
-                    type="file"
-                    className="input"
-                    onChange={(e) => {
-                      const fl = e.target.files;
-                      if (fl && fl.length > 0) {
-                        setFiles({ ...files, [f.name]: fl[0] });
-                      }
-                    }}
-                  />
-                  {Boolean(initialData?.[f.name]) && (
-                    <div className="muted" style={{ fontSize: "0.8rem", marginTop: "0.3rem" }}>
-                      File saat ini: {String(initialData![f.name])}
-                    </div>
-                  )}
-                </div>
-              ) : f.type === "json" ? (
-                <textarea
-                  className="input"
-                  rows={3}
-                  value={
-                    typeof formData[f.name] === "object"
-                      ? JSON.stringify(formData[f.name], null, 2)
-                      : String(formData[f.name] ?? "")
-                  }
-                  onChange={(e) => {
-                    try {
-                      setFormData({ ...formData, [f.name]: JSON.parse(e.target.value) });
-                    } catch {
-                      setFormData({ ...formData, [f.name]: e.target.value });
-                    }
-                  }}
-                  style={{ fontFamily: "ui-monospace, monospace", fontSize: "0.82rem" }}
-                />
-              ) : f.type === "autodate" ? (
-                <div className="muted" style={{ fontSize: "0.82rem", fontStyle: "italic" }}>
-                  ⏱ Diisi otomatis oleh sistem
-                </div>
-              ) : (
-                <input
-                  className="input"
-                  type={f.type === "number" ? "number" : f.type === "password" ? "password" : "text"}
-                  value={formData[f.name] === null || formData[f.name] === undefined ? "" : String(formData[f.name])}
-                  onChange={(e) =>
-                    setFormData({
-                      ...formData,
-                      [f.name]: f.type === "number" ? (e.target.value === "" ? null : Number(e.target.value)) : e.target.value,
-                    })
-                  }
-                  required={f.required}
-                />
-              )}
-            </div>
-          ))}
-
-          <div className="form-actions">
-            <button type="button" className="btn btn-secondary" onClick={onClose}>
-              Cancel
-            </button>
-            <button type="submit" className="btn" disabled={saving}>
-              {saving ? "Saving…" : isEdit ? "Update Record" : "Create Record"}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
+// ─── END OF PAGE ───

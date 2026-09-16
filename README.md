@@ -132,7 +132,7 @@ Untuk panduan mendalam tentang penggunaan BaseForge sebagai BaaS (Backend-as-a-S
 - [x] M19 — Wire the orphans: REST agregasi + expand ✅
 - **M20 — Parity check vs Wekanz Dashboard** ✅ 21 koleksi / 162 atribut diuji; 10/10 query produksi lulus; 3 blocker migrasi ditemukan
 - **M21 — Unblock migration** ✅ camelCase diizinkan, rules tersimpan lewat PUT, duplikat → 400; skema asli 21/21 tanpa rename
-- **M22 — Redesign sistem desain (Fase 1: fondasi)** ✅ 10 komponen shadcn baru (select, checkbox, label, textarea, skeleton, separator, alert-dialog, table, dropdown-menu, tooltip); token semantik murni; class tangan dikembalikan dengan label DEPRECATED untuk dihapus bertahap per halaman
+- **M22 — Redesign sistem desain (lengkap: fondasi + rombak halaman + hapus class tangan)** ✅ 10 komponen shadcn baru (select, checkbox, label, textarea, skeleton, separator, alert-dialog, table, dropdown-menu, tooltip); 22+ file dirombak (9 halaman + 11 komponen studio + 2 modal + 1 editor + 5 komponen shared + FieldOptionsEditor 14 tipe); 365 baris class tangan dihapus dari globals.css (441 → 71 baris); `tsc` 0 error; semua halaman terverifikasi berfungsi
 
   > **Catatan audit:** `aggregates.ts` dan `relations.ts` sudah lengkap & teruji
   > sejak D7/M12, tetapi **tidak diimpor satu pun route** — fitur hijau di test

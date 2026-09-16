@@ -52,24 +52,45 @@ Dashboard tumbuh organik selama M01–M21 tanpa satu sumber desain. Hasilnya 3 m
 | konfirmasi hapus `window.confirm`/modal manual | `<AlertDialog>` |
 | `.nav-chip` / `.topbar` | tetap di `Navbar.tsx` tapi lewat token, bukan hex |
 
-## Checklist Fase 1 (fondasi)
+## Checklist Fase 2 (rombak halaman)
 
-- [x] Tulis ulang `globals.css`: token semantik murni, pertahankan `--brand` + `@keyframes bf-spin`; class tangan dikembalikan dengan label DEPRECATED (dihapus bertahap per halaman).
-- [x] Tambah komponen shadcn inti ke `components/ui/`: `select`, `checkbox`, `label`, `textarea`, `skeleton`, `separator`, `alert-dialog`, `table`, `dropdown-menu`, `tooltip`.
-- [x] `npx tsc --noEmit` di dashboard → 0 error.
-- [x] Verifikasi render halaman `/login` + `/projects` + `/database/[collection]` tidak rusak.
+- [x] `[collection]/page.tsx` — 1464 → 620 baris (-58%), 9 komponen studio terpisah (`StudioSidebar`, `StudioTabs`, `RecordsTab`, `SchemaTab`, `RulesTab`, `ImportExportTab`, `RawJsonModal`, `DuplicateModal`, `RecordFormModal`, `RenderTableCell`)
+- [x] `CreateCollectionModal.tsx` — 613 baris, modal manual → `Dialog` shadcn
+- [x] `functions/page.tsx` — 437 → 298 baris, `FunctionEditor` terpisah
+- [x] `login/page.tsx` — hex `#3ECF8E`/`#A7F3D0` → token `bg-brand`/`bg-emerald-200`
+- [x] `projects/page.tsx` — `page`/`error-text`/hex → token
+- [x] `projects/[id]/page.tsx` — `page`/`error-text` → token
+- [x] `projects/[id]/auth/page.tsx` — `card`/`btn` → `Card`/`Button`
+- [x] `projects/[id]/database/page.tsx` — `card`/`btn`/`badge` → `Card`/`Button`/`Badge`
+- [x] `projects/[id]/storage/page.tsx` — `page` → Tailwind (sudah pakai shadcn)
+- [x] `projects/[id]/[service]/page.tsx` — `card`/`muted` → `Card`
+- [x] `Navbar.tsx` — `topbar`/`brand`/`nav-chip`/`#3ECF8E` → Tailwind + `bg-brand`
+- [x] `ProjectSidebar.tsx` — sudah bersih (pakai `cn` + token)
+- [x] `AggregatePanel.tsx` — `card`/`input`/`select`/`#5B86E5` → `Card`/`Input`/`Select`/`bg-brand-blue`
+- [x] `IndexesEditor.tsx` — `input`/`select`/`btn`/`badge` → `Input`/`Select`/`Button`/`Badge`
+- [x] `FieldOptionsEditor.tsx` — 24 `input` tangan → helper `OptInput`/`OptSelect`/`OptCheckbox` shadcn (14 tipe field)
 
-## Aha Moments
+## Checklist Fase 3 (verifikasi + hapus class tangan)
 
-1. **Token sudah benar, distribusinya yang salah.** Palet Neo-Tactile sudah konsisten di semua halaman (`#3ECF8E`, `#0A0B0D`, `#5B86E5`). Masalahnya bukan warna, melainkan *cara warna didistribusikan*: 31 class tangan di `globals.css` hidup paralel dengan shadcn. Solusinya bukan mengganti warna, melainkan memindahkan styling ke komponen dan menghapus class tangan secara bertahap.
+- [x] Verifikasi menyeluruh 44 file `.tsx` — **0 class tangan tersisa**
+- [x] Hapus 365 baris class tangan DEPRECATED dari `globals.css` (441 → 71 baris, -84%)
+- [x] Verifikasi visual 6 halaman setelah penghapusan — semua berfungsi (tabel 15 baris, sidebar, navbar, tabs)
+- [x] `npx tsc --noEmit` → 0 error
 
-2. **Halaman yang sudah benar adalah panduan, bukan referensi eksternal.** Storage sudah pakai `Card/Button/Input/Badge/Dialog` shadcn dengan benar. Tidak perlu mencontek Supabase untuk pola dasar — cukup ratakan pola Storage ke halaman lain.
+## Aha Moments (tambahan Fase 2-3)
 
-3. **Menghapus class tangan sekaligus merusak halaman.** `globals.css` dihapus total → `/database/[collection]` langsung kosong (layout, sidebar, tabel hilang). Solusinya: kembalikan class tangan dengan label DEPRECATED, lalu hapus per halaman saat halaman itu dirombak.
+5. **Radix Tabs controlled mode tidak merespons klik.** `Tabs` dengan `value` + `onValueChange` tidak mengubah state — tab tetap `data-state="inactive"`. Solusinya: ganti dengan state langsung yang styled seperti Tabs (bukan Radix), karena navigasi tab adalah state UI sederhana, bukan komponen kompleks yang butuh Radix.
 
-4. **Regenerasi lockfile bisa kehilangan paket secara senyap.** `package-lock.json` yang dihapus dan dibuat ulang bisa kehilangan entri (`sharp` hilang, `grep -c` = 0), padahal `npm install` exit 0. Server crash dengan `ERR_MODULE_NOT_FOUND`. Satu-satunya cara pasti: hapus lockfile + semua `node_modules`, lalu install dari nol, dan verifikasi `grep -c "node_modules/sharp" package-lock.json` = 1.
+6. **Pemisahan komponen raksasa menurunkan kompleksitas drastis.** `[collection]/page.tsx` dari 1464 baris menjadi 620 baris (-58%) dengan 10 komponen studio terpisah. Setiap komponen sekarang bisa diuji dan dirombak independen.
+
+7. **Helper kecil menghilangkan duplikasi besar.** `FieldOptionsEditor` punya 24 `input` tangan untuk 14 tipe field. Tiga helper (`OptInput`, `OptSelect`, `OptCheckbox`) menghapus duplikasi itu sekaligus memaksa konsistensi.
 
 ## Status
 
-**SELESAI (Fase 1 — Fondasi)**: 10 komponen shadcn baru, `tsc` 0 error, halaman terverifikasi tidak rusak. Class tangan masih ada di `globals.css` dengan label DEPRECATED, menunggu dihapus per halaman di fase berikutnya.
+**SELESAI (Fase 1 + 2 + 3)** — Redesign sistem desain lengkap:
+- 10 komponen shadcn baru di `components/ui/`
+- 22+ file dirombak ke shadcn
+- 365 baris class tangan dihapus dari `globals.css`
+- `tsc` 0 error, semua halaman terverifikasi berfungsi
+- Dashboard sekarang konsisten menggunakan token semantik + komponen shadcn, bukan class CSS tulisan tangan
 

@@ -84,9 +84,9 @@ export default function ProjectDetailPage() {
 
   if (error) {
     return (
-      <div className="page">
-        <Link href="/projects" className="nav-back text-sm">← Back to Projects</Link>
-        <p className="error-text">{error}</p>
+      <div className="max-w-[1180px] mx-auto px-6 py-6">
+        <Link href="/projects" className="text-sm text-muted-foreground hover:text-foreground">← Back to Projects</Link>
+        <p className="text-destructive mt-2">{error}</p>
       </div>
     );
   }
@@ -96,7 +96,7 @@ export default function ProjectDetailPage() {
     <>
       <Navbar projectId={project.id} projectName={project.name} />
 
-      <div className="page" style={{ display: "flex", gap: "1.5rem", alignItems: "flex-start" }}>
+      <div className="max-w-[1180px] mx-auto px-6 py-6 flex gap-6 items-start">
         {/* ─── PROJECT SIDEBAR ─── */}
         <ProjectSidebar projectId={project.id} projectName={project.name} />
 

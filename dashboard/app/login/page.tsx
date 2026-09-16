@@ -47,11 +47,11 @@ export default function LoginPage() {
       <aside className="relative flex flex-col justify-between border-r border-zinc-200 px-8 sm:px-12 py-8 min-h-screen bg-white">
         {/* Top Logo */}
         <div className="flex items-center gap-2.5">
-          <div className="w-7 h-7 rounded-lg bg-[#3ECF8E] flex items-center justify-center shadow-sm">
+          <div className="w-7 h-7 rounded-lg bg-brand flex items-center justify-center shadow-sm">
             <Zap className="w-4 h-4 text-white fill-white" />
           </div>
           <span className="font-bold text-lg tracking-tight text-zinc-900">
-            wekanz<span className="text-[#3ECF8E]">BaseForge</span>
+            wekanz<span className="text-brand">BaseForge</span>
           </span>
         </div>
 
@@ -125,11 +125,11 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full h-10 mt-6 rounded-md bg-[#A7F3D0] hover:bg-[#86efac] text-[#065F46] font-medium text-sm transition-all flex items-center justify-center gap-2 active:scale-[0.99] disabled:opacity-50 shadow-sm"
+              className="w-full h-10 mt-6 rounded-md bg-emerald-200 hover:bg-emerald-300 text-emerald-800 font-medium text-sm transition-all flex items-center justify-center gap-2 active:scale-[0.99] disabled:opacity-50 shadow-sm"
             >
               {loading ? (
                 <>
-                  <Loader2 className="w-4 h-4 animate-spin text-[#065F46]" />
+                  <Loader2 className="w-4 h-4 animate-spin text-emerald-800" />
                   <span>Processing...</span>
                 </>
               ) : (

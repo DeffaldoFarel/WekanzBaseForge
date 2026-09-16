@@ -2,6 +2,17 @@
 
 import React from "react";
 import type { IndexDef, FieldDef } from "@/lib/api";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 interface IndexesEditorProps {
   collectionName: string;
@@ -46,49 +57,32 @@ export function IndexesEditor({
   }
 
   return (
-    <div style={{ marginTop: "1.5rem" }}>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: "0.75rem",
-        }}
-      >
+    <div className="mt-6">
+      <div className="flex justify-between items-center mb-3">
         <div>
-          <h4 style={{ margin: 0, fontSize: "1rem" }}>
+          <h4 className="text-base font-semibold m-0">
             📇 Indexes & Unique Constraints ({indexes.length})
           </h4>
-          <p className="muted" style={{ fontSize: "0.8rem", margin: "0.2rem 0 0" }}>
+          <p className="text-sm text-muted-foreground mt-0.5">
             Kelola Index pencarian & aturan Unique (Single maupun Composite multi-kolom).
           </p>
         </div>
-        <button
+        <Button
           type="button"
-          className="btn btn-secondary"
+          variant="secondary"
+          size="sm"
           onClick={handleAddIndex}
-          style={{ fontSize: "0.8rem", padding: "0.35rem 0.75rem" }}
         >
           + New Index
-        </button>
+        </Button>
       </div>
 
       {indexes.length === 0 ? (
-        <div
-          style={{
-            padding: "1rem",
-            background: "var(--panel-2)",
-            borderRadius: "8px",
-            border: "1px dashed var(--border)",
-            fontSize: "0.85rem",
-            color: "var(--muted)",
-            textAlign: "center",
-          }}
-        >
+        <div className="p-4 bg-muted rounded-lg border border-dashed border-border text-sm text-muted-foreground text-center">
           Belum ada custom index. Tabel menggunakan primary key <code>id</code>. Klik <strong>+ New Index</strong> untuk membuat index atau aturan Unique constraint.
         </div>
       ) : (
-        <div style={{ display: "grid", gap: "0.6rem" }}>
+        <div className="grid gap-3">
           {indexes.map((idx, i) => {
             const cols = idx.fields.map((f) => `"${f}"`).join(", ");
             const sqlPreview = `CREATE ${idx.unique ? "UNIQUE " : ""}INDEX "${idx.name || "idx_name"}" ON "${collectionName}" (${cols || "..."});`;
@@ -96,17 +90,11 @@ export function IndexesEditor({
             return (
               <div
                 key={i}
-                style={{
-                  background: "var(--panel-2)",
-                  border: "1px solid var(--border)",
-                  borderRadius: "8px",
-                  padding: "0.75rem 1rem",
-                }}
+                className="bg-muted border border-border rounded-lg p-3"
               >
-                <div style={{ display: "flex", gap: "0.6rem", alignItems: "center" }}>
+                <div className="flex gap-2.5 items-center">
                   {/* Name */}
-                  <input
-                    className="input"
+                  <Input
                     placeholder="nama index (e.g. idx_email)"
                     value={idx.name}
                     onChange={(e) =>
@@ -114,25 +102,27 @@ export function IndexesEditor({
                         name: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ""),
                       })
                     }
-                    style={{ flex: 1.5, fontWeight: 600, fontSize: "0.85rem" }}
+                    className="flex-[1.5] font-semibold text-sm"
                   />
 
                   {/* Type (INDEX vs UNIQUE INDEX) */}
-                  <select
-                    className="input"
+                  <Select
                     value={idx.unique ? "unique" : "index"}
-                    onChange={(e) =>
-                      handleUpdateIndex(i, { unique: e.target.value === "unique" })
+                    onValueChange={(v) =>
+                      handleUpdateIndex(i, { unique: v === "unique" })
                     }
-                    style={{ flex: 1, fontSize: "0.85rem" }}
                   >
-                    <option value="index">Index Biasa (B-Tree)</option>
-                    <option value="unique">UNIQUE INDEX</option>
-                  </select>
+                    <SelectTrigger className="flex-1">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="index">Index Biasa (B-Tree)</SelectItem>
+                      <SelectItem value="unique">UNIQUE INDEX</SelectItem>
+                    </SelectContent>
+                  </Select>
 
                   {/* Fields selector (multi or comma-separated) */}
-                  <input
-                    className="input"
+                  <Input
                     placeholder="kolom (pisahkan koma jika composite)"
                     value={idx.fields.join(", ")}
                     onChange={(e) =>
@@ -143,40 +133,30 @@ export function IndexesEditor({
                           .filter(Boolean),
                       })
                     }
-                    style={{ flex: 1.8, fontSize: "0.85rem" }}
+                    className="flex-[1.8] text-sm"
                   />
 
                   {/* Delete */}
-                  <button
+                  <Button
                     type="button"
-                    className="btn-icon"
+                    variant="ghost"
+                    size="icon"
                     onClick={() => handleRemoveIndex(i)}
                     title="Delete Index"
                   >
                     ✕
-                  </button>
+                  </Button>
                 </div>
 
                 {/* Live SQL Preview */}
-                <div
-                  style={{
-                    marginTop: "0.5rem",
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    fontSize: "0.76rem",
-                  }}
-                >
-                  <code style={{ color: idx.unique ? "var(--accent)" : "var(--muted)" }}>
+                <div className="mt-2 flex justify-between items-center text-xs">
+                  <code className={idx.unique ? "text-accent-foreground" : "text-muted-foreground"}>
                     {sqlPreview}
                   </code>
                   {idx.unique && (
-                    <span
-                      className="badge badge-accent"
-                      style={{ fontSize: "0.7rem", padding: "0.1rem 0.4rem" }}
-                    >
+                    <Badge variant="secondary" className="text-xs">
                       Enforces Uniqueness
-                    </span>
+                    </Badge>
                   )}
                 </div>
               </div>

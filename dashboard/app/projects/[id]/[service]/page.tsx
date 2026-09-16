@@ -2,6 +2,7 @@
 
 import { useParams } from "next/navigation";
 import Link from "next/link";
+import { Card } from "@/components/ui/card";
 
 const TITLES: Record<string, { title: string; milestone: string }> = {
   database: { title: "Database", milestone: "M02–M07" },
@@ -17,19 +18,19 @@ export default function ServicePage() {
   const info = TITLES[service] ?? { title: service, milestone: "?" };
 
   return (
-    <div className="page">
-      <Link href={`/projects/${id}`} className="nav-back">
+    <div className="max-w-[1180px] mx-auto px-6 py-6">
+      <Link href={`/projects/${id}`} className="text-sm text-muted-foreground hover:text-foreground">
         ← Kembali ke Project
       </Link>
-      <h2>{info.title}</h2>
-      <div className="card" style={{ marginTop: "1rem" }}>
-        <p className="muted">
+      <h2 className="text-2xl font-bold mt-4">{info.title}</h2>
+      <Card className="p-6 mt-4">
+        <p className="text-muted-foreground">
           🚧 Layanan ini akan dibangun di milestone <strong>{info.milestone}</strong>.
         </p>
-        <p className="muted" style={{ marginTop: "0.5rem" }}>
+        <p className="text-muted-foreground mt-2">
           Ikuti roadmap di README — setiap milestone akan mengisi halaman ini.
         </p>
-      </div>
+      </Card>
     </div>
   );
 }

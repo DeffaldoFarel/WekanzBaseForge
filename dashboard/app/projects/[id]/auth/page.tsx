@@ -3,6 +3,8 @@
 import { useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 
 export default function AuthServiceRedirectPage() {
   const params = useParams();
@@ -18,17 +20,17 @@ export default function AuthServiceRedirectPage() {
   }, [projectId, router]);
 
   return (
-    <div style={{ maxWidth: 640, margin: "3rem auto", padding: "1.5rem" }}>
-      <div className="card" style={{ textAlign: "center", padding: "2.5rem 1.5rem" }}>
-        <div style={{ fontSize: "2.5rem", marginBottom: "1rem" }}>👤 ➔ 🗄️</div>
-        <h2 style={{ marginBottom: "0.5rem" }}>Auth Kini Terintegrasi di Database Studio</h2>
-        <p className="muted" style={{ fontSize: "0.9rem", lineHeight: 1.6, marginBottom: "1.5rem" }}>
+    <div className="max-w-[640px] mx-auto py-12 px-6">
+      <Card className="p-10 text-center">
+        <div className="text-4xl mb-4">👤 ➔ 🗄️</div>
+        <h2 className="text-xl font-bold mb-2">Auth Kini Terintegrasi di Database Studio</h2>
+        <p className="text-sm text-muted-foreground leading-relaxed mb-6">
           Mengikuti arsitektur PocketBase, pengelolaan akun pengguna kini menjadi <strong>Unified Auth Collections</strong> di Database Studio. Kamu bisa mengelola data user, foto avatar, role, dan kolom profil kustom lainnya secara langsung.
         </p>
-        <Link href={`/projects/${projectId}/database`} className="btn btn-primary">
-          Buka Database &amp; Collections Studio →
+        <Link href={`/projects/${projectId}/database`}>
+          <Button>Buka Database &amp; Collections Studio →</Button>
         </Link>
-      </div>
+      </Card>
     </div>
   );
 }

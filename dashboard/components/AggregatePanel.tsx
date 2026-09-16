@@ -16,6 +16,17 @@ import {
   type CollectionInfo,
 } from "@/lib/api";
 import { Sigma, Play, AlertCircle, Loader2 } from "lucide-react";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 interface Props {
   projectId: string;
@@ -122,39 +133,22 @@ export default function AggregatePanel({ projectId, collection, initialFilter }:
 
   return (
     <div>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "0.6rem",
-          marginBottom: "0.35rem",
-        }}
-      >
-        <Sigma size={18} strokeWidth={2.4} style={{ color: "#5B86E5" }} />
-        <h3 style={{ margin: 0, fontSize: "1rem", fontWeight: 700 }}>Aggregations</h3>
+      <div className="flex items-center gap-2.5 mb-1.5">
+        <Sigma size={18} strokeWidth={2.4} className="text-brand-blue" />
+        <h3 className="text-base font-bold m-0">Aggregations</h3>
       </div>
-      <p className="muted" style={{ marginTop: 0, fontSize: "0.82rem", maxWidth: "60ch" }}>
+      <p className="text-sm text-muted-foreground mt-0 max-w-[60ch]">
         Computed by SQLite and returned as a single value — rows never leave the server.
       </p>
 
       {/* ── Query builder ── */}
-      <div
-        className="card"
-        style={{
-          padding: "1.1rem 1.25rem",
-          display: "grid",
-          gap: "0.9rem",
-          gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))",
-          alignItems: "end",
-        }}
-      >
-        <div className="field" style={{ margin: 0 }}>
-          <label style={{ fontSize: "0.78rem", fontWeight: 600 }}>Function</label>
-          <select
-            className="input"
+      <Card className="p-5 grid gap-4 grid-cols-[repeat(auto-fit,minmax(190px,1fr))] items-end">
+        <div className="space-y-2">
+          <Label className="text-xs font-semibold">Function</Label>
+          <Select
             value={fn}
-            onChange={(e) => {
-              const next = e.target.value as AggregateFunction;
+            onValueChange={(v) => {
+              const next = v as AggregateFunction;
               setFn(next);
               setResult(null);
               setRanQuery(null);
@@ -164,191 +158,140 @@ export default function AggregatePanel({ projectId, collection, initialFilter }:
                 setField("");
               }
             }}
-            style={{ fontSize: "0.85rem" }}
           >
-            {FUNCTIONS.map((f) => (
-              <option key={f.value} value={f.value}>
-                {f.label}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {FUNCTIONS.map((f) => (
+                <SelectItem key={f.value} value={f.value}>
+                  {f.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
-        <div className="field" style={{ margin: 0 }}>
-          <label style={{ fontSize: "0.78rem", fontWeight: 600 }}>
-            Field {activeFn.needsField && <span style={{ color: "#EB7167" }}>*</span>}
-          </label>
-          <select
-            className="input"
+        <div className="space-y-2">
+          <Label className="text-xs font-semibold">
+            Field {activeFn.needsField && <span className="text-destructive">*</span>}
+          </Label>
+          <Select
             value={field}
+            onValueChange={(v) => {
+              setField(v);
+              setResult(null);
+              setRanQuery(null);
+            }}
             disabled={!activeFn.needsField}
-            onChange={(e) => {
-              setField(e.target.value);
-              setResult(null);
-              setRanQuery(null);
-            }}
-            style={{ fontSize: "0.85rem", opacity: activeFn.needsField ? 1 : 0.5 }}
           >
-            <option value="">{activeFn.needsField ? "Select a field…" : "Not required"}</option>
-            {eligibleFields.map((f) => (
-              <option key={f.name} value={f.name}>
-                {f.name} ({f.type})
-              </option>
-            ))}
-          </select>
+            <SelectTrigger className={!activeFn.needsField ? "opacity-50" : ""}>
+              <SelectValue placeholder={activeFn.needsField ? "Select a field…" : "Not required"} />
+            </SelectTrigger>
+            <SelectContent>
+              {eligibleFields.map((f) => (
+                <SelectItem key={f.name} value={f.name}>
+                  {f.name} ({f.type})
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
-        <div className="field" style={{ margin: 0 }}>
-          <label style={{ fontSize: "0.78rem", fontWeight: 600 }}>Group by</label>
-          <select
-            className="input"
+        <div className="space-y-2">
+          <Label className="text-xs font-semibold">Group by</Label>
+          <Select
             value={groupBy}
-            onChange={(e) => {
-              setGroupBy(e.target.value);
+            onValueChange={(v) => {
+              setGroupBy(v);
               setResult(null);
               setRanQuery(null);
             }}
-            style={{ fontSize: "0.85rem" }}
           >
-            <option value="">No grouping</option>
-            {groupableFields.map((f) => (
-              <option key={f.name} value={f.name}>
-                {f.name}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger>
+              <SelectValue placeholder="No grouping" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="">No grouping</SelectItem>
+              {groupableFields.map((f) => (
+                <SelectItem key={f.name} value={f.name}>
+                  {f.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
-        <div className="field" style={{ margin: 0 }}>
-          <label style={{ fontSize: "0.78rem", fontWeight: 600 }}>Filter (optional)</label>
-          <input
-            className="input"
+        <div className="space-y-2">
+          <Label className="text-xs font-semibold">Filter (optional)</Label>
+          <Input
             placeholder="amount > 250"
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter" && canRun && !running) run();
             }}
-            style={{ fontSize: "0.85rem", fontFamily: "var(--font-mono), monospace" }}
+            className="font-mono text-sm"
           />
         </div>
 
-        <button
-          className="btn"
+        <Button
           onClick={run}
           disabled={running || !canRun}
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: "0.45rem",
-            opacity: running || !canRun ? 0.55 : 1,
-          }}
+          className="inline-flex items-center justify-center gap-1.5"
         >
           {running ? <Loader2 size={15} className="spin" /> : <Play size={15} />}
           {running ? "Running…" : "Run"}
-        </button>
-      </div>
+        </Button>
+      </Card>
 
       {/* ── Request preview ── */}
-      <div
-        style={{
-          marginTop: "0.7rem",
-          padding: "0.6rem 0.85rem",
-          borderRadius: "12px",
-          background: "#F1F5F9",
-          border: "1px solid #E2E8F0",
-          fontFamily: "var(--font-mono), monospace",
-          fontSize: "0.72rem",
-          color: "#475569",
-          overflowX: "auto",
-          whiteSpace: "nowrap",
-        }}
-      >
+      <div className="mt-3 px-3.5 py-2.5 rounded-xl bg-muted border border-border font-mono text-xs text-muted-foreground overflow-x-auto whitespace-nowrap">
         {requestPreview}
       </div>
 
       {error && (
-        <div
-          style={{
-            marginTop: "0.9rem",
-            display: "flex",
-            alignItems: "flex-start",
-            gap: "0.5rem",
-            padding: "0.75rem 0.95rem",
-            borderRadius: "14px",
-            background: "#FEF2F2",
-            border: "1px solid #FECACA",
-            color: "#B91C1C",
-            fontSize: "0.83rem",
-          }}
-        >
-          <AlertCircle size={16} style={{ flexShrink: 0, marginTop: 1 }} />
+        <div className="mt-4 flex items-start gap-2 p-3 rounded-xl bg-destructive/10 border border-destructive/30 text-destructive text-sm">
+          <AlertCircle size={16} className="shrink-0 mt-0.5" />
           <span>{error}</span>
         </div>
       )}
 
       {/* ── Scalar result ── */}
       {result && !result.groups && (
-        <div
-          className="card"
-          style={{
-            marginTop: "1rem",
-            padding: "1.6rem 1.5rem",
-            textAlign: "center",
-          }}
-        >
-          <div
-            className="muted"
-            style={{ fontSize: "0.72rem", letterSpacing: "0.08em", textTransform: "uppercase" }}
-          >
+        <Card className="mt-4 p-6 text-center">
+          <div className="text-xs text-muted-foreground uppercase tracking-widest">
             {ranQuery?.fn.toUpperCase()}
             {ranQuery?.field ? ` · ${ranQuery.field}` : ""}
           </div>
-          <div
-            style={{
-              fontSize: "2.6rem",
-              fontWeight: 800,
-              lineHeight: 1.15,
-              marginTop: "0.35rem",
-              fontFamily: "var(--font-mono), monospace",
-              color: "#0A0B0D",
-            }}
-          >
+          <div className="text-4xl font-extrabold leading-tight mt-1.5 font-mono text-foreground">
             {fmt(result.value)}
           </div>
           {elapsed !== null && (
-            <div className="muted" style={{ fontSize: "0.74rem", marginTop: "0.35rem" }}>
+            <div className="text-xs text-muted-foreground mt-1.5">
               {elapsed} ms round-trip
             </div>
           )}
-        </div>
+        </Card>
       )}
 
       {/* ── Grouped result ── */}
       {result?.groups && (
-        <div className="card" style={{ marginTop: "1rem", padding: "1.1rem 1.25rem" }}>
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "baseline",
-              marginBottom: "0.8rem",
-            }}
-          >
-            <strong style={{ fontSize: "0.88rem" }}>
+        <Card className="mt-4 p-5">
+          <div className="flex justify-between items-baseline mb-3">
+            <strong className="text-sm">
               {ranQuery?.fn.toUpperCase()}
               {ranQuery?.field ? ` (${ranQuery.field})` : ""} grouped by{" "}
               {ranQuery?.groupBy}
             </strong>
-            <span className="muted" style={{ fontSize: "0.74rem" }}>
+            <span className="text-xs text-muted-foreground">
               {result.groups.length} group{result.groups.length === 1 ? "" : "s"}
               {elapsed !== null ? ` · ${elapsed} ms` : ""}
             </span>
           </div>
 
           {result.groups.length === 0 ? (
-            <p className="muted" style={{ fontSize: "0.83rem", margin: 0 }}>
+            <p className="text-sm text-muted-foreground m-0">
               No rows matched.
             </p>
           ) : (
@@ -372,38 +315,21 @@ export default function AggregatePanel({ projectId, collection, initialFilter }:
                       title={g.group === null ? "(null)" : String(g.group)}
                     >
                       {g.group === null || g.group === "" ? (
-                        <em className="muted">(empty)</em>
+                        <em className="text-muted-foreground">(empty)</em>
                       ) : (
                         String(g.group)
                       )}
                     </span>
                     {/* Proportional bar: reading 12 numbers is slower than seeing them. */}
-                    <div
-                      style={{
-                        height: "9px",
-                        borderRadius: "9999px",
-                        background: "#E8EDF3",
-                        overflow: "hidden",
-                      }}
-                    >
+                    <div className="h-2 rounded-full bg-secondary overflow-hidden">
                       <div
-                        style={{
-                          width: `${pct}%`,
-                          height: "100%",
-                          borderRadius: "9999px",
-                          background: val < 0 ? "#EB7167" : "#5B86E5",
-                          transition: "width 260ms ease",
-                        }}
+                        className={`h-full rounded-full transition-all duration-300 ${
+                          val < 0 ? "bg-destructive" : "bg-brand-blue"
+                        }`}
+                        style={{ width: `${pct}%` }}
                       />
                     </div>
-                    <span
-                      style={{
-                        fontFamily: "var(--font-mono), monospace",
-                        fontSize: "0.82rem",
-                        fontWeight: 600,
-                        whiteSpace: "nowrap",
-                      }}
-                    >
+                    <span className="font-mono text-sm font-semibold whitespace-nowrap">
                       {fmt(g.value)}
                     </span>
                   </div>
@@ -411,7 +337,7 @@ export default function AggregatePanel({ projectId, collection, initialFilter }:
               })}
             </div>
           )}
-        </div>
+        </Card>
       )}
     </div>
   );

@@ -8,6 +8,9 @@ import {
   type CollectionInfo,
 } from "@/lib/api";
 import { CreateCollectionModal } from "@/components/CreateCollectionModal";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 
 export default function DatabaseIndexPage() {
   const params = useParams();
@@ -38,68 +41,71 @@ export default function DatabaseIndexPage() {
 
   if (loading) {
     return (
-      <div className="container" style={{ padding: "3rem 1rem", textAlign: "center" }}>
-        <p className="muted">Memuat database…</p>
+      <div className="max-w-[1180px] mx-auto px-6 py-12 text-center">
+        <p className="text-muted-foreground">Memuat database…</p>
       </div>
     );
   }
 
   return (
-    <div className="container" style={{ padding: "2rem 1rem" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem" }}>
+    <div className="max-w-[1180px] mx-auto px-6 py-8">
+      <div className="flex justify-between items-center mb-6">
         <div>
-          <h2 style={{ margin: 0 }}>Database Studio</h2>
-          <p className="muted" style={{ margin: "0.25rem 0 0", fontSize: "0.9rem" }}>
+          <h2 className="text-2xl font-bold">Database Studio</h2>
+          <p className="text-sm text-muted-foreground mt-1">
             Kelola tabel data (Base) & view SQL (View) dalam SQLite
           </p>
         </div>
-        <button className="btn" onClick={() => setShowNew(true)}>
+        <Button onClick={() => setShowNew(true)}>
           + New Collection
-        </button>
+        </Button>
       </div>
 
       {error && (
-        <div style={{ padding: "1rem", background: "rgba(239, 68, 68, 0.15)", border: "1px solid var(--red)", borderRadius: "8px", color: "var(--red)", marginBottom: "1.5rem" }}>
+        <div className="p-4 bg-destructive/15 border border-destructive rounded-lg text-destructive text-sm mb-6">
           ⚠️ {error}
         </div>
       )}
 
       {collections.length === 0 ? (
-        <div className="card empty-state">
-          <div className="big">📦</div>
-          <h3>Belum ada collection</h3>
-          <p className="muted" style={{ maxWidth: 420, margin: "0.5rem auto 1.5rem" }}>
+        <Card className="p-12 text-center">
+          <div className="text-4xl mb-4">📦</div>
+          <h3 className="text-xl font-bold">Belum ada collection</h3>
+          <p className="text-sm text-muted-foreground max-w-[420px] mx-auto my-4">
             Buat collection pertama Anda untuk mulai menyimpan data atau membuat query view.
           </p>
-          <button className="btn" onClick={() => setShowNew(true)}>
+          <Button onClick={() => setShowNew(true)}>
             + Buat Collection Pertama
-          </button>
-        </div>
+          </Button>
+        </Card>
       ) : (
-        <div className="card" style={{ padding: 0 }}>
+        <Card className="p-0 overflow-hidden">
           {collections.map((c) => (
             <Link
               key={c.name}
               href={`/projects/${projectId}/database/${encodeURIComponent(c.name)}`}
-              className="collection-item"
-              style={{ padding: "1rem 1.25rem", textDecoration: "none", color: "inherit" }}
+              className="flex items-center justify-between px-5 py-4 border-b border-border last:border-0 hover:bg-accent transition-colors"
             >
-              <div className="info">
-                <div className="name" style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                  <span>{c.type === "view" ? "👁️" : c.type === "auth" ? "👤" : "📦"}</span>
-                  <span>{c.name}</span>
-                  <span className="badge badge-gray">
-                    {c.type === "view" ? "View" : c.type === "auth" ? "Auth" : "Base"}
-                  </span>
-                </div>
-                <div className="meta">
-                  {c.fields.length} fields • {c.recordCount ?? 0} records
+              <div className="flex items-center gap-3">
+                <span className="text-lg">
+                  {c.type === "view" ? "👁️" : c.type === "auth" ? "👤" : "📦"}
+                </span>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold">{c.name}</span>
+                    <Badge variant="secondary" className="text-xs">
+                      {c.type === "view" ? "View" : c.type === "auth" ? "Auth" : "Base"}
+                    </Badge>
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {c.fields.length} fields • {c.recordCount ?? 0} records
+                  </div>
                 </div>
               </div>
-              <div style={{ color: "var(--muted)", fontSize: "0.9rem" }}>Buka Studio →</div>
+              <div className="text-sm text-muted-foreground">Buka Studio →</div>
             </Link>
           ))}
-        </div>
+        </Card>
       )}
 
       {showNew && (
