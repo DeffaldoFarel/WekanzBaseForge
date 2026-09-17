@@ -17,7 +17,7 @@ Dokumentasi ini disusun untuk membantu developer membangun aplikasi dengan BaseF
 | [**5. Realtime Subscriptions**](./realtime.md) | Panduan langganan event data secara live melalui Server-Sent Events (SSE). |
 | [**6. Serverless Functions**](./functions.md) | Menulis fungsi kustom di sandbox V8 isolate (`isolated-vm`), triggers otomatis database, dan scheduler cron. |
 | [**7. Deployment & Production**](./deployment.md) | Panduan deploy ke server VPS menggunakan Linux Systemd, reverse proxy HTTPS Caddy, Redis, dan konfigurasi SMTP produksi. |
-| [**8. Architectural Learnings**](./learnings/README.md) | Jurnal teknis internal dan catatan pembelajaran milestone (M00 s/d M39). |
+| [**8. Architectural Learnings**](./learnings/README.md) | Jurnal teknis internal dan catatan pembelajaran milestone (M00 s/d M39u). |
 
 ---
 

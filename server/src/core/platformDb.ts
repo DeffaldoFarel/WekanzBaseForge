@@ -24,6 +24,10 @@ const PROJECTS_DIR = path.join(DATA_DIR, 'projects');
 
 let platformDb: DatabaseSync | null = null;
 
+export function getDataDir(): string {
+  return DATA_DIR;
+}
+
 export interface ProjectRow {
   id: string;
   name: string;
@@ -71,6 +75,14 @@ export function initPlatformDb(): DatabaseSync {
       services TEXT NOT NULL DEFAULT '{}',
       created  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
       updated  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS _platform_admins (
+      id            TEXT PRIMARY KEY,
+      email         TEXT UNIQUE NOT NULL,
+      password_hash TEXT NOT NULL,
+      created       TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated       TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
   `);
 
@@ -168,8 +180,4 @@ export function destroyProjectStorage(projectId: string): void {
   if (fs.existsSync(storageDir)) {
     fs.rmSync(storageDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
-}
-
-export function getDataDir(): string {
-  return DATA_DIR;
 }

@@ -44,7 +44,7 @@ BaseForge (1 instalasi)
 | Multipart (M14, M18c) | `@fastify/busboy` | Streaming, memory-safe untuk upload file |
 | Functions (M15, M18a) | `isolated-vm` | Isolate V8 sungguhan, memory cap & async timeout |
 | Rate Limiter (M18d) | `ioredis` + Lua (fallback memory) | Atomic fixed-window, persistent, multi-instance ready |
-| Test | `node:test` + `tsx` | Test runner bawaan Node, 502 tests |
+| Test | `node:test` + `tsx` | Test runner bawaan Node, 512 tests |
 
 ## 🚀 Quick Start
 
@@ -88,7 +88,7 @@ Buka browser ke **http://localhost:7701**:
 ### 4. Menjalankan Test Suite
 ```bash
 npm test
-# Menjalankan 502 unit & integration tests (semua suite hijau)
+# Menjalankan 512 unit & integration tests (semua suite hijau)
 ```
 
 ## 📚 Dokumentasi Lengkap
@@ -260,6 +260,11 @@ Untuk panduan mendalam tentang penggunaan BaseForge sebagai BaaS (Backend-as-a-S
       endpoint excluded (anti infinite loop), gagal → SESSION_EXPIRED
 - [x] M38 — Delete event full payload ✅ — snapshot sebelum DELETE dikirim
       konsisten ke realtime + webhook + trigger (fallback `{id}`)
+- [x] M39u — First-Time Admin Setup & Hashed DB Credentials ✅ — onboarding
+      PocketBase-style: `GET /api/admin/setup-state` (public) mendeteksi DB kosong,
+      `POST /api/admin/auth/setup` mengunci otomatis (403 SETUP_COMPLETED),
+      kredensial admin ter-hash scrypt OWASP di `_platform_admins` (`platform.db`)
+      dengan fallback transparan ke env var, UI adaptif `/signup` & `/login`
 
 ### 🗺️ Rencana ke depan (M40–M57)
 

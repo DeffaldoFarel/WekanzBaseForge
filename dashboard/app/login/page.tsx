@@ -1,20 +1,37 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { login } from "@/lib/api";
+import { login, getAdminSetupState } from "@/lib/api";
 import { Input } from "@/components/ui/input";
 import { AuthSplitLayout } from "@/components/auth/AuthSplitLayout";
-import { Eye, EyeOff, Loader2 } from "lucide-react";
+import { Eye, EyeOff, Loader2, Sparkles } from "lucide-react";
 
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState("admin@baseforge.local");
-  const [password, setPassword] = useState("admin123");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [needsSetup, setNeedsSetup] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    getAdminSetupState()
+      .then((state) => {
+        if (active && state.needsSetup) {
+          setNeedsSetup(true);
+        }
+      })
+      .catch(() => {
+        // Abaikan jika error network
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -44,6 +61,23 @@ export default function LoginPage() {
           Sign in to your platform account
         </p>
       </div>
+
+      {needsSetup && (
+        <div className="mb-5 p-3.5 rounded-lg bg-emerald-500/10 border border-emerald-500/25 text-xs text-foreground flex items-center justify-between gap-3 text-left">
+          <div className="flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+            <span className="font-medium text-emerald-950 dark:text-emerald-200">
+              No administrator found. Setup is required.
+            </span>
+          </div>
+          <Link
+            href="/signup"
+            className="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs shrink-0 transition-colors"
+          >
+            Start Setup
+          </Link>
+        </div>
+      )}
 
       <form onSubmit={onSubmit} className="space-y-4 text-left">
         <div className="space-y-1.5">
@@ -78,7 +112,7 @@ export default function LoginPage() {
             <button
               type="button"
               onClick={() => setShowPassword(!showPassword)}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 rounded text-muted-foreground hover:text-foreground transition-colors"
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 rounded text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
               tabIndex={-1}
               title={showPassword ? "Hide password" : "Show password"}
             >
@@ -90,7 +124,7 @@ export default function LoginPage() {
         <button
           type="submit"
           disabled={loading}
-          className="w-full h-10 mt-6 rounded-md bg-primary hover:bg-primary/85 text-primary-foreground font-medium text-sm transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+          className="w-full h-10 mt-6 rounded-md bg-primary hover:bg-primary/85 text-primary-foreground font-medium text-sm transition-colors flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
         >
           {loading ? (
             <>

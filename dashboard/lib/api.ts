@@ -53,6 +53,25 @@ export async function login(email: string, password: string): Promise<string> {
   return data.token;
 }
 
+export async function getAdminSetupState(): Promise<{ needsSetup: boolean; hasAdmin: boolean }> {
+  return request<{ needsSetup: boolean; hasAdmin: boolean }>('/api/admin/setup-state');
+}
+
+export async function setupInitialAdmin(
+  email: string,
+  password: string
+): Promise<{ token: string; admin: { id: string; email: string } }> {
+  const data = await request<{ token: string; admin: { id: string; email: string } }>(
+    '/api/admin/auth/setup',
+    {
+      method: 'POST',
+      body: JSON.stringify({ email, password }),
+    }
+  );
+  setToken(data.token);
+  return data;
+}
+
 const projectNameCache = new Map<string, string>();
 
 function loadProjectNameCache(): void {

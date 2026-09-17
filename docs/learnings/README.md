@@ -54,3 +54,4 @@
 - [x] [M37 — 401 Auto-Refresh SDK](M37-auto-refresh.md)
 - [x] [M38 — Delete Event Full Payload](M38-delete-event.md)
 - [x] [M39 — Cron Timezone (IANA)](M39-cron-timezone.md)
+- [x] [M39u — First-Time Admin Setup & Hashed DB Credentials](M39u-initial-admin-setup.md)

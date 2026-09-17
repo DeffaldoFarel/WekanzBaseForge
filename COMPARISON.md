@@ -1,8 +1,8 @@
 # 🥊 Perbandingan Komprehensif BaaS Open-Source: BaseForge vs PocketBase vs Supabase vs Appwrite
 
-> Analisis teknis, perbandingan fitur per modul, dan evaluasi operasional *self-hosted* — diperbarui setelah BaseForge menyelesaikan **M00–M39** (gelombang terbaru: M39 Cron Timezone IANA, M38 Delete Event Full Payload, M37 SDK 401 Auto-Refresh, M36 SSE Auto-Reconnect, M35 Bucket Storage, M34 Custom Document ID — enam gap audit kesiapan sebagai backend WekanzDashboard; sebelumnya M33 Monitoring, M32 Backup, M31 OAuth ×7, M30 S3, M29 Vector, M28 Webhooks+CLI, M27 MFA, M26 API Keys, M25 $http, M24 Metrics, M23 Email).
+> Analisis teknis, perbandingan fitur per modul, dan evaluasi operasional *self-hosted* — diperbarui setelah BaseForge menyelesaikan **M00–M39 + M39u** (gelombang terbaru: M39u First-Time Admin Setup & Hashed DB Credentials, M39 Cron Timezone IANA, M38 Delete Event Full Payload, M37 SDK 401 Auto-Refresh, M36 SSE Auto-Reconnect, M35 Bucket Storage, M34 Custom Document ID — gap audit kesiapan backend; sebelumnya M33 Monitoring, M32 Backup, M31 OAuth ×7, M30 S3, M29 Vector, M28 Webhooks+CLI, M27 MFA, M26 API Keys, M25 $http, M24 Metrics, M23 Email).
 >
-> **Angka terverifikasi 2026-09-17:** `npm test` = **502/502 tests hijau** (27 suite, 57 file test, 84 detik); RAM idle server diukur langsung dari proses yang berjalan = **~181 MB working set** (node.exe, mode dev `tsx`). Pesaing dibandingkan pada **versi open-source / self-hosted terbaru**: PocketBase **v0.40.1** (Aug 2026), Supabase self-hosted **0.7.1** (Aug 2026, Postgres 17 + Envoy), Appwrite **2.2.0** (engine generasi-2, PostgreSQL default + ClickHouse).
+> **Angka terverifikasi 2026-09-17:** `npm test` = **512/512 tests hijau** (27 suite, 58 file test, ~85.9 detik); RAM idle server diukur langsung dari proses yang berjalan = **~181 MB working set** (node.exe, mode dev `tsx`) / **~105 MB** di Linux production. Pesaing dibandingkan pada **versi open-source / self-hosted terbaru**: PocketBase **v0.40.1** (Aug 2026), Supabase self-hosted **0.7.1** (Aug 2026, Postgres 17 + Envoy), Appwrite **2.2.0** (engine generasi-2, PostgreSQL default + ClickHouse).
 
 ---
 

@@ -16,13 +16,74 @@
 
 import crypto from 'node:crypto';
 import type { Middleware, ForgeRequest, ForgeResponse } from '../core/router.js';
-import { generateToken } from '../core/router.js';
+import { generateToken, generateId } from '../core/router.js';
+import { initPlatformDb } from '../core/platformDb.js';
+import { hashPassword, verifyPassword, validatePasswordStrength } from '../auth/password.js';
+
+export interface PlatformAdminRow {
+  id: string;
+  email: string;
+  password_hash: string;
+  created: string;
+  updated: string;
+}
+
+export function countPlatformAdmins(): number {
+  try {
+    const db = initPlatformDb();
+    const row = db.prepare('SELECT COUNT(*) as count FROM _platform_admins').get() as { count: number } | undefined;
+    return row?.count ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
+export function getAdminSetupState(): { needsSetup: boolean; hasAdmin: boolean } {
+  const count = countPlatformAdmins();
+  return {
+    needsSetup: count === 0,
+    hasAdmin: count > 0,
+  };
+}
+
+export function createInitialAdmin(
+  email: string,
+  password: string
+): { token: string; admin: { id: string; email: string } } {
+  const count = countPlatformAdmins();
+  if (count > 0) {
+    throw new Error('Platform administrator is already configured');
+  }
+
+  const trimmedEmail = email?.trim().toLowerCase();
+  if (!trimmedEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+    throw new Error('Valid email address is required');
+  }
+
+  const policyError = validatePasswordStrength(password);
+  if (policyError) {
+    throw new Error(policyError);
+  }
+
+  const passwordHash = hashPassword(password);
+  const db = initPlatformDb();
+  const id = generateId();
+
+  db.prepare(
+    'INSERT INTO _platform_admins (id, email, password_hash) VALUES (?, ?, ?)'
+  ).run(id, trimmedEmail, passwordHash);
+
+  const token = generateToken();
+  sessions.set(token, { email: trimmedEmail, createdAt: Date.now() });
+
+  return { token, admin: { id, email: trimmedEmail } };
+}
 
 // ─── Kredensial admin dari env ───────────────────────────────────────────────
 // M09u: dibaca LAZY (saat dipanggil), bukan saat modul dimuat.
 // Pelajaran dari perubahan ini: module-level const membaca env TERLALU DINI
 // (sebelum test/deploying mengubah env). Lazy = selalu nilai terbaru.
-// (M11 nanti: admin credentials pindah ke platform.db dengan hashing proper.)
+// M39u: Kredensial di platform.db diutamakan; env ini menjadi fallback untuk test suite.
 
 function getAdminCredentials(): { email: string; password: string } {
   return {
@@ -45,12 +106,29 @@ export function loginAdmin(
   email: string,
   password: string
 ): { token: string; admin: { email: string } } | null {
-  const creds = getAdminCredentials();
+  const trimmedEmail = email?.trim().toLowerCase();
 
-  // timingSafeEqual: perbandingan string biasa (===) bisa bocorkan info
-  // lewat TIMING (berhenti di karakter pertama yang beda → attacker bisa
-  // menebak karakter per karakter). Fungsi ini selalu membandingkan
-  // semua karakter dengan waktu konstan. Detail seru di M08!
+  // 1. Cek akun database di _platform_admins (M39u)
+  try {
+    const db = initPlatformDb();
+    const row = db
+      .prepare('SELECT * FROM _platform_admins WHERE lower(email) = ?')
+      .get(trimmedEmail) as PlatformAdminRow | undefined;
+
+    if (row) {
+      if (verifyPassword(password, row.password_hash)) {
+        const token = generateToken();
+        sessions.set(token, { email: row.email, createdAt: Date.now() });
+        return { token, admin: { email: row.email } };
+      }
+      return null; // Email terdaftar di DB tapi password salah
+    }
+  } catch {
+    // Abaikan jika DB belum siap, fallback ke env
+  }
+
+  // 2. Fallback ke env var (untuk kompatibilitas test & legacy dev)
+  const creds = getAdminCredentials();
   const emailMatch = safeEqual(email, creds.email);
   const passwordMatch = safeEqual(password, creds.password);
 

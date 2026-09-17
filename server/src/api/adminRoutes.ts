@@ -3,7 +3,13 @@
 // ============================================================================
 
 import { Router, generateId } from '../core/router.js';
-import { requireAdmin, loginAdmin, logoutAdmin } from '../platform/adminAuth.js';
+import {
+  requireAdmin,
+  loginAdmin,
+  logoutAdmin,
+  getAdminSetupState,
+  createInitialAdmin,
+} from '../platform/adminAuth.js';
 import {
   listProjects,
   getProject,
@@ -20,9 +26,44 @@ import { closeProjectDb } from '../core/projectDbManager.js';
 export function createAdminRouter(): Router {
   const router = new Router();
 
-  // ─── Health check (publik) ──────────────────────────────────────────────
+  // ─── Health check & Setup (publik) ───────────────────────────────────────
   router.get('/api/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString(), service: 'baseforge' });
+  });
+
+  router.get('/api/admin/setup-state', (req, res) => {
+    res.json(getAdminSetupState());
+  });
+
+  router.post('/api/admin/auth/setup', (req, res) => {
+    const state = getAdminSetupState();
+    if (!state.needsSetup) {
+      res.status(403).json({
+        error: {
+          code: 'SETUP_COMPLETED',
+          message: 'Platform administrator is already configured',
+        },
+      });
+      return;
+    }
+
+    const body = req.body as { email?: string; password?: string } | undefined;
+    if (!body?.email || !body?.password) {
+      res.status(400).json({
+        error: { code: 'BAD_REQUEST', message: 'email and password are required' },
+      });
+      return;
+    }
+
+    try {
+      const result = createInitialAdmin(body.email, body.password);
+      res.status(201).json(result);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to setup administrator';
+      res.status(400).json({
+        error: { code: 'BAD_REQUEST', message },
+      });
+    }
   });
 
   // ─── Auth ───────────────────────────────────────────────────────────────
