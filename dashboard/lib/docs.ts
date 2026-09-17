@@ -74,7 +74,7 @@ export function listDocs(): DocsGroup[] {
 
   return [
     { label: "Guides", items: [...guides, ...SPECIAL_DOCS] },
-    { label: "Architecture Journal (M00–M33)", items: learnings },
+    { label: "Architecture Journal (M00–M39)", items: learnings },
   ];
 }
 

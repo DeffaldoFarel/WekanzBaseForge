@@ -32,6 +32,18 @@ export class ViewWriteError extends Error {
   }
 }
 
+// M34: error khusus custom ID yang sudah terpakai
+export class DuplicateIdError extends Error {
+  collection: string;
+  id: string;
+  constructor(collection: string, id: string) {
+    super(`Document ID '${id}' already exists in collection '${collection}'`);
+    this.name = 'DuplicateIdError';
+    this.collection = collection;
+    this.id = id;
+  }
+}
+
 // M16a: guard view untuk operasi tulis
 function assertNotView(meta: CollectionMeta): void {
   if (isViewCollection(meta)) {
@@ -363,6 +375,24 @@ export function createRecord(
   const fmap = fieldMap(meta);
   assertNotView(meta); // M16a: view read-only
 
+  // ── M34: Custom document ID ──
+  // Ekstrak 'id' dari data kalau ada (untuk kompatibilitas Appwrite/PocketBase migration).
+  // ID valid: 1-64 karakter, [a-zA-Z0-9_-] (mirip constraint Appwrite + PocketBase).
+  let customId: string | undefined;
+  if (data.id !== undefined && data.id !== null) {
+    if (typeof data.id !== 'string' || !/^[a-zA-Z0-9_-]{1,64}$/.test(data.id)) {
+      throw new Error(`Invalid document ID '${String(data.id)}': must be 1-64 characters of [a-zA-Z0-9_-]`);
+    }
+    // Cek duplikat SEBELUM validasi field lain (fail fast, ala UNIQUE constraint D1)
+    const existing = db.prepare(`SELECT id FROM "${collection}" WHERE id = ?`).get(data.id);
+    if (existing) {
+      throw new DuplicateIdError(collection, data.id);
+    }
+    customId = data.id;
+    delete data.id; // Hapus dari data agar tidak divalidasi sebagai field skema
+  }
+  // M34: tidak dipakai — customId dicek langsung di INSERT di bawah
+
   // ── M11: createRule dievaluasi terhadap DATA yang dikirim ──
   // Hanya untuk END USER — admin (reqCtx undefined) selalu bypass.
   const cRule = ruleFor(meta, 'createRule');
@@ -406,7 +436,8 @@ export function createRecord(
   }
 
   // ── Bangun INSERT secara dinamis dari skema ──
-  const id = preGeneratedId ?? generateId();
+  // M34: customId diutamakan → preGeneratedId (multipart) → auto-generate
+  const id = customId ?? preGeneratedId ?? generateId();
   const columns: string[] = ['id'];
   const placeholders: string[] = ['?'];
   const params: unknown[] = [id];

@@ -27,6 +27,7 @@ import { createWebhookRouter } from './api/webhookRoutes.js';
 import { createStorageAdminRouter } from './api/storageAdminRoutes.js';
 import { createBackupRouter } from './api/backupRoutes.js';
 import { createMonitorRouter } from './api/monitorRoutes.js';
+import { createBucketRouter } from './api/bucketRoutes.js';
 import { backupScheduler } from './core/backupScheduler.js';
 import { monitorScheduler } from './core/monitor.js';
 import { startMetricsFlusher } from './core/metrics.js';
@@ -90,6 +91,7 @@ async function main(): Promise<void> {
   router.merge(createStorageAdminRouter()); // M30: storage backend config (local/S3)
   router.merge(createBackupRouter()); // M32: backup config + trigger + list + download
   router.merge(createMonitorRouter()); // M33: monitoring/alerting (config + alerts + test)
+  router.merge(createBucketRouter()); // M35: bucket storage (decoupled upload)
 
   // Buat HTTP server. Perhatikan betapa tipisnya lapisan ini:
   // server = terima koneksi → serahkan ke router → router memanggil handler.

@@ -1,8 +1,8 @@
 # 🥊 Perbandingan Komprehensif BaaS Open-Source: BaseForge vs PocketBase vs Supabase vs Appwrite
 
-> Analisis teknis, perbandingan fitur per modul, dan evaluasi operasional *self-hosted* — diperbarui setelah BaseForge menyelesaikan **M00–M33** (M33: Monitoring/Alerting, M32: Scheduled Backup, M31: OAuth ×7, M30: S3 Storage, M29: Vector Search, M28: Webhooks+CLI, M27: MFA/TOTP, M26: API Keys, M25: $http, M24: Metrics, M23: Email).
+> Analisis teknis, perbandingan fitur per modul, dan evaluasi operasional *self-hosted* — diperbarui setelah BaseForge menyelesaikan **M00–M39** (gelombang terbaru: M39 Cron Timezone IANA, M38 Delete Event Full Payload, M37 SDK 401 Auto-Refresh, M36 SSE Auto-Reconnect, M35 Bucket Storage, M34 Custom Document ID — enam gap audit kesiapan sebagai backend WekanzDashboard; sebelumnya M33 Monitoring, M32 Backup, M31 OAuth ×7, M30 S3, M29 Vector, M28 Webhooks+CLI, M27 MFA, M26 API Keys, M25 $http, M24 Metrics, M23 Email).
 >
-> **Angka terverifikasi 2026-09-17:** `npm test` = **464/464 tests hijau** (27 suite, 51 file, 94 detik); RAM idle server diukur langsung dari proses yang berjalan = **~181 MB working set** (node.exe, mode dev `tsx`). Pesaing dibandingkan pada **versi open-source / self-hosted terbaru**: PocketBase **v0.40.1** (Aug 2026), Supabase self-hosted **0.7.1** (Aug 2026, Postgres 17 + Envoy), Appwrite **2.2.0** (engine generasi-2, PostgreSQL default + ClickHouse).
+> **Angka terverifikasi 2026-09-17:** `npm test` = **502/502 tests hijau** (27 suite, 57 file test, 84 detik); RAM idle server diukur langsung dari proses yang berjalan = **~181 MB working set** (node.exe, mode dev `tsx`). Pesaing dibandingkan pada **versi open-source / self-hosted terbaru**: PocketBase **v0.40.1** (Aug 2026), Supabase self-hosted **0.7.1** (Aug 2026, Postgres 17 + Envoy), Appwrite **2.2.0** (engine generasi-2, PostgreSQL default + ClickHouse).
 
 ---
 
@@ -215,49 +215,51 @@
 | 41 | SDK TypeScript + Docs viewer in-product | M00/M24 |
 | 42 | Query lintas collection — join dinamis + N+1 solver | M12 |
 
-### ❌ 18 gap → 🗺️ Roadmap M34–M51 (milestone ke depan)
+### ❌ 18 gap → 🗺️ Roadmap M40–M57 (milestone ke depan)
 
 > 18 gap yang tersisa dipetakan menjadi milestone lanjutan dengan konvensi repo (satu milestone per pass, dikerjakan dengan `lanjut M##`). Urutan di bawah adalah **usulan prioritas** — quick wins dulu (pola lama tinggal dipakai ulang), proyek besar belakangan. Tiap milestone standalone dan urutannya bebas diacak. Menutup 18/18 → cakupan peta kompetitif 60/60 (100%).
+>
+> **Catatan penomoran (2026-09-17):** nomor **M34–M39 tidak dipakai di roadmap ini** — sudah terpakai dan **tuntas** untuk gelombang audit kesiapan backend WekanzDashboard (M34 Custom Document ID, M35 Bucket Storage, M36 SSE Auto-Reconnect, M37 401 Auto-Refresh, M38 Delete Event Full Payload, M39 Cron Timezone IANA — 6 fitur kesiapan-klien di luar peta 60-gap yang membuat BaseForge siap drop-in untuk aplikasi Appwrite-style). Roadmap kompetitif dilanjutkan dari M40. Ke-18 gap di bawah masih terbuka — tidak ada yang tertutup oleh gelombang audit tersebut.
 
 **Tahap 1 — Quick wins paritas Auth** (menutup 3 gap 🔴 + 2 gap 🟡, effort kecil):
 
 | Milestone | Judul | Dimiliki oleh | Prioritas | Effort | Reuse pola |
 |---|---|---|---|---|---|
-| **M34** | Magic link / passwordless login | PB, SB, AW | 🔴 Tinggi | Kecil | Token aksi sekali-pakai (M23) + mailer/Dev Outbox |
-| **M35** | Generic OAuth2/OIDC provider (Keycloak, Authentik — URL custom) | PB, SB | 🔴 Tinggi | Kecil | Satu entry `OAUTH_PROVIDER_DEFS` (pola M31) |
-| **M36** | Apple Sign-In penuh (ES256 JWT client secret dari private key) | PB, SB, AW | 🔴 Tinggi | Menengah | Entry generic M35 + signing ES256 via `node:crypto` |
-| **M37** | Anonymous auth (record guest → merge saat signup) | PB, SB, AW | 🟡 Menengah | Kecil | Auth collection + JWT (M09) |
-| **M38** | Impersonate user + daftar sesi per-user (revoke individual) | PB, AW | 🟡 Menengah | Kecil | Tabel `_auth_tokens` (M09) + user-admin routes |
+| **M40** | Magic link / passwordless login | PB, SB, AW | 🔴 Tinggi | Kecil | Token aksi sekali-pakai (M23) + mailer/Dev Outbox |
+| **M41** | Generic OAuth2/OIDC provider (Keycloak, Authentik — URL custom) | PB, SB | 🔴 Tinggi | Kecil | Satu entry `OAUTH_PROVIDER_DEFS` (pola M31) |
+| **M42** | Apple Sign-In penuh (ES256 JWT client secret dari private key) | PB, SB, AW | 🔴 Tinggi | Menengah | Entry generic M41 + signing ES256 via `node:crypto` |
+| **M43** | Anonymous auth (record guest → merge saat signup) | PB, SB, AW | 🟡 Menengah | Kecil | Auth collection + JWT (M09) |
+| **M44** | Impersonate user + daftar sesi per-user (revoke individual) | PB, AW | 🟡 Menengah | Kecil | Tabel `_auth_tokens` (M09) + user-admin routes |
 
 **Tahap 2 — Paritas inti menengah:**
 
 | Milestone | Judul | Dimiliki oleh | Prioritas | Effort | Reuse pola |
 |---|---|---|---|---|---|
-| **M39** | File token / signed URL expiring + presigned direct-upload S3 | PB, SB, AW | 🟡 Menengah | Menengah | SigV4 (M30) + token kedaluwarsa (M23) |
-| **M40** | Riwayat eksekusi function + log persisten | SB, AW | 🟡 Menengah | Menengah | Gate `runFunctionCode` (M18a) + tabel per-project |
-| **M41** | Audit log platform (siapa/apa/kapan) | SB, AW | 🟢 Opsional | Kecil | Instrumentasi router (M24) / trigger (M15b) |
-| **M42** | Import CSV | PB, SB | 🟢 Rendah | Kecil | `collectionJson` (M16c) |
-| **M43** | Batch API transaksional (mixed-op dalam satu request) | SB | 🟢 Opsional | Menengah | Transaksi ACID (M07) |
+| **M45** | File token / signed URL expiring + presigned direct-upload S3 | PB, SB, AW | 🟡 Menengah | Menengah | SigV4 (M30) + token kedaluwarsa (M23) |
+| **M46** | Riwayat eksekusi function + log persisten | SB, AW | 🟡 Menengah | Menengah | Gate `runFunctionCode` (M18a) + tabel per-project |
+| **M47** | Audit log platform (siapa/apa/kapan) | SB, AW | 🟢 Opsional | Kecil | Instrumentasi router (M24) / trigger (M15b) |
+| **M48** | Import CSV | PB, SB | 🟢 Rendah | Kecil | `collectionJson` (M16c) |
+| **M49** | Batch API transaksional (mixed-op dalam satu request) | SB | 🟢 Opsional | Menengah | Transaksi ACID (M07) |
 
 **Tahap 3 — Ops & DX:**
 
 | Milestone | Judul | Dimiliki oleh | Prioritas | Effort | Reuse pola |
 |---|---|---|---|---|---|
-| **M44** | Migrasi framework file-based (schema → file di VCS + replay) | PB, SB | 🟢 Opsional | Menengah | Schema-as-data (M03): dump → replay |
-| **M45** | Auto HTTPS — ACME bawaan atau standarisasi Caddy | PB | 🟢 Opsional | Menengah | Docs deployment + pola systemd user service |
-| **M46** | SDK mobile (mulai satu: Flutter atau Kotlin) | PB, SB, AW | 🟡 Menengah | Menengah per SDK | REST reference (`docs/api-reference.md`) |
-| **M47** | Phone/SMS OTP (Twilio) | AW | 🟢 Niche | Kecil | `$http.send` (M25) + token (M23) |
+| **M50** | Migrasi framework file-based (schema → file di VCS + replay) | PB, SB | 🟢 Opsional | Menengah | Schema-as-data (M03): dump → replay |
+| **M51** | Auto HTTPS — ACME bawaan atau standarisasi Caddy | PB | 🟢 Opsional | Menengah | Docs deployment + pola systemd user service |
+| **M52** | SDK mobile (mulai satu: Flutter atau Kotlin) | PB, SB, AW | 🟡 Menengah | Menengah per SDK | REST reference (`docs/api-reference.md`) |
+| **M53** | Phone/SMS OTP (Twilio) | AW | 🟢 Niche | Kecil | `$http.send` (M25) + token (M23) |
 
 **Tahap 4 — Proyek besar / strategis:**
 
 | Milestone | Judul | Dimiliki oleh | Prioritas | Effort | Reuse pola |
 |---|---|---|---|---|---|
-| **M48** | Push notification (FCM/APNs) | AW | 🟢 Niche | Besar | Baru — protokol FCM/APNs |
-| **M49** | Presence + WebSocket dua arah | SB, AW | 🟢 Opsional | Besar | Upgrade SSE hub (M13) ke WS |
-| **M50** | Multi-node / replikasi HA (ala LiteFS) | PB, SB | 🟡 Menengah | Besar | Baru — layer replikasi SQLite |
-| **M51** | GraphQL API | SB, AW | 🟡 Menengah | Besar | Query AST (M04) sebagai fondasi resolver |
+| **M54** | Push notification (FCM/APNs) | AW | 🟢 Niche | Besar | Baru — protokol FCM/APNs |
+| **M55** | Presence + WebSocket dua arah | SB, AW | 🟢 Opsional | Besar | Upgrade SSE hub (M13) ke WS |
+| **M56** | Multi-node / replikasi HA (ala LiteFS) | PB, SB | 🟡 Menengah | Besar | Baru — layer replikasi SQLite |
+| **M57** | GraphQL API | SB, AW | 🟡 Menengah | Besar | Query AST (M04) sebagai fondasi resolver |
 
-> **Catatan urutan:** M35 → M36 berurutan paling efisien — setelah entry generic OIDC ada, Apple tinggal generator ES256. M34 berdiri sendiri. M39 menggabungkan dua fondasi yang sudah ada (SigV4 M30 + expiring token M23).
+> **Catatan urutan:** M41 → M42 berurutan paling efisien — setelah entry generic OIDC ada, Apple tinggal generator ES256. M40 berdiri sendiri. M45 menggabungkan dua fondasi yang sudah ada (SigV4 M30 + expiring token M23).
 
 ---
 
@@ -313,7 +315,7 @@ Mau BaaS lengkap (MFA + vector + webhooks + CLI + metrics + monitoring + S3 + $h
 
 **Appwrite masih unggul di:** Messaging (email/SMS/push via provider), 13+ runtime functions (termasuk Rust), Sites (hosting statis), VectorsDB dengan embedding model bawaan (di Cloud), Presences, Teams/roles, 30+ OAuth.
 
-**Cakupan fitur BaseForge: 42 dari 60 fitur kompetitif yang dipetakan (70%)** — dari 38/53 (72%) versi M29. Persentase turun sedikit karena peta fitur diperluas (schemaless DB, email policies, chunked upload, presence, monitoring pesaing ikut dihitung), bukan karena fitur berkurang: **+4 fitur inti baru (S3, backup terjadwal, monitoring, OAuth ×7) dalam M30–M33.** Menyelesaikan Tahap 1 roadmap (M34–M38) saja menutup 5 gap prioritas-tinggi → **47/60 (78%)**; seluruh M34–M51 tuntas → **60/60 (100%)**.
+**Cakupan fitur BaseForge: 42 dari 60 fitur kompetitif yang dipetakan (70%)** — dari 38/53 (72%) versi M29. Persentase turun sedikit karena peta fitur diperluas (schemaless DB, email policies, chunked upload, presence, monitoring pesaing ikut dihitung), bukan karena fitur berkurang: **+4 fitur inti baru (S3, backup terjadwal, monitoring, OAuth ×7) dalam M30–M33.** Di luar peta 60-gap, gelombang audit WekanzDashboard (M34–M39) menambah 6 fitur kesiapan-klien (custom document ID, bucket storage, SSE auto-reconnect, 401 auto-refresh, delete event full payload, cron timezone) — kategori "drop-in readiness" yang membuat aplikasi gaya Appwrite (client SDK + session + attachment) bisa berjalan tanpa rombak arsitektur. Menyelesaikan Tahap 1 roadmap (M40–M44) saja menutup 5 gap prioritas-tinggi → **47/60 (78%)**; seluruh M40–M57 tuntas → **60/60 (100%)**.
 
 ---
 

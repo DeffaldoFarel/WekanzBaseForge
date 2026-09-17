@@ -10,3 +10,6 @@ data/
 dashboard/.next/
 dashboard/out/
 *.tsbuildinfo
+
+# Local safety backups from cleanup procedures (data-*-backup-*.tar.gz)
+data-*-backup-*.tar.gz

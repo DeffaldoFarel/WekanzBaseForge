@@ -44,7 +44,7 @@ BaseForge (1 instalasi)
 | Multipart (M14, M18c) | `@fastify/busboy` | Streaming, memory-safe untuk upload file |
 | Functions (M15, M18a) | `isolated-vm` | Isolate V8 sungguhan, memory cap & async timeout |
 | Rate Limiter (M18d) | `ioredis` + Lua (fallback memory) | Atomic fixed-window, persistent, multi-instance ready |
-| Test | `node:test` + `tsx` | Test runner bawaan Node, 464 tests |
+| Test | `node:test` + `tsx` | Test runner bawaan Node, 502 tests |
 
 ## 🚀 Quick Start
 
@@ -88,7 +88,7 @@ Buka browser ke **http://localhost:7701**:
 ### 4. Menjalankan Test Suite
 ```bash
 npm test
-# Menjalankan 464 unit & integration tests (semua suite hijau)
+# Menjalankan 502 unit & integration tests (semua suite hijau)
 ```
 
 ## 📚 Dokumentasi Lengkap
@@ -103,8 +103,8 @@ Untuk panduan mendalam tentang penggunaan BaseForge sebagai BaaS (Backend-as-a-S
 * ⚡ [**Serverless Functions, Database Triggers, & Scheduler Cron**](docs/functions.md)
 * 📡 [**Realtime Subscriptions (Server-Sent Events)**](docs/realtime.md)
 * 🖥️ [**Panduan Deployment Produksi (Linux Systemd, Caddy HTTPS, & Redis)**](docs/deployment.md)
-* 🧠 [**Jurnal Belajar Arsitektur (Milestone M00 – M33)**](docs/learnings/README.md)
-* 🥊 [**Perbandingan BaaS + Roadmap M34–M51 (vs PocketBase, Supabase, Appwrite)**](COMPARISON.md)
+* 🧠 [**Jurnal Belajar Arsitektur (Milestone M00 – M39)**](docs/learnings/README.md)
+* 🥊 [**Perbandingan BaaS + Roadmap M40–M57 (vs PocketBase, Supabase, Appwrite)**](COMPARISON.md)
 
 ## 🗺️ Roadmap (per milestone)
 
@@ -186,7 +186,7 @@ Untuk panduan mendalam tentang penggunaan BaseForge sebagai BaaS (Backend-as-a-S
 
 > Prinsip M18: single-gate module membuat swap tanpa mengubah satu pun route
 > handler; `scrypt node:crypto`, `node:sqlite`, SSE, cron parser TIDAK diganti
-> (sudah production-grade). 464 test hijau.
+> (sudah production-grade). 472 test hijau.
 
 ### 🔐 Auth (per project) — ✅ FASE SELESAI (email/password + OAuth2 + email service)
 - [x] M08 — Password hashing (scrypt) ✅
@@ -222,6 +222,11 @@ Untuk panduan mendalam tentang penggunaan BaseForge sebagai BaaS (Backend-as-a-S
       SSRF guard (private/loopback/metadata IP diblok), redirect manual
       re-validated, timeout per-request, response cap 1MB, runner async
       (await) + wall-clock timeout ganda. 390 test.
+- [x] M39 — Cron timezone IANA ✅ — `cronMatchesInTimezone` via
+      `Intl.DateTimeFormat` (ICU bawaan Node — DST-aware, zero dependency,
+      bukan offset hard-coded), field `timezone` per-function di store +
+      API create/PATCH dengan validasi 2 lapis, default UTC deterministik
+      (cron = kontrak eksplisit, tidak tergantung TZ mesin)
 
 ### 📁 Storage (per project)
 - [x] M14a — Upload/serving per project ✅ (multipart dari nol + field file + serving aman)
@@ -230,6 +235,10 @@ Untuk panduan mendalam tentang penggunaan BaseForge sebagai BaaS (Backend-as-a-S
 - [x] M30 — S3/R2 storage backend ✅ — AWS SigV4 dari nol via node:crypto
       (ZERO dependency baru), path-style addressing, StorageAdapter
       lokal/S3, thumbnail tetap cache lokal, mock S3 server untuk test
+- [x] M35 — Bucket storage decoupled ✅ — 5 endpoint (upload multipart →
+      fileId, serve public + Cache-Control, list milik sendiri, delete
+      owner/admin), determinate fileId = overwrite (idempoten migrasi ala
+      Appwrite), metadata `uploadedBy`, SDK `getBucketUrl()`
 
 ### 📡 Tambahan
 - [x] M13 — Realtime subscriptions (SSE ala PocketBase) ✅
@@ -238,13 +247,29 @@ Untuk panduan mendalam tentang penggunaan BaseForge sebagai BaaS (Backend-as-a-S
       instrumentasi router (write/end wrap), atribusi dari path (public/admin/files),
       endpoint stats 14 hari + total, kartu & bar chart di dashboard overview
 
-### 🗺️ Rencana ke depan (M34–M51)
+### 🔌 Kesiapan backend WekanzDashboard — gap audit (M34–M39) ✅ FASE TUNTAS
+- [x] M34 — Custom document ID ✅ — `data.id` opsional saat create
+      (`[a-zA-Z0-9_-]{1,64}`), fail-fast duplikat → 409 DOCUMENT_ID_TAKEN,
+      rantai resolusi `customId ?? preGeneratedId ?? generateId()`, SDK
+      `createWithId()` — kompatibel migrasi Appwrite/PocketBase
+- [x] M36 — SSE auto-reconnect di SDK ✅ — exponential backoff 1s→30s cap,
+      re-sync semua subscription aktif ke clientId baru, hook `onReconnect`
+      (re-fetch initial data), guard `manuallyClosed` (unsubscribe ≠ drop)
+- [x] M37 — 401 auto-refresh di SDK ✅ — singleton refresh lock (N request
+      401 bersamaan = 1 POST refresh), retry original request, refresh
+      endpoint excluded (anti infinite loop), gagal → SESSION_EXPIRED
+- [x] M38 — Delete event full payload ✅ — snapshot sebelum DELETE dikirim
+      konsisten ke realtime + webhook + trigger (fallback `{id}`)
+
+### 🗺️ Rencana ke depan (M40–M57)
 
 > 18 milestone berikutnya (quick wins auth → paritas inti → ops & DX → proyek
 > besar) kini punya **satu rumah saja: [COMPARISON.md](COMPARISON.md) §Roadmap
-> M34–M51** — dikelola di sana agar tidak ada dua sumber roadmap yang saling
-> bohong. Selesainya Tahap 1 (M34–M38) → cakupan kompetitif 47/60; semua
-> tuntas → 60/60.
+> M40–M57** — dikelola di sana agar tidak ada dua sumber roadmap yang saling
+> bohong. Selesainya Tahap 1 (M40–M44) → cakupan kompetitif 47/60; semua
+> tuntas → 60/60. Nomor bergeser dari rencana lama karena **M34–M39 telah
+> terpakai (dan tuntas) untuk gelombang audit kesiapan WekanzDashboard**
+> di section 🔌 di atas.
 
 
 ## 📁 Struktur

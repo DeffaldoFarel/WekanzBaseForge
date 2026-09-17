@@ -14,7 +14,7 @@
 // ============================================================================
 
 import { listFunctions, StoredFunction } from './functionsStore.js';
-import { cronMatches } from './cronParser.js';
+import { cronMatches, cronMatchesInTimezone } from './cronParser.js';
 import { runFunctionCode, FunctionRunResult } from './functionRunner.js';
 import type { DatabaseSync } from 'node:sqlite';
 
@@ -75,7 +75,13 @@ class Scheduler {
         const runKey = `${fn.id}:${minuteKey}`;
         if (this.lastRunMinute.has(runKey)) continue;
 
-        if (!cronMatches(fn.schedule, now)) continue;
+        // M39: evaluasi cron dalam timezone function (default UTC)
+        // fn.timezone = IANA name (e.g. "Asia/Jakarta") — Intl.DateTimeFormat
+        // handle DST otomatis, tidak perlu hard-coded offset
+        const matches = fn.timezone && fn.timezone !== 'UTC'
+          ? cronMatchesInTimezone(fn.schedule, now, fn.timezone)
+          : cronMatches(fn.schedule, now);
+        if (!matches) continue;
 
         // Tandai SEBELUM run — kalau crash, tetap tidak diulang menit ini
         this.lastRunMinute.set(runKey, minuteKey);

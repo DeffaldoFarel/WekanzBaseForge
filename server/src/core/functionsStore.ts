@@ -11,7 +11,7 @@
 
 import { DatabaseSync } from 'node:sqlite';
 import { generateId } from './router.js';
-import { parseCron } from './cronParser.js';
+import { parseCron, validateTimezone } from './cronParser.js';
 
 export interface FunctionTrigger {
   collection: string; // nama collection yang dipantau
@@ -27,6 +27,7 @@ export interface StoredFunction {
   triggers: FunctionTrigger[]; // M15b: kosong = hanya callable
   schedule: string | null; // M15c: cron expression (null = bukan scheduled)
   httpAllow: string[]; // M25: allowlist host utk $http (kosong = $http off)
+  timezone: string; // M39: IANA timezone utk schedule (default "UTC")
   created: string;
   updated: string;
 }
@@ -40,6 +41,7 @@ interface FunctionRow {
   triggers: string | null; // JSON string — M15b
   schedule: string | null; // M15c
   http_allow: string | null; // JSON string — M25
+  timezone: string | null; // M39
   created: string;
   updated: string;
 }
@@ -80,6 +82,11 @@ export function initFunctionsTable(db: DatabaseSync): void {
   if (!cols.some((c) => c.name === 'http_allow')) {
     db.exec(`ALTER TABLE _functions ADD COLUMN http_allow TEXT NOT NULL DEFAULT '[]'`);
   }
+
+  // M39: kolom timezone (IANA name, default "UTC")
+  if (!cols.some((c) => c.name === 'timezone')) {
+    db.exec(`ALTER TABLE _functions ADD COLUMN timezone TEXT NOT NULL DEFAULT 'UTC'`);
+  }
 }
 
 function rowToFunction(row: FunctionRow): StoredFunction {
@@ -106,6 +113,7 @@ function rowToFunction(row: FunctionRow): StoredFunction {
     triggers,
     schedule: row.schedule ?? null,
     httpAllow,
+    timezone: row.timezone ?? 'UTC',
     created: row.created,
     updated: row.updated,
   };
@@ -145,7 +153,7 @@ function validateHttpAllow(list: string[] | undefined | null): string[] {
 
 export function createFunction(
   db: DatabaseSync,
-  def: { name: string; code: string; enabled?: boolean; timeoutMs?: number; triggers?: FunctionTrigger[]; schedule?: string | null; httpAllow?: string[] }
+  def: { name: string; code: string; enabled?: boolean; timeoutMs?: number; triggers?: FunctionTrigger[]; schedule?: string | null; httpAllow?: string[]; timezone?: string }
 ): StoredFunction {
   if (!isValidFunctionName(def.name)) {
     throw new Error(
@@ -178,6 +186,10 @@ export function createFunction(
     }
   }
 
+  // M39: validasi timezone (IANA) — default UTC
+  const timezone = def.timezone?.trim() || 'UTC';
+  validateTimezone(timezone); // lempar kalau invalid
+
   const existing = getFunctionByName(db, def.name);
   if (existing) {
     throw new Error(`Function '${def.name}' already exists`);
@@ -185,8 +197,8 @@ export function createFunction(
 
   const id = generateId();
   db.prepare(
-    `INSERT INTO _functions (id, name, code, enabled, timeout_ms, triggers, schedule, http_allow) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(id, def.name, def.code, def.enabled === false ? 0 : 1, timeoutMs, JSON.stringify(triggers), schedule, JSON.stringify(httpAllow));
+    `INSERT INTO _functions (id, name, code, enabled, timeout_ms, triggers, schedule, http_allow, timezone) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(id, def.name, def.code, def.enabled === false ? 0 : 1, timeoutMs, JSON.stringify(triggers), schedule, JSON.stringify(httpAllow), timezone);
 
   return getFunctionByName(db, def.name)!;
 }
@@ -231,7 +243,7 @@ export function getFunctionByName(db: DatabaseSync, name: string): StoredFunctio
 export function updateFunction(
   db: DatabaseSync,
   name: string,
-  updates: { code?: string; enabled?: boolean; timeoutMs?: number; triggers?: FunctionTrigger[]; schedule?: string | null; httpAllow?: string[] }
+  updates: { code?: string; enabled?: boolean; timeoutMs?: number; triggers?: FunctionTrigger[]; schedule?: string | null; httpAllow?: string[]; timezone?: string }
 ): StoredFunction | undefined {
   const existing = getFunctionByName(db, name);
   if (!existing) return undefined;
@@ -265,6 +277,14 @@ export function updateFunction(
     }
   }
 
+  // M39: timezone — valid IANA name (null = tidak diubah)
+  let timezoneValue: string | null | undefined;
+  if (updates.timezone !== undefined) {
+    const tz = updates.timezone?.trim() || 'UTC';
+    validateTimezone(tz);
+    timezoneValue = tz;
+  }
+
   db.prepare(
     `UPDATE _functions SET
        code = COALESCE(?, code),
@@ -273,6 +293,7 @@ export function updateFunction(
        triggers = COALESCE(?, triggers),
        schedule = ?,
        http_allow = COALESCE(?, http_allow),
+       timezone = COALESCE(?, timezone),
        updated = strftime('%Y-%m-%dT%H:%M:%fZ','now')
      WHERE name = ?`
   ).run(
@@ -282,6 +303,7 @@ export function updateFunction(
     triggersJson,
     scheduleValue !== undefined ? scheduleValue : existing.schedule, // undefined = tidak disentuh
     httpAllowJson,
+    timezoneValue ?? null,
     name
   );
 

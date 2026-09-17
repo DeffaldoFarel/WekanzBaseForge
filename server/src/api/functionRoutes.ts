@@ -63,6 +63,7 @@ export function createFunctionRouter(): Router {
         triggers?: { collection: string; actions: string[] }[];
         schedule?: string | null;
         httpAllow?: string[];
+        timezone?: string;
       };
       if (!body.name || !body.code) {
         res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'name and code are required' } });
@@ -93,6 +94,7 @@ export function createFunctionRouter(): Router {
         triggers,
         schedule: body.schedule,
         httpAllow: body.httpAllow, // M25
+        timezone: body.timezone, // M39
       });
       res.status(201).json({ function: fn });
     } catch (err) {
@@ -137,6 +139,7 @@ export function createFunctionRouter(): Router {
         triggers?: { collection: string; actions: string[] }[];
         schedule?: string | null;
         httpAllow?: string[];
+        timezone?: string;
       };
       // Validasi trigger collection terhadap skema project
       let triggers;
@@ -162,6 +165,7 @@ export function createFunctionRouter(): Router {
         triggers,
         schedule: body.schedule,
         httpAllow: body.httpAllow, // M25: undefined = tidak disentuh
+        timezone: body.timezone, // M39: undefined = tidak disentuh
       });
       if (!fn) {
         res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Function not found' } });

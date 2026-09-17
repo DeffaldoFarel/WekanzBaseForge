@@ -110,3 +110,100 @@ export function cronMatches(expr: string, date: Date): boolean {
     fields.daysOfWeek.has(date.getDay())
   );
 }
+
+// ─── M39: TIMEZONE SUPPORT ─────────────────────────────────────────────────────
+// Konversi UTC timestamp ke waktu lokal zona IANA (e.g. "Asia/Jakarta"),
+// lalu evaluasi cron terhadap waktu lokal tsb.
+//
+// Implementasi: Intl.DateTimeFormat dengan timeZone option — ini CARA BENAR
+// (bukan hard-coded offset) karena menangani DST (daylight saving time).
+//
+// Kenapa bukan offset hard-coded? Karena "America/New_York" = UTC-5 di winter
+// tapi UTC-4 di summer (DST). Intl.DateTimeFormat handle ini otomatis.
+
+const VALID_TZ_RE = /^[A-Za-z_\/+-]+(\/[A-Za-z_+-]+)*$/;
+
+/**
+ * Validasi nama timezone IANA. Lempar Error kalau invalid.
+ * Format: "Asia/Jakarta", "America/New_York", "UTC", "Etc/UTC"
+ */
+export function validateTimezone(tz: string): void {
+  if (!VALID_TZ_RE.test(tz)) {
+    throw new Error(`Invalid timezone format: '${tz}' (expected IANA name like "Asia/Jakarta")`);
+  }
+  try {
+    // Test apakah Intl menerima timezone ini
+    new Intl.DateTimeFormat('en-US', { timeZone: tz });
+  } catch {
+    throw new Error(`Unknown timezone: '${tz}' (not an IANA timezone name)`);
+  }
+}
+
+/**
+ * Ambil komponen waktu lokal dalam timezone IANA tertentu.
+ * Return: { minute, hour, dayOfMonth, month, dayOfWeek } — untuk evaluasi cron.
+ */
+function getTimezoneFields(date: Date, timeZone: string): {
+  minute: number; hour: number; dayOfMonth: number; month: number; dayOfWeek: number;
+} {
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    minute: 'numeric',
+    hour: 'numeric',
+    day: 'numeric',
+    month: 'numeric',
+    weekday: 'short',
+    hour12: false,
+  });
+
+  // Parse parts dari formatter
+  const parts = fmt.formatToParts(date);
+  const get = (type: string): number => {
+    const part = parts.find((p) => p.type === type);
+    return parseInt(part?.value ?? '0', 10);
+  };
+
+  const weekdayMap: Record<string, number> = {
+    Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6,
+  };
+  const weekdayPart = parts.find((p) => p.type === 'weekday');
+  const dayOfWeek = weekdayMap[weekdayPart?.value ?? ''] ?? 0;
+
+  return {
+    minute: get('minute'),
+    hour: get('hour'),
+    dayOfMonth: get('day'),
+    month: get('month'),
+    dayOfWeek,
+  };
+}
+
+/**
+ * M39: Apakah timestamp cocok dengan cron dalam timezone tertentu?
+ *
+ * @param expr Cron expression 5-field
+ * @param date UTC timestamp
+ * @param timeZone IANA timezone name (default: UTC)
+ */
+export function cronMatchesInTimezone(
+  expr: string,
+  date: Date,
+  timeZone: string = 'UTC'
+): boolean {
+  let fields: CronFields;
+  try {
+    fields = parseCron(expr);
+  } catch {
+    return false; // fail-safe
+  }
+
+  const tz = getTimezoneFields(date, timeZone);
+
+  return (
+    fields.minutes.has(tz.minute) &&
+    fields.hours.has(tz.hour) &&
+    fields.daysOfMonth.has(tz.dayOfMonth) &&
+    fields.months.has(tz.month) &&
+    fields.daysOfWeek.has(tz.dayOfWeek)
+  );
+}

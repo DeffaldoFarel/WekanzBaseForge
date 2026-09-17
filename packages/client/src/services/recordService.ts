@@ -94,7 +94,9 @@ export class RecordService extends BaseService {
   }
 
   /**
-   * Membuat record baru (menerima JSON object atau FormData untuk upload file)
+   * Membuat record baru (menerima JSON object atau FormData untuk upload file).
+   * M34: kalau data punya field `id`, server akan pakai itu sebagai document ID
+   * (untuk migration dari Appwrite/PocketBase yang punya existing IDs).
    */
   async create<T = RecordModel>(data: Record<string, unknown> | FormData): Promise<T> {
     const res = await this.request<{ record: T }>(this.basePath, {
@@ -102,6 +104,17 @@ export class RecordService extends BaseService {
       body: data as BodyInit,
     });
     return res.record;
+  }
+
+  /**
+   * M34: Membuat record dengan custom document ID.
+   * ID harus 1-64 karakter [a-zA-Z0-9_-]. Duplikat → 409 DOCUMENT_ID_TAKEN.
+   */
+  async createWithId<T = RecordModel>(
+    id: string,
+    data: Record<string, unknown>
+  ): Promise<T> {
+    return this.create<T>({ ...data, id });
   }
 
   /**

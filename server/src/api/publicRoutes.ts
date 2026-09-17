@@ -22,6 +22,7 @@ import {
   updateRecord,
   deleteRecord,
   ViewWriteError,
+  DuplicateIdError,
   multipartToRecordData,
   cleanupReplacedFiles,
   cleanupAllRecordFiles,
@@ -91,6 +92,10 @@ function handleErrorPublic(res: {
   }
   if (err instanceof ViewWriteError) {
     res.status(400).json({ error: { code: 'VIEW_READ_ONLY', message: err.message } });
+    return;
+  }
+  if (err instanceof DuplicateIdError) {
+    res.status(409).json({ error: { code: 'DOCUMENT_ID_TAKEN', message: err.message } });
     return;
   }
   const message = err instanceof Error ? err.message : 'Internal error';
@@ -413,6 +418,12 @@ export function createPublicRouter(): Router {
       const db = getProjectDb(req.params.pid);
       const reqCtx = await resolveEndUserCtx(req, db, { pid: req.params.pid, write: true });
       const meta = getCollectionByName(db, req.params.name);
+
+      // M38: snapshot record SEBELUM delete (untuk realtime/webhook/trigger payload)
+      // Tanpa ini, SSE delete event hanya berisi {id} — subscriber yang
+      // filter by userId tidak bisa match (userId tidak ada di payload).
+      const snapshot = meta ? getRecord(db, req.params.name, req.params.id) : null;
+
       const ok = deleteRecord(db, req.params.name, req.params.id, reqCtx);
       if (!ok) {
         res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Record not found' } });
@@ -420,18 +431,20 @@ export function createPublicRouter(): Router {
       }
       // M14: hapus file fisik (setelah DB sukses)
       if (meta) {
-        // M13: broadcast delete (record id terakhir yang diketahui subscriber)
-        realtimeHub.publish(db, meta, 'delete', { id: req.params.id } as Record<string, unknown>);
-        // M28: webhook outbound
+        // M38: broadcast delete dengan FULL record snapshot (bukan hanya {id})
+        // → subscriber bisa filter by userId, webhook punya context lengkap
+        const deletePayload = (snapshot ?? { id: req.params.id }) as Record<string, unknown>;
+        realtimeHub.publish(db, meta, 'delete', deletePayload);
+        // M28: webhook outbound (dengan full snapshot)
         fireWebhooks(db, {
           projectId: req.params.pid,
           action: 'delete',
           collection: req.params.name,
-          record: { id: req.params.id },
+          record: deletePayload,
         });
-        // M15b: trigger delete — record yang dikirim hanya { id }
-        fireTriggersSafe(db, req.params.name, 'delete', { id: req.params.id });
-        // record sudah terhapus — kita tak punya isinya; deleteRecordFiles by prefix
+        // M15b: trigger delete (dengan full snapshot)
+        fireTriggersSafe(db, req.params.name, 'delete', deletePayload);
+        // record sudah terhapus — file cleanup by prefix
         await deleteRecordFiles(req.params.pid, req.params.id);
       }
       res.json({ success: true });

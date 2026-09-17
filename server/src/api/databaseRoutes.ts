@@ -35,6 +35,7 @@ import {
 } from '../core/records.js';
 import { fireWebhooks } from '../core/webhooks.js';
 import { fireTriggersSafe } from '../core/triggerExecutor.js';
+import { DuplicateIdError } from '../core/records.js';
 import type { CollectionDefinition, IndexDefinition } from '../core/schema.js';
 import type { CollectionRules } from '../core/rules.js';
 import type { FieldDefinition } from '../core/fieldTypes.js';
@@ -320,18 +321,25 @@ export function createDatabaseRouter(): Router {
   router.delete('/api/admin/projects/:pid/collections/:name/records/:id', requireAdmin, (req, res) => {
     try {
       const db = getProjectDb(req.params.pid);
+
+      // M38: snapshot SEBELUM delete (untuk webhook/trigger full payload)
+      const snapshot = snapshotRecord(db, req.params.name, req.params.id);
+
       const deleted = deleteRecord(db, req.params.name, req.params.id);
       if (!deleted) {
         res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Record not found' } });
         return;
       }
+
+      // M38: full payload (bukan hanya {id}) — webhook + trigger dapat context
+      const deletePayload = (snapshot ?? { id: req.params.id }) as Record<string, unknown>;
       fireWebhooks(db, {
         projectId: req.params.pid,
         action: 'delete',
         collection: req.params.name,
-        record: { id: req.params.id },
+        record: deletePayload,
       });
-      fireTriggersSafe(db, req.params.name, 'delete', { id: req.params.id });
+      fireTriggersSafe(db, req.params.name, 'delete', deletePayload);
       res.json({ success: true });
     } catch (err) {
       handleError(res, err);
@@ -442,6 +450,12 @@ export function createDatabaseRouter(): Router {
 // Helper: petakan error ke HTTP response yang sesuai
 function handleError(res: { status: (c: number) => { json: (d: unknown) => void } }, err: unknown): void {
   const message = err instanceof Error ? err.message : 'Unknown error';
+
+  // M34: DuplicateIdError → 409 Conflict (bukan 400)
+  if (err instanceof DuplicateIdError) {
+    res.status(409).json({ error: { code: 'DOCUMENT_ID_TAKEN', message } });
+    return;
+  }
 
   // Error "tidak ditemukan"
   if (/not found/i.test(message)) {
