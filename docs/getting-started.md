@@ -90,6 +90,20 @@ ADMIN_PASSWORD=password-rahasia-anda
 # (Wajib diganti saat deploy ke server produksi)
 JWT_SECRET=rahasia-string-acak-dan-panjang
 
+# Secret Key untuk Enkripsi Client Secret OAuth2 & Password SMTP (M10/M23)
+# (Opsional — fallback ke JWT_SECRET jika kosong)
+# OAUTH_SECRET=rahasia-lain-acak-dan-panjang
+
+# SMTP Mail Service — Verifikasi Email & Reset Password (M23)
+# Tanpa konfigurasi ini, email masuk ke DEV OUTBOX (dashboard Settings → Outbox)
+# — link verifikasi/reset tetap berfungsi untuk development.
+# SMTP_HOST=smtp.gmail.com
+# SMTP_PORT=587
+# SMTP_USER=you@gmail.com
+# SMTP_PASS=app-password-dari-google
+# SMTP_SECURE=false
+# MAIL_FROM=BaseForge <no-reply@baseforge.local>
+
 # Redis URL untuk Rate Limiter (Opsional)
 # Kosongkan jika ingin menggunakan in-memory rate limiter bawaan
 # REDIS_URL=redis://127.0.0.1:6379
@@ -110,7 +124,26 @@ NEXT_PUBLIC_BASEFORGE_API=http://localhost:5100
 
 ---
 
-## 📁 5. Struktur Folder
+## 🧩 5. Fitur Opsional Pasca-Install
+
+### A. OAuth2 Social Login (Google / GitHub)
+1. Buat OAuth App di [Google Cloud Console](https://console.cloud.google.com/apis/credentials) atau [GitHub Developer Settings](https://github.com/settings/developers).
+2. Daftarkan Redirect URI yang ditampilkan di dashboard: **Project → Auth (sidebar) → copy Redirect URI**.
+3. Isi Client ID & Client Secret di halaman yang sama, lalu klik **Test Flow** untuk mencoba.
+4. Aplikasi Anda tinggal mengarahkan user ke `/api/p/{projectId}/auth/oauth/google/authorize` — detail alur ada di [API Reference § OAuth2](./api-reference.md).
+
+### B. Email Service (Verifikasi & Reset Password)
+1. Buka **Settings (ikon gear di navbar dashboard)**.
+2. Isi SMTP Host/Port/User/Password — atau set env `SMTP_HOST` dst.
+3. Klik **Send Test** untuk memverifikasi koneksi.
+4. Tanpa SMTP: semua email masuk **Dev Outbox** (tampilan di halaman yang sama) — link verifikasi & reset tetap bisa diklik untuk development.
+
+### C. Usage Statistics (Request & Bandwidth)
+Otomatis aktif — buka **Overview project** untuk melihat kartu statistik + grafik 14 hari. Endpoint API: `GET /api/admin/projects/{id}/stats`.
+
+---
+
+## 📁 6. Struktur Folder
 
 ```text
 WekanzBaseForge/
@@ -121,7 +154,7 @@ WekanzBaseForge/
 │   │   ├── auth/            ← Password hashing (scrypt), JWT (jose), rate limiter (ioredis)
 │   │   ├── core/            ← Database engine, query parser, schema, storage, V8 functions
 │   │   └── platform/        ← Registry multi-project & admin auth
-│   ├── tests/               ← 289 unit & integration automated tests
+│   ├── tests/               ← 363 unit & integration automated tests
 │   └── package.json
 ├── dashboard/               ← Admin UI Console (Next.js 15, React 19, Tailwind)
 │   ├── app/                 ← App router pages (login, projects, collections, auth, functions)
@@ -137,9 +170,9 @@ WekanzBaseForge/
 
 ---
 
-## 🧪 6. Menjalankan Automated Tests
+## 🧪 7. Menjalankan Automated Tests
 
-BaseForge memiliki test suite komprehensif berisi **289 pengujian otomatis** untuk memverifikasi keamanan SQL injection, isolasi data, transaksi WAL, pembatasan rate limit, dan sandbox eksekusi fungsi:
+BaseForge memiliki test suite komprehensif berisi **363 pengujian otomatis** untuk memverifikasi keamanan SQL injection, isolasi data, transaksi WAL, pembatasan rate limit, sandbox eksekusi fungsi, OAuth2 flow, email tokens, dan usage metrics:
 
 ```bash
 # Menjalankan seluruh test dari root

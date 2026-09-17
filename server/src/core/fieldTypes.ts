@@ -22,7 +22,8 @@ export type FieldType =
   | 'file'      // M14: file upload (nama file tersimpan; bytes di disk)
   | 'editor'    // M16b: rich text HTML (read-only di table view dashboard)
   | 'geoPoint'  // M16b: { lat, lng } — validasi range
-  | 'password'; // M16b: hash-only field (never returned)
+  | 'password'  // M16b: hash-only field (never returned)
+  | 'vector';   // M29: embedding array (JSON storage, similarity search)
 
 export interface FieldDefinition {
   name: string;
@@ -57,6 +58,8 @@ export interface FieldDefinition {
     exceptDomains?: string[];
     // password
     cost?: number;
+    // vector (M29)
+    dimensions?: number;
   };
 }
 
@@ -132,7 +135,7 @@ export function isSystemName(name: string): boolean {
  */
 export function fieldToSql(field: FieldDefinition): string {
   if (!isValidName(field.name)) {
-    throw new Error(`Invalid field name: '${field.name}' (hanya a-z, 0-9, _, diawali huruf)`);
+    throw new Error(`Invalid field name: '${field.name}' (only a-z, 0-9, _, must start with a letter)`);
   }
 
   const notNull = field.required ? ' NOT NULL' : '';
@@ -179,6 +182,11 @@ export function fieldToSql(field: FieldDefinition): string {
       // disimpan SEBAGAI HASH scrypt (M08 reuse). Nilai asli tidak pernah
       // tersimpan & tidak pernah dikembalikan (deserialize → undefined).
       return `${col} TEXT${notNull}`;
+    case 'vector':
+      // M29: embedding array — disimpan sebagai TEXT JSON `[0.1, 0.2, ...]`.
+      // Brute-force search di JS; swap ke sqlite-vec = kolom tetap JSON
+      // (vec0 virtual table dibuat terpisah oleh migration).
+      return `${col} TEXT${notNull}`;
     case 'select':
     case 'url':
       // B1: disimpan sebagai TEXT, validasi di aplikasi
@@ -208,18 +216,18 @@ export function validateValue(field: FieldDefinition, value: unknown): string | 
       if (typeof value !== 'string') return `Field '${field.name}' must be a string`;
       const min = field.options?.min;
       if (typeof min === 'number' && value.length < min) {
-        return `Field '${field.name}' minimal ${min} karakter (dapat ${value.length})`;
+        return `Field '${field.name}' must be at least ${min} characters (got ${value.length})`;
       }
       const max = field.options?.max;
       if (typeof max === 'number' && value.length > max) {
-        return `Field '${field.name}' maksimal ${max} karakter (dapat ${value.length})`;
+        return `Field '${field.name}' must be at most ${max} characters (got ${value.length})`;
       }
       const pattern = field.options?.pattern;
       if (pattern) {
         try {
           const re = new RegExp(pattern);
           if (!re.test(value)) {
-            return `Field '${field.name}' tidak cocok dengan pola regex /${pattern}/`;
+            return `Field '${field.name}' does not match the regex pattern /${pattern}/`;
           }
         } catch {
           // ignore pattern regex error
@@ -236,14 +244,14 @@ export function validateValue(field: FieldDefinition, value: unknown): string | 
         return `Field '${field.name}' must be a finite number`;
       const min = field.options?.min;
       if (typeof min === 'number' && value < min) {
-        return `Field '${field.name}' minimal ${min} (dapat ${value})`;
+        return `Field '${field.name}' must be >= ${min} (got ${value})`;
       }
       const max = field.options?.max;
       if (typeof max === 'number' && value > max) {
-        return `Field '${field.name}' maksimal ${max} (dapat ${value})`;
+        return `Field '${field.name}' must be <= ${max} (got ${value})`;
       }
       if (field.options?.noDecimal && !Number.isInteger(value)) {
-        return `Field '${field.name}' harus bilangan bulat (noDecimal)`;
+        return `Field '${field.name}' must be an integer (noDecimal)`;
       }
       return null;
     }
@@ -259,7 +267,7 @@ export function validateValue(field: FieldDefinition, value: unknown): string | 
       if (domain) {
         const only = field.options?.onlyDomains;
         if (Array.isArray(only) && only.length > 0 && !only.includes(domain)) {
-          return `Domain email '${domain}' tidak diizinkan (hanya: ${only.join(', ')})`;
+          return `Email domain '${domain}' is not allowed (allowed: ${only.join(', ')})`;
         }
         const except = field.options?.exceptDomains;
         if (Array.isArray(except) && except.length > 0 && except.includes(domain)) {
@@ -279,7 +287,7 @@ export function validateValue(field: FieldDefinition, value: unknown): string | 
         const host = u.hostname.toLowerCase();
         const only = field.options?.onlyDomains;
         if (Array.isArray(only) && only.length > 0 && !only.includes(host)) {
-          return `Host URL '${host}' tidak diizinkan (hanya: ${only.join(', ')})`;
+          return `URL host '${host}' is not allowed (allowed: ${only.join(', ')})`;
         }
         const except = field.options?.exceptDomains;
         if (Array.isArray(except) && except.length > 0 && except.includes(host)) {
@@ -297,14 +305,14 @@ export function validateValue(field: FieldDefinition, value: unknown): string | 
 
       if (isMulti) {
         if (!Array.isArray(value)) {
-          return `Field '${field.name}' harus berupa array (multi-select)`;
+          return `Field '${field.name}' must be an array (multi-select)`;
         }
         if (value.length > maxSelect) {
-          return `Field '${field.name}' melebihi maxSelect ${maxSelect} (dapat ${value.length})`;
+          return `Field '${field.name}' exceeds maxSelect ${maxSelect} (got ${value.length})`;
         }
         for (const item of value) {
           if (typeof item !== 'string' || (allowed.length > 0 && !allowed.includes(item))) {
-            return `Pilihan '${item}' tidak valid (hanya: ${allowed.join(', ')})`;
+            return `Value '${item}' is not valid (allowed: ${allowed.join(', ')})`;
           }
         }
         return null;
@@ -396,10 +404,10 @@ export function validateValue(field: FieldDefinition, value: unknown): string | 
         return `Field '${field.name}' must have numeric lat and lng`;
       }
       if (geo.lat < -90 || geo.lat > 90) {
-        return `Field '${field.name}'.lat harus antara -90 dan 90 (dapat ${geo.lat})`;
+        return `Field '${field.name}'.lat must be between -90 and 90 (got ${geo.lat})`;
       }
       if (geo.lng < -180 || geo.lng > 180) {
-        return `Field '${field.name}'.lng harus antara -180 dan 180 (dapat ${geo.lng})`;
+        return `Field '${field.name}'.lng must be between -180 and 180 (got ${geo.lng})`;
       }
       return null;
     }
@@ -407,8 +415,29 @@ export function validateValue(field: FieldDefinition, value: unknown): string | 
       // M16b: input = password plain dari user (akan di-hash saat serialize).
       // Validasi kekuatan minimum di sini (hash dilakukan di records.ts).
       if (typeof value !== 'string') return `Field '${field.name}' must be a string`;
-      if (value.length < 8) return `Field '${field.name}' minimal 8 karakter`;
-      if (value.length > 128) return `Field '${field.name}' maksimal 128 karakter`;
+      if (value.length < 8) return `Field '${field.name}' must be at least 8 characters`;
+      if (value.length > 128) return `Field '${field.name}' must be at most 128 characters`;
+      return null;
+    }
+    case 'vector': {
+      // M29: array of finite numbers — panjang harus sama dengan dimensions.
+      // Disimpan sebagai JSON string di kolom TEXT (SQLite-native approach);
+      // swap ke sqlite-vec binary saat tersedia = zero API change.
+      if (!Array.isArray(value)) {
+        return `Field '${field.name}' must be an array of numbers (embedding vector)`;
+      }
+      const dims = field.options?.dimensions;
+      if (dims && value.length !== dims) {
+        return `Field '${field.name}' must have exactly ${dims} dimensions (got ${value.length})`;
+      }
+      if (value.length === 0 || value.length > 4096) {
+        return `Field '${field.name}' vector length must be between 1 and 4096`;
+      }
+      for (const v of value) {
+        if (typeof v !== 'number' || !Number.isFinite(v)) {
+          return `Field '${field.name}' must contain only finite numbers`;
+        }
+      }
       return null;
     }
     default:

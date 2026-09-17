@@ -29,7 +29,7 @@ export function StudioSidebar({
   );
 
   return (
-    <aside className="w-[270px] shrink-0 border border-border rounded-3xl p-5 bg-card flex flex-col shadow-soft sticky top-[84px] max-h-[calc(100vh-100px)] overflow-y-auto">
+    <aside className="w-[260px] shrink-0 border border-border rounded-xl p-4 bg-card flex flex-col sticky top-[81px] max-h-[calc(100vh-101px)] overflow-y-auto">
       <div className="mb-3">
         <div className="flex items-center justify-between mb-2">
           <span className="text-sm font-semibold text-foreground">
@@ -64,25 +64,25 @@ export function StudioSidebar({
             <Link
               key={c.name}
               href={`/projects/${projectId}/database/${encodeURIComponent(c.name)}`}
-              className={`flex items-center justify-between gap-2 px-3 py-2 rounded-xl text-sm transition-colors ${
+              className={`flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-md text-[13px] transition-colors ${
                 isActive
-                  ? "bg-primary text-primary-foreground font-semibold"
-                  : "text-muted-foreground hover:bg-accent hover:text-foreground"
+                  ? "bg-accent text-foreground font-medium"
+                  : "text-muted-foreground hover:bg-accent/60 hover:text-foreground"
               }`}
             >
               <div className="flex items-center gap-2 overflow-hidden">
                 {c.type === "view" ? (
-                  <Eye className={`w-4 h-4 shrink-0 ${isActive ? "text-purple-300" : "text-purple-600"}`} />
+                  <Eye className={`w-4 h-4 shrink-0 ${isActive ? "text-purple-300" : "text-purple-400/70"}`} />
                 ) : c.type === "auth" ? (
-                  <Users className={`w-4 h-4 shrink-0 ${isActive ? "text-emerald-300" : "text-emerald-600"}`} />
+                  <Users className={`w-4 h-4 shrink-0 ${isActive ? "text-emerald-300" : "text-emerald-400/70"}`} />
                 ) : (
-                  <Database className={`w-4 h-4 shrink-0 ${isActive ? "text-slate-300" : "text-slate-600"}`} />
+                  <Database className={`w-4 h-4 shrink-0 ${isActive ? "text-foreground" : "text-muted-foreground"}`} />
                 )}
                 <span className="truncate">{c.name}</span>
               </div>
               <Badge
-                variant={isActive ? "secondary" : "outline"}
-                className={`text-[10px] px-1.5 py-0 h-5 ${isActive ? "bg-white/20 text-white border-transparent" : ""}`}
+                variant="outline"
+                className={`text-[10px] px-1.5 py-0 h-5 ${isActive ? "border-foreground/20" : ""}`}
               >
                 {c.recordCount ?? 0}
               </Badge>

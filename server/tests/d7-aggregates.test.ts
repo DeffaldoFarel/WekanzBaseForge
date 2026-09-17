@@ -154,11 +154,11 @@ test('D7: validasi — field yang tidak ada DITOLAK', () => {
 
   assert.throws(() => {
     aggregate(db, 'habits', { function: 'sum', field: 'hantu' });
-  }, /tidak ada/);
+  }, /does not exist/);
 
   assert.throws(() => {
     aggregate(db, 'habits', { function: 'count', groupBy: 'hantu' });
-  }, /tidak ada/);
+  }, /does not exist/);
 
   db.close();
 });

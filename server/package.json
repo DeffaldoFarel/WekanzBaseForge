@@ -4,8 +4,12 @@
   "description": "BaseForge core server - multi-project backend platform (learning project)",
   "private": true,
   "type": "module",
+  "bin": {
+    "baseforge": "dist/cli/index.js"
+  },
   "scripts": {
     "dev": "tsx watch src/index.ts",
+    "cli": "tsx src/cli/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
     "test": "node --test --test-concurrency=1 --test-timeout=15000 --import tsx \"tests/**/*.test.ts\""
@@ -25,10 +29,12 @@
     "ioredis": "^6.0.0",
     "isolated-vm": "^7.0.1",
     "jose": "^6.2.12",
+    "nodemailer": "^10.0.10",
     "sharp": "^0.35.4"
   },
   "devDependencies": {
     "@types/node": "^22.13.10",
+    "@types/nodemailer": "^8.0.2",
     "tsx": "^4.19.3",
     "typescript": "^5.8.2"
   }

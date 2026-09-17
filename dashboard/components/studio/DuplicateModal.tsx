@@ -41,21 +41,21 @@ export function DuplicateModal({
 
         <div className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="dup-name">Nama Collection Baru</Label>
+            <Label htmlFor="dup-name">New Collection Name</Label>
             <Input
               id="dup-name"
               value={duplicateName}
               onChange={(e) =>
                 onNameChange(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ""))
               }
-              placeholder="nama_koleksi_baru"
+              placeholder="new_collection_name"
             />
           </div>
 
           <label className="flex items-center gap-2 text-sm cursor-pointer">
             <Checkbox
               checked={duplicateWithData}
-              onCheckedChange={(checked) => onWithDataChange(!!checked)}
+              onCheckedChange={(checked: boolean | 'indeterminate') => onWithDataChange(!!checked)}
             />
             <span>Include all record data rows (withData)</span>
           </label>

@@ -166,7 +166,7 @@ test('D4: unique index dibuat ulang setelah rebuild', () => {
   // Unique index harus masih menegakkan keunikan setelah rebuild
   assert.throws(() => {
     createRecord(db, 'users', { email: 'a@x.com', name: 'Duplikat' });
-  }, /unik|sudah digunakan/i);
+  }, /unique|already used/i);
 
   console.log('\n   🛡️  Unique index tetap menegakkan setelah rebuild.');
 

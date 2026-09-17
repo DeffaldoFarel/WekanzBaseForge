@@ -21,6 +21,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Search, Plus, Trash2, Eye, Pencil, Copy, Code, FileText } from "lucide-react";
 import type { CollectionInfo, FieldDef, ListResult } from "@/lib/api";
 
 const SORT_OPTIONS = [
@@ -102,12 +103,15 @@ export function RecordsTab({
       {/* Search, Filter & Action Toolbar */}
       <div className="flex flex-col sm:flex-row gap-3 mb-4">
         <form onSubmit={onSearchSubmit} className="flex flex-1 gap-2">
-          <Input
-            placeholder="🔎 Search (?search=... FTS5)"
-            value={searchQuery}
-            onChange={(e) => onSearchChange(e.target.value)}
-            className="text-sm"
-          />
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+            <Input
+              placeholder="Search (?search=... FTS5)"
+              value={searchQuery}
+              onChange={(e) => onSearchChange(e.target.value)}
+              className="text-sm pl-9"
+            />
+          </div>
           <Input
             placeholder="Filter: status = 'active' && streak > 5"
             value={filterQuery}
@@ -147,25 +151,28 @@ export function RecordsTab({
           </Select>
 
           {selectedIds.size > 0 && (
-            <Button variant="destructive" onClick={onBulkDelete} className="text-sm">
-              🗑️ Delete ({selectedIds.size})
+            <Button variant="destructive" onClick={onBulkDelete} className="text-sm gap-1.5">
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Delete ({selectedIds.size})</span>
             </Button>
           )}
 
           {isView ? (
-            <Badge variant="secondary" className="px-3 py-1.5 text-sm whitespace-nowrap">
-              👁️ Read-only View
+            <Badge variant="secondary" className="px-3 py-1.5 text-xs whitespace-nowrap gap-1">
+              <Eye className="w-3.5 h-3.5" />
+              <span>Read-only View</span>
             </Badge>
           ) : (
-            <Button onClick={onNewRecord} className="text-sm whitespace-nowrap">
-              + New Record
+            <Button onClick={onNewRecord} className="text-sm whitespace-nowrap gap-1.5">
+              <Plus className="w-3.5 h-3.5" />
+              <span>New Record</span>
             </Button>
           )}
         </div>
       </div>
 
       {/* Records Data Table */}
-      <div className="border border-border rounded-2xl overflow-hidden bg-card">
+      <div className="border border-border rounded-lg overflow-hidden bg-card">
         {loading ? (
           <div className="p-10 space-y-3">
             <Skeleton className="h-4 w-full" />
@@ -174,8 +181,8 @@ export function RecordsTab({
           </div>
         ) : !result || result.items.length === 0 ? (
           <div className="p-10 text-center text-muted-foreground">
-            <div className="text-4xl mb-2">📄</div>
-            <p>Tidak ada record yang cocok.</p>
+            <FileText className="w-10 h-10 mx-auto text-muted-foreground/40 mb-2" />
+            <p>No matching records.</p>
           </div>
         ) : (
           <Table>
@@ -184,7 +191,7 @@ export function RecordsTab({
                 <TableHead className="w-[36px]">
                   <Checkbox
                     checked={allSelected}
-                    onCheckedChange={(checked) => onSelectAll(!!checked)}
+                    onCheckedChange={(checked: boolean | 'indeterminate') => onSelectAll(!!checked)}
                   />
                 </TableHead>
                 <TableHead className="w-[140px]">ID</TableHead>
@@ -210,7 +217,7 @@ export function RecordsTab({
                   <TableRow
                     key={id}
                     data-state={isSelected ? "selected" : undefined}
-                    className={isSelected ? "bg-orange-50/80" : ""}
+                    className={isSelected ? "bg-accent/60" : ""}
                   >
                     <TableCell onClick={(e) => e.stopPropagation()}>
                       <Checkbox
@@ -248,41 +255,41 @@ export function RecordsTab({
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="h-8 w-8 mr-1"
+                            className="h-8 w-8 mr-1 text-muted-foreground hover:text-foreground"
                             onClick={() => onEditRecord(row)}
                             title="Edit record"
                           >
-                            ✏️
+                            <Pencil className="w-3.5 h-3.5" />
                           </Button>
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="h-8 w-8 mr-1"
+                            className="h-8 w-8 mr-1 text-muted-foreground hover:text-foreground"
                             onClick={() => onDuplicateRecord(row)}
                             title="Duplicate record"
                           >
-                            📑
+                            <Copy className="w-3.5 h-3.5" />
                           </Button>
                         </>
                       )}
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-8 w-8 mr-1"
+                        className="h-8 w-8 mr-1 text-muted-foreground hover:text-foreground"
                         onClick={() => onViewJson(row)}
                         title="View Raw JSON"
                       >
-                        🔍
+                        <Code className="w-3.5 h-3.5" />
                       </Button>
                       {!isView && (
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-8 w-8"
+                          className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
                           onClick={() => onDeleteRecord(id)}
                           title="Delete record"
                         >
-                          ✕
+                          <Trash2 className="w-3.5 h-3.5" />
                         </Button>
                       )}
                     </TableCell>
@@ -305,7 +312,7 @@ export function RecordsTab({
             ← Previous
           </Button>
           <span className="text-sm text-muted-foreground">
-            Halaman {page} dari {result.totalPages} ({result.totalItems} records)
+            Page {page} of {result.totalPages} ({result.totalItems} records)
           </span>
           <Button
             variant="secondary"

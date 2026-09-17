@@ -30,12 +30,12 @@ export function getProjectDb(projectId: string): DatabaseSync {
   // Pastikan project ada di registry
   const project = getProject(projectId);
   if (!project) {
-    throw new Error(`Project '${projectId}' tidak ditemukan`);
+    throw new Error(`Project '${projectId}' not found`);
   }
 
   const dbPath = projectDbPath(projectId);
   if (!fs.existsSync(dbPath)) {
-    throw new Error(`Database untuk project '${projectId}' belum dibuat`);
+    throw new Error(`Database for project '${projectId}' has not been created`);
   }
 
   // Buka koneksi baru + pastikan tabel meta ada

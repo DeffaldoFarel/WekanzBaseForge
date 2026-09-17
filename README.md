@@ -44,7 +44,7 @@ BaseForge (1 instalasi)
 | Multipart (M14, M18c) | `@fastify/busboy` | Streaming, memory-safe untuk upload file |
 | Functions (M15, M18a) | `isolated-vm` | Isolate V8 sungguhan, memory cap & async timeout |
 | Rate Limiter (M18d) | `ioredis` + Lua (fallback memory) | Atomic fixed-window, persistent, multi-instance ready |
-| Test | `node:test` + `tsx` | Test runner bawaan Node, 335 tests |
+| Test | `node:test` + `tsx` | Test runner bawaan Node, 464 tests |
 
 ## 🚀 Quick Start
 
@@ -88,7 +88,7 @@ Buka browser ke **http://localhost:7701**:
 ### 4. Menjalankan Test Suite
 ```bash
 npm test
-# Menjalankan 322 unit & integration tests (semua suite hijau)
+# Menjalankan 464 unit & integration tests (semua suite hijau)
 ```
 
 ## 📚 Dokumentasi Lengkap
@@ -103,12 +103,30 @@ Untuk panduan mendalam tentang penggunaan BaseForge sebagai BaaS (Backend-as-a-S
 * ⚡ [**Serverless Functions, Database Triggers, & Scheduler Cron**](docs/functions.md)
 * 📡 [**Realtime Subscriptions (Server-Sent Events)**](docs/realtime.md)
 * 🖥️ [**Panduan Deployment Produksi (Linux Systemd, Caddy HTTPS, & Redis)**](docs/deployment.md)
-* 🧠 [**Jurnal Belajar Arsitektur (Milestone M00 – M18)**](docs/learnings/README.md)
+* 🧠 [**Jurnal Belajar Arsitektur (Milestone M00 – M33)**](docs/learnings/README.md)
+* 🥊 [**Perbandingan BaaS + Roadmap M34–M51 (vs PocketBase, Supabase, Appwrite)**](COMPARISON.md)
 
 ## 🗺️ Roadmap (per milestone)
 
-### 🏗️ Fondasi Platform
-- [x] **M00** — Shell: platform.db, admin login, project registry API, dashboard ✅
+### 🛠️ Tambahan Platform
+- [x] M00 — Shell: platform.db, admin login, project registry API, dashboard ✅
+- [x] M24 — Usage metrics: request & bandwidth stats per project ✅
+- [x] M26 — Per-project API keys ✅ — server-to-server access (Bearer bf_ /
+      X-API-Key), scope read/write, bypass API Rules (service-level ala
+      Supabase service_role), hash SHA-256 at-rest, key penuh tampil sekali,
+      rate limit 300 req/menit per key, usage tracking real-time (buffer+flush),
+      revoke instan, UI di project overview
+- [x] M28 — Webhooks + CLI ✅ — webhooks outbound HMAC-SHA256 + retry
+      exponential backoff + delivery log (100 terakhir), event matching
+      wildcard `*`/`col.*`; CLI admin (login/projects/records/functions/
+      users/webhooks)
+- [x] M32 — Scheduled backup ✅ — VACUUM INTO per project via scheduler,
+      retensi 1–30 backup, metadata .json bersebelahan, download admin +
+      path-traversal guard
+- [x] M33 — Monitoring/alerting ✅ — threshold rules (request rate,
+      bandwidth, error rate, disk usage), alert state firing/resolved +
+      cooldown, notifikasi webhook Slack-format, force-check manual, OFF
+      by default
 
 ### 📦 SQL Database
 - [x] M01 — KV store sederhana ✅
@@ -120,6 +138,9 @@ Untuk panduan mendalam tentang penggunaan BaseForge sebagai BaaS (Backend-as-a-S
 - [x] M07 — Transactions, ACID & WAL ✅
 - [x] M12 — Relations & expand (JOIN dinamis, N+1) ✅ *(REST dibuka di M19)*
 - [x] M05u 🖥️ — Dashboard: schema builder + data browser ✅
+- [x] M29 — Vector search ✅ — field type vector, cosine/L2 similarity,
+      top-k ranking + threshold, pre-filter ekspresi M04; brute-force scan
+      (cukup untuk < 50K vectors × 1536 dims, ~50–200ms)
 
 ### 🔬 Deepening Database (production-grade)
 - [x] D1 — Unique constraint ✅
@@ -165,38 +186,65 @@ Untuk panduan mendalam tentang penggunaan BaseForge sebagai BaaS (Backend-as-a-S
 
 > Prinsip M18: single-gate module membuat swap tanpa mengubah satu pun route
 > handler; `scrypt node:crypto`, `node:sqlite`, SSE, cron parser TIDAK diganti
-> (sudah production-grade). 335 test hijau.
+> (sudah production-grade). 464 test hijau.
 
-### 🔐 Auth (per project) — ✅ FASE SELESAI (email/password)
+### 🔐 Auth (per project) — ✅ FASE SELESAI (email/password + OAuth2 + email service)
 - [x] M08 — Password hashing (scrypt) ✅
 - [x] M09 — JWT + sessions + refresh tokens ✅
 - [x] M09u — Auth API endpoints (register/login/refresh/me/logout + rate limit) ✅
 - [x] M11 — API rules (row-level security) ✅ — FASE AUTH TUNTAS!
+- [x] M10 — OAuth2 (Google & GitHub) ✅ — authorization code flow, account
+      linking anti-takeover (email unverified → tolak), state satu-kali-pakai
+      (TTL 10 mnt), client secret terenkripsi AES-256-GCM, `redirect_to` +
+      allow-list origins, token dikirim via URL fragment ala PocketBase
+- [x] M23 — Email service + verifikasi email + reset password ✅ — SMTP via
+      nodemailer (config runtime Admin API / env) dengan DEV OUTBOX fallback
+      (email tersimpan di DB + link bisa diambil dashboard), token aksi
+      sekali-pakai (verify 24j / reset 1j), anti user-enumeration, reset =
+      revoke semua sesi, halaman HTML self-contained + `redirect_to` ala M10
+- [x] M27 — MFA/TOTP (RFC 6238) ✅ — TOTP dari nol via node:crypto (divalidasi
+      vektor resmi RFC), enrollment pending→confirm, login 2-faktor
+      (mfaToken 5 menit), 10 recovery codes sekali-pakai (hash at-rest),
+      challenge rate-limit 5/15mnt (anti brute-force 6-digit), admin
+      mfa-reset, timing-safe compare, window ±1
+- [x] M31 — OAuth2 multi-provider ✅ — 6 provider penuh (Google, GitHub,
+      Microsoft, Discord, GitLab, Facebook) + Apple stub (ES256 menyusul);
+      pola data-driven `OAUTH_PROVIDER_DEFS`: nambah provider = nambah entry
 - [x] M10u 🖥️ — Dashboard: user management + rules editor ✅
-- [ ] M10 — OAuth2 (Google) — DITUNDA (email/password dulu)
 
 ### ⚡ Functions (per project)
 - [x] M15a — Callable functions (node:vm sandbox + timeout + CRUD + execute) ✅
 - [x] M15b — Database triggers (create/update/delete + previous + fail-safe) ✅
 - [x] M15c — Scheduler (cron 5-field parser + anti double-fire + sandbox) ✅
 - [x] M15u 🖥️ — Dashboard: function editor + run panel + badges ✅ — FASE FUNCTIONS TUNTAS!
+- [x] M25 — `$http.send` di sandbox ✅ — jaringan terkurasi untuk functions:
+      allowlist per-function (`*` = host publik; literal = opt-in internal),
+      SSRF guard (private/loopback/metadata IP diblok), redirect manual
+      re-validated, timeout per-request, response cap 1MB, runner async
+      (await) + wall-clock timeout ganda. 390 test.
 
 ### 📁 Storage (per project)
 - [x] M14a — Upload/serving per project ✅ (multipart dari nol + field file + serving aman)
 - [x] M14u 🖥️ — Dashboard: file browser (upload modal + thumbnail + link) ✅
 - [x] M14b — Thumbnails ala PocketBase (?thumb=WxH, lazy + cache, Sharp) ✅
+- [x] M30 — S3/R2 storage backend ✅ — AWS SigV4 dari nol via node:crypto
+      (ZERO dependency baru), path-style addressing, StorageAdapter
+      lokal/S3, thumbnail tetap cache lokal, mock S3 server untuk test
 
 ### 📡 Tambahan
 - [x] M13 — Realtime subscriptions (SSE ala PocketBase) ✅
+- [x] M24 — Usage metrics: request & bandwidth stats per project ✅ — buffer
+      in-memory + flush batch 30 detik (anti write amplification single-writer),
+      instrumentasi router (write/end wrap), atribusi dari path (public/admin/files),
+      endpoint stats 14 hari + total, kartu & bar chart di dashboard overview
 
-### 🔮 Fitur lanjutan (opsional)
-- [x] View collections (SQL views read-only) — M16a ✅
-- [x] Full-text search (FTS5) — M17b ✅
-- [x] Field `file` (via M14) ✅
-- [x] Field `editor` (rich text) — M16b ✅
-- [ ] OAuth2 (Google) — M10 (jose siap dari M18b)
-- [ ] S3 storage backend
-- [ ] Custom routes + $http sandbox
+### 🗺️ Rencana ke depan (M34–M51)
+
+> 18 milestone berikutnya (quick wins auth → paritas inti → ops & DX → proyek
+> besar) kini punya **satu rumah saja: [COMPARISON.md](COMPARISON.md) §Roadmap
+> M34–M51** — dikelola di sana agar tidak ada dua sumber roadmap yang saling
+> bohong. Selesainya Tahap 1 (M34–M38) → cakupan kompetitif 47/60; semua
+> tuntas → 60/60.
 
 
 ## 📁 Struktur

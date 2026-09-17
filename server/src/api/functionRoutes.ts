@@ -62,9 +62,10 @@ export function createFunctionRouter(): Router {
         timeoutMs?: number;
         triggers?: { collection: string; actions: string[] }[];
         schedule?: string | null;
+        httpAllow?: string[];
       };
       if (!body.name || !body.code) {
-        res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'name dan code wajib' } });
+        res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'name and code are required' } });
         return;
       }
       // Validasi trigger collection terhadap skema project
@@ -78,7 +79,7 @@ export function createFunctionRouter(): Router {
         for (const t of triggers) {
           if (!existing.includes(t.collection)) {
             res.status(400).json({
-              error: { code: 'BAD_REQUEST', message: `Trigger collection '${t.collection}' tidak ada di project ini` },
+              error: { code: 'BAD_REQUEST', message: `Trigger collection '${t.collection}' does not exist in this project` },
             });
             return;
           }
@@ -91,6 +92,7 @@ export function createFunctionRouter(): Router {
         timeoutMs: body.timeoutMs,
         triggers,
         schedule: body.schedule,
+        httpAllow: body.httpAllow, // M25
       });
       res.status(201).json({ function: fn });
     } catch (err) {
@@ -115,7 +117,7 @@ export function createFunctionRouter(): Router {
       const db = getProjectDb(req.params.pid);
       const fn = getFunctionByName(db, req.params.name);
       if (!fn) {
-        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Function tidak ditemukan' } });
+        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Function not found' } });
         return;
       }
       res.json({ function: fn });
@@ -134,6 +136,7 @@ export function createFunctionRouter(): Router {
         timeoutMs?: number;
         triggers?: { collection: string; actions: string[] }[];
         schedule?: string | null;
+        httpAllow?: string[];
       };
       // Validasi trigger collection terhadap skema project
       let triggers;
@@ -142,7 +145,7 @@ export function createFunctionRouter(): Router {
         for (const t of body.triggers) {
           if (!existing.includes(t.collection)) {
             res.status(400).json({
-              error: { code: 'BAD_REQUEST', message: `Trigger collection '${t.collection}' tidak ada di project ini` },
+              error: { code: 'BAD_REQUEST', message: `Trigger collection '${t.collection}' does not exist in this project` },
             });
             return;
           }
@@ -158,9 +161,10 @@ export function createFunctionRouter(): Router {
         timeoutMs: body.timeoutMs,
         triggers,
         schedule: body.schedule,
+        httpAllow: body.httpAllow, // M25: undefined = tidak disentuh
       });
       if (!fn) {
-        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Function tidak ditemukan' } });
+        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Function not found' } });
         return;
       }
       res.json({ function: fn });
@@ -175,7 +179,7 @@ export function createFunctionRouter(): Router {
       const db = getProjectDb(req.params.pid);
       const ok = deleteFunction(db, req.params.name);
       if (!ok) {
-        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Function tidak ditemukan' } });
+        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Function not found' } });
         return;
       }
       res.json({ success: true });
@@ -194,7 +198,7 @@ export function createFunctionRouter(): Router {
       const db = getProjectDb(req.params.pid);
       const fn = getFunctionByName(db, req.params.name);
       if (!fn) {
-        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Function tidak ditemukan' } });
+        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Function not found' } });
         return;
       }
 
@@ -204,6 +208,7 @@ export function createFunctionRouter(): Router {
         query: body.query ?? {},
         auth: null,
         timeoutMs: fn.timeoutMs,
+        httpAllow: fn.httpAllow, // M25: allowlist $http per function
       });
       res.json(result);
     } catch (err) {
@@ -221,11 +226,11 @@ export function createFunctionRouter(): Router {
       const db = getProjectDb(req.params.pid);
       const fn = getFunctionByName(db, req.params.name);
       if (!fn) {
-        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Function tidak ditemukan' } });
+        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Function not found' } });
         return;
       }
       if (!fn.enabled) {
-        res.status(403).json({ error: { code: 'FORBIDDEN', message: 'Function tidak aktif' } });
+        res.status(403).json({ error: { code: 'FORBIDDEN', message: 'Function is disabled' } });
         return;
       }
 
@@ -235,6 +240,7 @@ export function createFunctionRouter(): Router {
         query: body.query ?? {},
         auth: await resolveUserAuth(req),
         timeoutMs: fn.timeoutMs,
+        httpAllow: fn.httpAllow, // M25: allowlist $http per function
       });
 
       if (!result.ok) {

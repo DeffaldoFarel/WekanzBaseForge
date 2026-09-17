@@ -59,24 +59,24 @@ export function aggregate(
   // Field wajib untuk sum/avg/min/max
   if (fn !== 'count') {
     if (!field) {
-      throw new Error(`Aggregate '${fn}' membutuhkan field`);
+      throw new Error(`Aggregate '${fn}' requires a field`);
     }
     if (!validNames.has(field)) {
-      throw new Error(`Field '${field}' tidak ada di collection '${collection}'`);
+      throw new Error(`Field '${field}' does not exist in collection '${collection}'`);
     }
     // Aggregate numerik hanya masuk akal pada field number
     const fieldDef = meta.fields.find((f) => f.name === field);
     if (fieldDef && fieldDef.type !== 'number') {
-      throw new Error(`Aggregate '${fn}' hanya bisa pada field number, '${field}' bertipe '${fieldDef.type}'`);
+      throw new Error(`Aggregate '${fn}' only supports number fields; '${field}' has type '${fieldDef.type}'`);
     }
   }
 
   if (field && !validNames.has(field)) {
-    throw new Error(`Field '${field}' tidak ada di collection '${collection}'`);
+    throw new Error(`Field '${field}' does not exist in collection '${collection}'`);
   }
 
   if (groupBy && !validNames.has(groupBy)) {
-    throw new Error(`Group by field '${groupBy}' tidak ada di collection '${collection}'`);
+    throw new Error(`Group by field '${groupBy}' does not exist in collection '${collection}'`);
   }
 
   // ── Bangun ekspresi agregat ──
@@ -146,6 +146,6 @@ function buildAggregateExpr(fn: AggregateFunction, field?: string): string {
     case 'max':
       return `MAX("${field}")`;
     default:
-      throw new Error(`Aggregate function tidak dikenal: '${fn}'`);
+      throw new Error(`Unknown aggregate function: '${fn}'`);
   }
 }

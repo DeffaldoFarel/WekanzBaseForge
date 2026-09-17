@@ -14,8 +14,6 @@ export interface Project {
     storage: boolean;
     functions: boolean;
   };
-  // apiKey belum diimplementasikan — akan datang di milestone API keys
-  apiKey?: string;
 }
 
 export function getToken(): string | null {
@@ -55,8 +53,56 @@ export async function login(email: string, password: string): Promise<string> {
   return data.token;
 }
 
+const projectNameCache = new Map<string, string>();
+
+function loadProjectNameCache(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const raw = sessionStorage.getItem('bf_proj_names');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      for (const [k, v] of Object.entries(parsed)) {
+        if (typeof v === 'string') projectNameCache.set(k, v);
+      }
+    }
+  } catch {}
+}
+
+function saveProjectNameCache(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const obj = Object.fromEntries(projectNameCache.entries());
+    sessionStorage.setItem('bf_proj_names', JSON.stringify(obj));
+  } catch {}
+}
+
+export function getCachedProjectName(id: string): string | undefined {
+  if (projectNameCache.size === 0) {
+    loadProjectNameCache();
+  }
+  return projectNameCache.get(id);
+}
+
+export async function fetchProjectName(id: string): Promise<string> {
+  const cached = getCachedProjectName(id);
+  if (cached) return cached;
+  try {
+    const project = await getProject(id);
+    if (project?.name) {
+      projectNameCache.set(id, project.name);
+      saveProjectNameCache();
+      return project.name;
+    }
+  } catch {}
+  return id;
+}
+
 export async function listProjects(): Promise<Project[]> {
   const data = await request<{ projects: Project[] }>('/api/admin/projects');
+  for (const p of data.projects) {
+    projectNameCache.set(p.id, p.name);
+  }
+  saveProjectNameCache();
   return data.projects;
 }
 
@@ -65,11 +111,19 @@ export async function createProject(name: string): Promise<Project> {
     method: 'POST',
     body: JSON.stringify({ name }),
   });
+  if (data.project?.name) {
+    projectNameCache.set(data.project.id, data.project.name);
+    saveProjectNameCache();
+  }
   return data.project;
 }
 
 export async function getProject(id: string): Promise<Project> {
   const data = await request<{ project: Project }>(`/api/admin/projects/${id}`);
+  if (data.project?.name) {
+    projectNameCache.set(id, data.project.name);
+    saveProjectNameCache();
+  }
   return data.project;
 }
 
@@ -86,6 +140,8 @@ export async function updateServices(
 
 export async function deleteProject(id: string): Promise<void> {
   await request(`/api/admin/projects/${id}`, { method: 'DELETE' });
+  projectNameCache.delete(id);
+  saveProjectNameCache();
 }
 
 export function logout(): void {
@@ -129,6 +185,8 @@ export interface FieldDef {
     // autodate
     onCreate?: boolean;
     onUpdate?: boolean;
+    // vector (M29)
+    dimensions?: number;
   };
 }
 
@@ -519,6 +577,7 @@ export interface StoredFunction {
   timeoutMs: number;
   triggers: FunctionTrigger[];
   schedule: string | null;
+  httpAllow: string[];
   created: string;
   updated: string;
 }
@@ -532,7 +591,7 @@ export async function listFunctions(projectId: string): Promise<StoredFunction[]
 
 export async function createFunction(
   projectId: string,
-  def: { name: string; code: string; enabled?: boolean; timeoutMs?: number; triggers?: FunctionTrigger[]; schedule?: string | null }
+  def: { name: string; code: string; enabled?: boolean; timeoutMs?: number; triggers?: FunctionTrigger[]; schedule?: string | null; httpAllow?: string[] }
 ): Promise<StoredFunction> {
   const res = await request<{ function: StoredFunction }>(
     `/api/admin/projects/${projectId}/functions`,
@@ -544,7 +603,7 @@ export async function createFunction(
 export async function updateFunction(
   projectId: string,
   name: string,
-  updates: { code?: string; enabled?: boolean; timeoutMs?: number; triggers?: FunctionTrigger[]; schedule?: string | null }
+  updates: { code?: string; enabled?: boolean; timeoutMs?: number; triggers?: FunctionTrigger[]; schedule?: string | null; httpAllow?: string[] }
 ): Promise<StoredFunction> {
   const res = await request<{ function: StoredFunction }>(
     `/api/admin/projects/${projectId}/functions/${name}`,
@@ -630,4 +689,199 @@ export async function cleanOrphanedStorageFiles(
     `/api/admin/projects/${projectId}/storage/clean-orphans`,
     { method: 'POST' }
   );
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// M10: OAUTH2 PROVIDERS API (konfigurasi per project)
+// ════════════════════════════════════════════════════════════════════════════
+
+export interface OAuthProviderInfo {
+  provider: string;
+  clientId: string;
+  enabled: boolean;
+  callbackUrl: string | null;
+  allowedOrigins: string[];
+}
+
+export async function listOAuthProviders(projectId: string): Promise<OAuthProviderInfo[]> {
+  const res = await request<{ providers: OAuthProviderInfo[] }>(
+    `/api/admin/projects/${projectId}/auth/providers`
+  );
+  return res.providers;
+}
+
+export async function upsertOAuthProvider(
+  projectId: string,
+  provider: string,
+  config: {
+    clientId: string;
+    clientSecret?: string;
+    enabled?: boolean;
+    callbackUrl?: string;
+    allowedOrigins?: string[] | string;
+  }
+): Promise<OAuthProviderInfo> {
+  const res = await request<{ provider: OAuthProviderInfo }>(
+    `/api/admin/projects/${projectId}/auth/providers/${provider}`,
+    { method: 'PUT', body: JSON.stringify(config) }
+  );
+  return res.provider;
+}
+
+export async function deleteOAuthProvider(
+  projectId: string,
+  provider: string
+): Promise<void> {
+  await request(`/api/admin/projects/${projectId}/auth/providers/${provider}`, {
+    method: 'DELETE',
+  });
+}
+
+/** URL authorize untuk end-user app (untuk tombol "Sign in with Google"). */
+export function oauthAuthorizeUrl(
+  projectId: string,
+  provider: string,
+  redirectTo?: string
+): string {
+  const params = redirectTo ? `?redirect_to=${encodeURIComponent(redirectTo)}` : '';
+  return `${API_URL}/api/p/${projectId}/auth/oauth/${provider}/authorize${params}`;
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// M23: MAIL SETTINGS (platform-level SMTP) + DEV OUTBOX
+// ════════════════════════════════════════════════════════════════════════════
+
+export interface MailConfigInfo {
+  host: string;
+  port: number;
+  secure: boolean;
+  user: string;
+  from: string;
+  hasPassword: boolean;
+}
+
+export interface MailSettingsInfo {
+  config: MailConfigInfo | null;
+  mode: 'smtp' | 'outbox';
+}
+
+export interface OutboxMessage {
+  id: string;
+  to: string;
+  subject: string;
+  text: string;
+  html: string | null;
+  created: string;
+}
+
+export async function getMailSettings(): Promise<MailSettingsInfo> {
+  return request<MailSettingsInfo>('/api/admin/settings/mail');
+}
+
+export async function updateMailSettings(config: {
+  host: string;
+  port?: number;
+  secure?: boolean;
+  user?: string;
+  pass?: string;
+  from?: string;
+}): Promise<MailSettingsInfo> {
+  return request<MailSettingsInfo>('/api/admin/settings/mail', {
+    method: 'PUT',
+    body: JSON.stringify(config),
+  });
+}
+
+export async function clearMailSettings(): Promise<{ mode: 'smtp' | 'outbox' }> {
+  return request<{ mode: 'smtp' | 'outbox' }>('/api/admin/settings/mail', {
+    method: 'DELETE',
+  });
+}
+
+export async function sendTestEmail(to: string): Promise<{ ok: boolean; mode: string; messageId: string }> {
+  return request<{ ok: boolean; mode: string; messageId: string }>(
+    '/api/admin/settings/mail/test',
+    { method: 'POST', body: JSON.stringify({ to }) }
+  );
+}
+
+export async function listMailOutbox(limit = 20): Promise<OutboxMessage[]> {
+  const res = await request<{ messages: OutboxMessage[] }>(
+    `/api/admin/settings/mail/outbox?limit=${limit}`
+  );
+  return res.messages;
+}
+
+export async function clearMailOutbox(): Promise<void> {
+  await request('/api/admin/settings/mail/outbox', { method: 'DELETE' });
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// M24: PROJECT USAGE STATS (request & bandwidth)
+// ════════════════════════════════════════════════════════════════════════════
+
+export interface DayStats {
+  date: string;
+  requests: number;
+  bytesIn: number;
+  bytesOut: number;
+}
+
+export interface ProjectStats {
+  today: DayStats;
+  days: DayStats[];
+  totals: { requests: number; bytesIn: number; bytesOut: number };
+}
+
+export async function getProjectStats(projectId: string): Promise<ProjectStats> {
+  return request<ProjectStats>(`/api/admin/projects/${projectId}/stats`);
+}
+
+export function formatBytes(bytes: number): string {
+  if (bytes === 0) return "0 B";
+  if (!bytes || bytes < 0) return "—";
+  const k = 1024;
+  const sizes = ["B", "KB", "MB", "GB", "TB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(i === 0 ? 0 : 1)) + " " + sizes[i];
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// M26: PER-PROJECT API KEYS (server-to-server access)
+// ════════════════════════════════════════════════════════════════════════════
+
+export type ApiKeyScope = "read" | "write";
+
+export interface ProjectApiKey {
+  id: string;
+  name: string;
+  scope: ApiKeyScope;
+  hint: string;
+  created: string;
+  lastUsed: string | null;
+  requests: number;
+}
+
+export async function createProjectApiKey(
+  projectId: string,
+  def: { name?: string; scope: ApiKeyScope }
+): Promise<{ apiKey: ProjectApiKey; key: string }> {
+  const res = await request<{ apiKey: ProjectApiKey; key: string }>(
+    `/api/admin/projects/${projectId}/api-keys`,
+    { method: 'POST', body: JSON.stringify(def) }
+  );
+  return res;
+}
+
+export async function listProjectApiKeys(projectId: string): Promise<ProjectApiKey[]> {
+  const res = await request<{ keys: ProjectApiKey[] }>(
+    `/api/admin/projects/${projectId}/api-keys`
+  );
+  return res.keys;
+}
+
+export async function revokeProjectApiKey(projectId: string, keyId: string): Promise<void> {
+  await request(`/api/admin/projects/${projectId}/api-keys/${keyId}`, {
+    method: 'DELETE',
+  });
 }

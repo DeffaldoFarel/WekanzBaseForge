@@ -2,8 +2,8 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
-import { logout } from "@/lib/api";
+import { useRouter } from "next/navigation";
+import { logout, getCachedProjectName, fetchProjectName } from "@/lib/api";
 import {
   Zap,
   LayoutDashboard,
@@ -16,6 +16,7 @@ import {
   BookOpen,
   Folder,
   ArrowRight,
+  Settings,
 } from "lucide-react";
 import {
   Dialog,
@@ -30,15 +31,30 @@ interface NavbarProps {
 }
 
 export function Navbar({ projectId, projectName }: NavbarProps) {
-  const pathname = usePathname();
   const router = useRouter();
   const [commandOpen, setCommandOpen] = useState(false);
   const [commandQuery, setCommandQuery] = useState("");
 
-  const isDatabase = pathname?.includes("/database");
-  const isStorage = pathname?.includes("/storage");
-  const isFunctions = pathname?.includes("/functions");
-  const isOverview = projectId && !isDatabase && !isStorage && !isFunctions;
+  const [resolvedName, setResolvedName] = useState<string>(() => {
+    if (projectName) return projectName;
+    if (projectId) return getCachedProjectName(projectId) || "";
+    return "";
+  });
+
+  useEffect(() => {
+    if (projectName) {
+      setResolvedName(projectName);
+    } else if (projectId) {
+      const cached = getCachedProjectName(projectId);
+      if (cached) {
+        setResolvedName(cached);
+      } else {
+        fetchProjectName(projectId).then((name) => {
+          if (name) setResolvedName(name);
+        });
+      }
+    }
+  }, [projectId, projectName]);
 
   function handleLogout() {
     logout();
@@ -102,124 +118,74 @@ export function Navbar({ projectId, projectName }: NavbarProps) {
 
   return (
     <>
-      <header className="flex items-center justify-between px-8 py-3.5 bg-white/85 backdrop-blur-md border-b border-border sticky top-0 z-40">
-        {/* Left: Brand + Slash Separator + Breadcrumb Pill */}
+      <header className="flex items-center justify-between px-8 py-3 bg-background/80 backdrop-blur-md border-b border-border sticky top-0 z-40">
+        {/* Left: Brand + Slash Separator + Breadcrumb */}
         <div className="flex items-center gap-3">
-          <Link href="/projects" className="flex items-center gap-2.5 font-bold text-lg tracking-tight">
-            <div className="w-7 h-7 rounded-lg bg-brand flex items-center justify-center shadow-sm">
-              <Zap className="w-4 h-4 text-white fill-white" />
+          <Link href="/projects" className="flex items-center gap-2.5 font-semibold text-lg tracking-tight">
+            <div className="w-7 h-7 rounded-md bg-brand flex items-center justify-center">
+              <Zap className="w-4 h-4 text-background fill-background" />
             </div>
-            <span className="text-zinc-900">
-              wekanz<span className="text-brand">BaseForge</span>
+            <span className="text-foreground">
+              wekanz<span className="text-muted-foreground">BaseForge</span>
             </span>
           </Link>
 
-          <span className="text-slate-300 font-light select-none text-base">/</span>
+          <span className="text-border font-light select-none text-base">/</span>
 
           {projectId ? (
             <Link
               href={`/projects/${projectId}`}
-              className="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200/70 transition-colors px-3 py-1 rounded-full text-xs font-semibold text-slate-700 border border-slate-200/80 shadow-sm"
+              className="flex items-center gap-1.5 bg-secondary hover:bg-accent transition-colors px-3 py-1 rounded-md text-xs font-medium text-foreground border border-border"
             >
-              <Folder className="w-3.5 h-3.5 text-brand-blue" />
-              <span className="truncate max-w-[160px] text-foreground font-semibold">
-                {projectName || projectId}
+              <Folder className="w-3.5 h-3.5 text-muted-foreground" />
+              <span className="truncate max-w-[160px]">
+                {resolvedName || projectName || projectId}
               </span>
             </Link>
           ) : (
-            <div className="flex items-center gap-1.5 bg-slate-100 px-3 py-1 rounded-full text-xs font-semibold text-slate-700 border border-slate-200/80 shadow-sm">
+            <div className="flex items-center gap-1.5 bg-secondary px-3 py-1 rounded-md text-xs font-medium text-muted-foreground border border-border">
               <span>Platform Console</span>
             </div>
           )}
         </div>
 
-        {/* Center Navigation Chips (Signature Soft UI / SugarCRM Pill Style) */}
-        {projectId ? (
-          <nav className="hidden md:flex items-center gap-1 bg-secondary p-1 rounded-full border border-border">
-            <Link
-              href={`/projects/${projectId}`}
-              className={`inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-semibold transition-all ${
-                isOverview
-                  ? "bg-primary text-primary-foreground shadow-pill"
-                  : "text-muted-foreground hover:text-foreground hover:bg-white/60"
-              }`}
-            >
-              <LayoutDashboard className="w-3.5 h-3.5" />
-              <span>Overview</span>
-            </Link>
-            <Link
-              href={`/projects/${projectId}/database`}
-              className={`inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-semibold transition-all ${
-                isDatabase
-                  ? "bg-primary text-primary-foreground shadow-pill"
-                  : "text-muted-foreground hover:text-foreground hover:bg-white/60"
-              }`}
-            >
-              <Database className="w-3.5 h-3.5" />
-              <span>Collections</span>
-            </Link>
-            <Link
-              href={`/projects/${projectId}/storage`}
-              className={`inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-semibold transition-all ${
-                isStorage
-                  ? "bg-primary text-primary-foreground shadow-pill"
-                  : "text-muted-foreground hover:text-foreground hover:bg-white/60"
-              }`}
-            >
-              <HardDrive className="w-3.5 h-3.5" />
-              <span>Storage</span>
-            </Link>
-            <Link
-              href={`/projects/${projectId}/functions`}
-              className={`inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-semibold transition-all ${
-                isFunctions
-                  ? "bg-primary text-primary-foreground shadow-pill"
-                  : "text-muted-foreground hover:text-foreground hover:bg-white/60"
-              }`}
-            >
-              <Code2 className="w-3.5 h-3.5" />
-              <span>Functions</span>
-            </Link>
-          </nav>
-        ) : (
-          <nav className="hidden md:flex items-center gap-1 bg-secondary p-1 rounded-full border border-border">
-            <div className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-semibold bg-primary text-primary-foreground shadow-pill">
-              <FolderGit2 className="w-3.5 h-3.5" />
-              <span>All Projects</span>
-            </div>
-          </nav>
-        )}
-
-        {/* Right Section: Tactile Search Pill + Docs + User + Sign Out */}
-        <div className="flex items-center gap-2.5">
-          {/* Tactile Inset Search Bar (Cmd+K) */}
+        {/* Right Section: Search + Docs + User + Sign Out */}
+        <div className="flex items-center gap-2">
+          {/* Search Bar (Cmd+K) */}
           <button
             type="button"
             onClick={() => setCommandOpen(true)}
-            className="flex items-center gap-2 bg-slate-100/90 hover:bg-slate-100 border border-border hover:border-slate-300 rounded-full px-3 py-1 text-xs text-muted-foreground shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)] transition-all cursor-pointer"
+            className="flex items-center gap-2 bg-secondary hover:bg-accent border border-border rounded-md px-3 py-1.5 text-xs text-muted-foreground transition-colors cursor-pointer"
             title="Search or jump to service (Cmd+K)"
           >
-            <Search className="w-3.5 h-3.5 text-slate-400" />
-            <span className="hidden sm:inline font-normal">Search...</span>
-            <kbd className="font-mono text-[10px] bg-white border border-slate-200 px-1.5 py-0.5 rounded shadow-sm text-slate-500 font-semibold">
+            <Search className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Search...</span>
+            <kbd className="font-mono text-[10px] bg-background border border-border px-1.5 py-0.5 rounded text-muted-foreground">
               ⌘K
             </kbd>
           </button>
 
-          {/* Documentation Pill Button */}
-          <a
-            href="https://github.com/DeffaldoFarel/WekanzBaseForge"
-            target="_blank"
-            rel="noreferrer"
-            className="w-8 h-8 rounded-full bg-white hover:bg-slate-50 border border-border shadow-sm text-slate-600 hover:text-slate-900 flex items-center justify-center transition-all"
+          {/* Settings Button (M23: mail/SMTP config) */}
+          <Link
+            href="/settings"
+            className="w-8 h-8 rounded-md bg-transparent hover:bg-accent border border-border text-muted-foreground hover:text-foreground flex items-center justify-center transition-colors"
+            title="Platform Settings (SMTP / Mail)"
+          >
+            <Settings className="w-3.5 h-3.5" />
+          </Link>
+
+          {/* Documentation Button → halaman /docs (viewer markdown internal) */}
+          <Link
+            href="/docs"
+            className="w-8 h-8 rounded-md bg-transparent hover:bg-accent border border-border text-muted-foreground hover:text-foreground flex items-center justify-center transition-colors"
             title="Documentation"
           >
             <BookOpen className="w-3.5 h-3.5" />
-          </a>
+          </Link>
 
-          {/* User Profile Pill */}
-          <div className="flex items-center gap-2 bg-white border border-border rounded-full pl-1.5 pr-3 py-1 text-xs font-semibold shadow-sm">
-            <div className="w-5 h-5 rounded-full bg-primary text-white text-[10px] flex items-center justify-center font-bold">
+          {/* User Profile */}
+          <div className="flex items-center gap-2 border border-border rounded-md pl-1.5 pr-3 py-1 text-xs font-medium">
+            <div className="w-5 h-5 rounded-full bg-primary text-primary-foreground text-[10px] flex items-center justify-center font-semibold">
               A
             </div>
             <span className="text-foreground hidden sm:inline">Admin</span>
@@ -227,11 +193,11 @@ export function Navbar({ projectId, projectName }: NavbarProps) {
 
           {/* Sign out Button */}
           <button
-            className="inline-flex items-center gap-1.5 bg-white border border-border text-foreground hover:bg-slate-50 rounded-full px-3 py-1.5 text-xs font-semibold shadow-sm transition-all"
+            className="inline-flex items-center gap-1.5 border border-border text-muted-foreground hover:text-foreground hover:bg-accent rounded-md px-3 py-1.5 text-xs font-medium transition-colors"
             onClick={handleLogout}
             title="Sign out of console"
           >
-            <LogOut className="w-3.5 h-3.5 text-muted-foreground" />
+            <LogOut className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Sign out</span>
           </button>
         </div>
@@ -239,8 +205,8 @@ export function Navbar({ projectId, projectName }: NavbarProps) {
 
       {/* ─── COMMAND QUICK JUMP MODAL (Cmd+K) ─── */}
       <Dialog open={commandOpen} onOpenChange={setCommandOpen}>
-        <DialogContent className="max-w-lg p-0 overflow-hidden rounded-[26px]">
-          <DialogHeader className="p-4 border-b border-border bg-slate-50/50">
+        <DialogContent className="max-w-lg p-0 overflow-hidden">
+          <DialogHeader className="p-4 border-b border-border">
             <div className="flex items-center gap-2.5">
               <Search className="w-4 h-4 text-muted-foreground ml-1" />
               <input
@@ -251,7 +217,7 @@ export function Navbar({ projectId, projectName }: NavbarProps) {
                 className="w-full bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none border-none"
                 autoFocus
               />
-              <kbd className="text-[10px] font-mono bg-white border border-border px-1.5 py-0.5 rounded text-muted-foreground shrink-0">
+              <kbd className="text-[10px] font-mono bg-secondary border border-border px-1.5 py-0.5 rounded text-muted-foreground shrink-0">
                 ESC
               </kbd>
             </div>
@@ -273,14 +239,14 @@ export function Navbar({ projectId, projectName }: NavbarProps) {
                       setCommandQuery("");
                       router.push(item.href);
                     }}
-                    className="flex items-center justify-between p-3 rounded-xl hover:bg-slate-100 cursor-pointer transition-colors group"
+                    className="flex items-center justify-between p-3 rounded-lg hover:bg-accent cursor-pointer transition-colors group"
                   >
                     <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-lg bg-white border border-border flex items-center justify-center text-slate-700 shadow-sm group-hover:border-slate-300">
+                      <div className="w-8 h-8 rounded-md bg-secondary border border-border flex items-center justify-center text-muted-foreground group-hover:text-foreground transition-colors">
                         <Icon className="w-4 h-4" />
                       </div>
                       <div>
-                        <div className="text-xs font-bold text-foreground">
+                        <div className="text-xs font-semibold text-foreground">
                           {item.title}
                         </div>
                         <div className="text-[11px] text-muted-foreground">
@@ -288,7 +254,7 @@ export function Navbar({ projectId, projectName }: NavbarProps) {
                         </div>
                       </div>
                     </div>
-                    <ArrowRight className="w-3.5 h-3.5 text-muted-foreground group-hover:text-brand-blue group-hover:translate-x-0.5 transition-all" />
+                    <ArrowRight className="w-3.5 h-3.5 text-muted-foreground group-hover:text-foreground group-hover:translate-x-0.5 transition-all" />
                   </div>
                 );
               })

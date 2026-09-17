@@ -125,7 +125,7 @@ test('M15a: infinite loop dihentikan timeout (server selamat!)', async () => {
   const result = await runFunctionCode(`while(true) {}`, { timeoutMs: 300 });
   assert.equal(result.ok, false);
   assert.equal(result.timedOut, true);
-  assert.ok(/batas waktu/.test(result.error ?? ''));
+  assert.ok(/timeout/.test(result.error ?? ''));
   assert.ok(result.durationMs < 3000, 'timeout harus bekerja cepat');
 });
 
@@ -136,7 +136,7 @@ test('M15a: console.log tertangkap & dibatasi', async () => {
   `);
   assert.ok(result.ok);
   assert.equal(result.logs.length, 101); // 100 baris + 1 potongan
-  assert.ok(result.logs[100].includes('dipotong'));
+  assert.ok(result.logs[100].includes('truncated'));
 });
 
 test('M15a: req masuk, return keluar', async () => {
@@ -214,7 +214,7 @@ test('M15a: infinite loop via HTTP → error timeout (bukan hang)', async () => 
 
   assert.equal(res.status, 400);
   assert.equal(res.data.error.code, 'FUNCTION_ERROR');
-  assert.ok(/batas waktu/.test(res.data.error.message));
+  assert.ok(/timeout/.test(res.data.error.message));
   assert.ok(dur < 5000, 'request harus selesai cepat, bukan hang');
 });
 

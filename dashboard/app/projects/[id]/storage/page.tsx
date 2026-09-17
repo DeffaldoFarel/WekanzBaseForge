@@ -164,8 +164,8 @@ export default function StorageExplorerPage() {
         {/* Header Navigation */}
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
           <div>
-            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-foreground flex items-center gap-2.5">
-              <HardDrive className="w-7 h-7 text-slate-800" />
+            <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-foreground flex items-center gap-2.5">
+              <HardDrive className="w-7 h-7 text-foreground" />
               <span>Storage Explorer</span>
             </h1>
             <p className="text-xs sm:text-sm text-muted-foreground mt-1">
@@ -200,14 +200,14 @@ export default function StorageExplorerPage() {
         </div>
 
         {notice && (
-          <div className="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200/80 text-emerald-800 text-xs font-semibold mb-6 flex items-center gap-2 shadow-sm">
-            <Check className="w-4 h-4 text-emerald-600" />
+          <div className="p-3.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-medium mb-6 flex items-center gap-2">
+            <Check className="w-4 h-4" />
             <span>{notice}</span>
           </div>
         )}
 
         {error && (
-          <div className="p-3.5 rounded-2xl bg-destructive/10 border border-destructive/20 text-destructive text-xs font-semibold mb-6 flex items-center gap-2">
+          <div className="p-3.5 rounded-lg bg-destructive/10 border border-destructive/40 text-destructive text-xs font-medium mb-6 flex items-center gap-2">
             <AlertTriangle className="w-4 h-4" />
             <span>{error}</span>
           </div>
@@ -215,53 +215,53 @@ export default function StorageExplorerPage() {
 
         {/* Metric Cards */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-          <Card className="p-5 rounded-[22px]">
-            <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-              <Package className="w-4 h-4 text-slate-400" />
+          <Card className="p-5">
+            <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+              <Package className="w-4 h-4" />
               <span>Total Files</span>
             </div>
-            <div className="text-2xl font-extrabold text-foreground mt-2">
+            <div className="text-2xl font-semibold text-foreground mt-2">
               {stats.totalFiles}
             </div>
           </Card>
 
-          <Card className="p-5 rounded-[22px]">
-            <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-              <HardDrive className="w-4 h-4 text-brand-blue" />
+          <Card className="p-5">
+            <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+              <HardDrive className="w-4 h-4" />
               <span>Storage Used</span>
             </div>
-            <div className="text-2xl font-extrabold text-brand-blue mt-2">
+            <div className="text-2xl font-semibold text-foreground mt-2">
               {formatBytes(stats.totalSize)}
             </div>
           </Card>
 
-          <Card className="p-5 rounded-[22px]">
-            <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-              <ImageIcon className="w-4 h-4 text-emerald-600" />
+          <Card className="p-5">
+            <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+              <ImageIcon className="w-4 h-4" />
               <span>Image Files</span>
             </div>
-            <div className="text-2xl font-extrabold text-emerald-700 mt-2">
+            <div className="text-2xl font-semibold text-foreground mt-2">
               {imageCount}
             </div>
           </Card>
 
-          <Card className="p-5 rounded-[22px]">
-            <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-              <AlertTriangle className={`w-4 h-4 ${stats.orphanedCount > 0 ? "text-destructive" : "text-slate-400"}`} />
+          <Card className="p-5">
+            <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+              <AlertTriangle className={`w-4 h-4 ${stats.orphanedCount > 0 ? "text-destructive" : ""}`} />
               <span>Orphaned Files</span>
             </div>
-            <div className={`text-2xl font-extrabold mt-2 ${stats.orphanedCount > 0 ? "text-destructive" : "text-foreground"}`}>
+            <div className={`text-2xl font-semibold mt-2 ${stats.orphanedCount > 0 ? "text-destructive" : "text-foreground"}`}>
               {stats.orphanedCount}
             </div>
           </Card>
         </div>
 
         {/* Toolbar: Search, Filters, View Modes */}
-        <Card className="p-3 mb-6 flex flex-col md:flex-row justify-between items-center gap-3 rounded-[22px]">
+        <Card className="p-3 mb-6 flex flex-col md:flex-row justify-between items-center gap-3">
           <div className="relative flex-1 w-full">
-            <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <Input
-              className="pl-10 h-10 border-slate-200"
+              className="pl-9 h-9"
               placeholder="Search by filename, record ID, or collection..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -269,8 +269,8 @@ export default function StorageExplorerPage() {
           </div>
 
           <div className="flex items-center gap-2 w-full md:w-auto overflow-x-auto pb-1 md:pb-0">
-            {/* Filter Pills */}
-            <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-full border border-border">
+            {/* Filter Segments */}
+            <div className="flex items-center gap-1 bg-secondary p-1 rounded-lg border border-border">
               {[
                 { id: "all", label: "All" },
                 { id: "images", label: "Images" },
@@ -283,9 +283,9 @@ export default function StorageExplorerPage() {
                   <button
                     key={t.id}
                     onClick={() => setTypeFilter(t.id as typeof typeFilter)}
-                    className={`px-3 py-1 rounded-full text-xs font-semibold transition-all whitespace-nowrap ${
+                    className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors whitespace-nowrap ${
                       active
-                        ? "bg-primary text-primary-foreground shadow-pill"
+                        ? "bg-accent text-foreground"
                         : "text-muted-foreground hover:text-foreground"
                     }`}
                   >
@@ -296,11 +296,11 @@ export default function StorageExplorerPage() {
             </div>
 
             {/* View Mode Toggle */}
-            <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-full border border-border shrink-0">
+            <div className="flex items-center gap-1 bg-secondary p-1 rounded-lg border border-border shrink-0">
               <button
                 onClick={() => setViewMode("grid")}
-                className={`p-1.5 rounded-full transition-all ${
-                  viewMode === "grid" ? "bg-white text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                className={`p-1.5 rounded-md transition-colors ${
+                  viewMode === "grid" ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground"
                 }`}
                 title="Grid View"
               >
@@ -308,8 +308,8 @@ export default function StorageExplorerPage() {
               </button>
               <button
                 onClick={() => setViewMode("table")}
-                className={`p-1.5 rounded-full transition-all ${
-                  viewMode === "table" ? "bg-white text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                className={`p-1.5 rounded-md transition-colors ${
+                  viewMode === "table" ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground"
                 }`}
                 title="Table View"
               >
@@ -321,16 +321,16 @@ export default function StorageExplorerPage() {
 
         {/* Files View */}
         {loading ? (
-          <Card className="py-20 text-center rounded-[24px]">
+          <Card className="py-20 text-center">
             <RefreshCw className="w-8 h-8 animate-spin mx-auto text-muted-foreground mb-3" />
             <p className="text-sm font-medium text-muted-foreground">Scanning storage disk...</p>
           </Card>
         ) : filteredFiles.length === 0 ? (
-          <Card className="py-20 text-center rounded-[28px]">
-            <div className="w-16 h-16 rounded-2xl bg-slate-100 flex items-center justify-center mx-auto mb-4 border border-border">
-              <FolderOpen className="w-8 h-8 text-slate-400" />
+          <Card className="py-20 text-center">
+            <div className="w-16 h-16 rounded-lg bg-secondary flex items-center justify-center mx-auto mb-4 border border-border">
+              <FolderOpen className="w-8 h-8 text-muted-foreground" />
             </div>
-            <h3 className="text-lg font-bold text-foreground">No Files Found</h3>
+            <h3 className="text-lg font-semibold text-foreground">No Files Found</h3>
             <p className="text-sm text-muted-foreground max-w-sm mx-auto mt-1">
               {files.length === 0
                 ? "No files have been uploaded to this project yet. Upload files via the database record form."
@@ -351,14 +351,14 @@ export default function StorageExplorerPage() {
               return (
                 <Card
                   key={file.storedName}
-                  className={`p-3.5 rounded-[22px] flex flex-col justify-between hover:shadow-lg transition-all ${
-                    file.isOrphaned ? "border-dashed border-destructive/50 bg-red-50/20" : "bg-white"
+                  className={`p-3 flex flex-col justify-between hover:border-foreground/20 transition-colors ${
+                    file.isOrphaned ? "border-dashed border-destructive/50 bg-destructive/5" : ""
                   }`}
                 >
                   {/* Thumbnail Container */}
                   <div
                     onClick={() => setPreviewFile(file)}
-                    className="h-36 rounded-2xl bg-slate-100 flex items-center justify-center cursor-pointer overflow-hidden relative group border border-slate-100"
+                    className="h-36 rounded-lg bg-secondary flex items-center justify-center cursor-pointer overflow-hidden relative group border border-border"
                   >
                     {thumbUrl ? (
                       // eslint-disable-next-line @next/next/no-img-element
@@ -369,15 +369,15 @@ export default function StorageExplorerPage() {
                         loading="lazy"
                       />
                     ) : (
-                      <div className="flex flex-col items-center gap-1 text-slate-400 group-hover:text-slate-600 transition-colors">
+                      <div className="flex flex-col items-center gap-1 text-muted-foreground group-hover:text-foreground transition-colors">
                         {file.isImage ? (
                           <ImageIcon className="w-10 h-10" />
                         ) : file.mime.includes("pdf") ? (
-                          <FileText className="w-10 h-10 text-rose-500" />
+                          <FileText className="w-10 h-10 text-rose-400" />
                         ) : file.mime.includes("audio") ? (
-                          <Music className="w-10 h-10 text-amber-500" />
+                          <Music className="w-10 h-10 text-amber-400" />
                         ) : file.mime.includes("video") ? (
-                          <Film className="w-10 h-10 text-violet-500" />
+                          <Film className="w-10 h-10 text-violet-400" />
                         ) : (
                           <Package className="w-10 h-10" />
                         )}
@@ -390,8 +390,8 @@ export default function StorageExplorerPage() {
                       </Badge>
                     )}
 
-                    <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                      <span className="bg-white/95 text-foreground px-3 py-1 rounded-full text-xs font-semibold shadow-sm flex items-center gap-1">
+                    <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                      <span className="bg-background/90 text-foreground px-3 py-1 rounded-md text-xs font-medium border border-border flex items-center gap-1">
                         <Eye className="w-3.5 h-3.5" />
                         View
                       </span>
@@ -400,10 +400,10 @@ export default function StorageExplorerPage() {
 
                   {/* File Info */}
                   <div className="mt-3 px-1">
-                    <div className="font-semibold text-xs text-foreground truncate" title={file.name}>
+                    <div className="font-medium text-xs text-foreground truncate" title={file.name}>
                       {file.name}
                     </div>
-                    <div className="flex justify-between items-center text-[11px] text-muted-foreground mt-1 font-medium">
+                    <div className="flex justify-between items-center text-[11px] text-muted-foreground mt-1">
                       <span>{formatBytes(file.size)}</span>
                       <Badge variant="secondary" className="text-[10px] py-0 px-2 font-mono">
                         {file.collectionName ?? "unlinked"}
@@ -412,15 +412,15 @@ export default function StorageExplorerPage() {
                   </div>
 
                   {/* Action Icons */}
-                  <div className="flex items-center gap-1.5 mt-3 pt-2.5 border-t border-slate-100">
+                  <div className="flex items-center gap-1 mt-3 pt-2.5 border-t border-border">
                     <Button
                       variant="ghost"
                       size="sm"
                       onClick={() => setPreviewFile(file)}
-                      className="h-8 flex-1 rounded-full px-0"
+                      className="h-8 flex-1 px-0 text-muted-foreground"
                       title="Preview"
                     >
-                      <Eye className="w-3.5 h-3.5 text-slate-600" />
+                      <Eye className="w-3.5 h-3.5" />
                     </Button>
                     {fileDirectUrl && (
                       <>
@@ -428,7 +428,7 @@ export default function StorageExplorerPage() {
                           href={fileDirectUrl}
                           target="_blank"
                           rel="noreferrer"
-                          className="h-8 flex-1 rounded-full inline-flex items-center justify-center hover:bg-slate-100 text-slate-600 transition-colors"
+                          className="h-8 flex-1 rounded-md inline-flex items-center justify-center hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
                           title="Download file"
                         >
                           <Download className="w-3.5 h-3.5" />
@@ -437,10 +437,10 @@ export default function StorageExplorerPage() {
                           variant="ghost"
                           size="sm"
                           onClick={() => copyFileUrl(file)}
-                          className="h-8 flex-1 rounded-full px-0"
+                          className="h-8 flex-1 px-0 text-muted-foreground"
                           title="Copy file URL"
                         >
-                          <Copy className="w-3.5 h-3.5 text-slate-600" />
+                          <Copy className="w-3.5 h-3.5" />
                         </Button>
                       </>
                     )}
@@ -448,7 +448,7 @@ export default function StorageExplorerPage() {
                       variant="ghost"
                       size="sm"
                       onClick={() => handleDelete(file)}
-                      className="h-8 flex-1 rounded-full px-0 text-destructive hover:text-destructive hover:bg-destructive/10"
+                      className="h-8 flex-1 px-0 text-destructive hover:text-destructive hover:bg-destructive/10"
                       title="Delete file"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
@@ -460,11 +460,11 @@ export default function StorageExplorerPage() {
           </div>
         ) : (
           /* Table View */
-          <Card className="overflow-hidden rounded-[24px] p-0 border-border">
+          <Card className="overflow-hidden p-0 border-border">
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
-                  <tr className="bg-slate-50 border-b border-border text-slate-500 font-semibold uppercase tracking-wider">
+                  <tr className="bg-secondary border-b border-border text-muted-foreground font-medium uppercase tracking-wider">
                     <th className="p-3.5 pl-5">File Name</th>
                     <th className="p-3.5">Size</th>
                     <th className="p-3.5">MIME Type</th>
@@ -474,19 +474,19 @@ export default function StorageExplorerPage() {
                     <th className="p-3.5 pr-5 text-right">Actions</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100 font-mono">
+                <tbody className="divide-y divide-border font-mono">
                   {filteredFiles.map((file) => {
                     const fileDirectUrl = file.collectionName
                       ? fileUrl(projectId, file.collectionName, file.recordId, file.name)
                       : null;
 
                     return (
-                      <tr key={file.storedName} className="hover:bg-slate-50/80 transition-colors font-sans">
-                        <td className="p-3.5 pl-5 font-semibold text-foreground flex items-center gap-2">
+                      <tr key={file.storedName} className="hover:bg-accent/50 transition-colors font-sans">
+                        <td className="p-3.5 pl-5 font-medium text-foreground flex items-center gap-2">
                           {file.isImage ? (
-                            <ImageIcon className="w-4 h-4 text-brand-blue" />
+                            <ImageIcon className="w-4 h-4 text-foreground" />
                           ) : (
-                            <FileText className="w-4 h-4 text-slate-500" />
+                            <FileText className="w-4 h-4 text-muted-foreground" />
                           )}
                           <span className="truncate max-w-[200px]" title={file.name}>
                             {file.name}
@@ -512,11 +512,11 @@ export default function StorageExplorerPage() {
                             <Button
                               variant="ghost"
                               size="icon"
-                              className="h-7 w-7"
+                              className="h-7 w-7 text-muted-foreground"
                               onClick={() => setPreviewFile(file)}
                               title="View"
                             >
-                              <Eye className="w-3.5 h-3.5 text-slate-600" />
+                              <Eye className="w-3.5 h-3.5" />
                             </Button>
                             {fileDirectUrl && (
                               <>
@@ -524,7 +524,7 @@ export default function StorageExplorerPage() {
                                   href={fileDirectUrl}
                                   target="_blank"
                                   rel="noreferrer"
-                                  className="h-7 w-7 inline-flex items-center justify-center rounded-full hover:bg-slate-100 text-slate-600"
+                                  className="h-7 w-7 inline-flex items-center justify-center rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
                                   title="Download"
                                 >
                                   <Download className="w-3.5 h-3.5" />
@@ -532,11 +532,11 @@ export default function StorageExplorerPage() {
                                 <Button
                                   variant="ghost"
                                   size="icon"
-                                  className="h-7 w-7"
+                                  className="h-7 w-7 text-muted-foreground"
                                   onClick={() => copyFileUrl(file)}
                                   title="Copy URL"
                                 >
-                                  <Copy className="w-3.5 h-3.5 text-slate-600" />
+                                  <Copy className="w-3.5 h-3.5" />
                                 </Button>
                               </>
                             )}
@@ -564,7 +564,7 @@ export default function StorageExplorerPage() {
         <Dialog open={previewFile !== null} onOpenChange={(open: boolean) => !open && setPreviewFile(null)}>
           <DialogContent className="max-w-xl">
             <DialogHeader>
-              <DialogTitle className="text-base font-bold truncate pr-6">
+              <DialogTitle className="text-base font-semibold truncate pr-6">
                 {previewFile?.name}
               </DialogTitle>
             </DialogHeader>
@@ -572,7 +572,7 @@ export default function StorageExplorerPage() {
             {previewFile && (
               <div className="space-y-4">
                 {/* Media Render Preview */}
-                <div className="bg-slate-100 rounded-2xl p-4 flex items-center justify-center min-h-[200px] border border-border overflow-hidden">
+                <div className="bg-secondary rounded-lg p-4 flex items-center justify-center min-h-[200px] border border-border overflow-hidden">
                   {previewFile.isImage && previewFile.collectionName ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
@@ -594,14 +594,14 @@ export default function StorageExplorerPage() {
                     />
                   ) : (
                     <div className="text-center py-6">
-                      <FileText className="w-16 h-16 mx-auto text-slate-400 mb-2" />
+                      <FileText className="w-16 h-16 mx-auto text-muted-foreground mb-2" />
                       <p className="text-xs text-muted-foreground font-medium">Visual preview not available for this file type</p>
                     </div>
                   )}
                 </div>
 
                 {/* Metadata Details */}
-                <div className="grid grid-cols-2 gap-3 text-xs bg-slate-50 p-4 rounded-2xl border border-border">
+                <div className="grid grid-cols-2 gap-3 text-xs bg-secondary p-4 rounded-lg border border-border">
                   <div>
                     <span className="text-muted-foreground block text-[11px]">File Size</span>
                     <span className="font-semibold text-foreground font-mono">{formatBytes(previewFile.size)}</span>

@@ -62,6 +62,7 @@ export function fireTriggers(
     // Operasi CRUD asli sudah selesai; hasil trigger dicatat via .then.
     void runFunctionCode(fn.code, {
       timeoutMs: fn.timeoutMs,
+      httpAllow: fn.httpAllow, // M25
       triggerContext: {
         action,
         collection,

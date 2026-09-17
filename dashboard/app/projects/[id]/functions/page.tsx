@@ -4,7 +4,7 @@
 // M15u: FUNCTIONS PAGE — editor + runner + badge schedule/triggers
 //
 // Layout:
-//  - Daftar function: nama, badge (⏰ cron / 🔗 trigger / ▶ callable),
+//  - Daftar function: nama, badge (cron / trigger / callable),
 //    toggle enabled, Run, Edit, Delete
 //  - Modal editor: name (saat baru), code (textarea mono), timeout,
 //    schedule (cron), triggers (collection + actions checkboxes)
@@ -33,10 +33,11 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Clock, GitFork, Play, CheckCircle2, AlertTriangle, XCircle, Plus, Globe, type LucideIcon } from "lucide-react";
 
-const DEFAULT_CODE = `// req = { body, query, auth } untuk callable
-// return apapun → JSON response
-return { hello: "dunia", dari: req.auth?.email ?? "anon" };`;
+const DEFAULT_CODE = `// req = { body, query, auth } for callable functions
+// any return value → JSON response
+return { hello: "world", from: req.auth?.email ?? "anon" };`;
 
 export default function FunctionsPage() {
   const params = useParams();
@@ -65,7 +66,7 @@ export default function FunctionsPage() {
       setFunctions(fns);
       setCollectionNames(cols.map((c) => c.name));
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Gagal memuat functions");
+      setError(e instanceof Error ? e.message : "Failed to load functions");
     } finally {
       setLoading(false);
     }
@@ -81,23 +82,23 @@ export default function FunctionsPage() {
       await updateFunction(projectId, fn.name, { enabled: !fn.enabled });
       load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Gagal mengubah status");
+      setError(e instanceof Error ? e.message : "Failed to update status");
     }
   }
 
   async function handleDelete(fn: StoredFunction) {
-    if (!confirm(`Hapus function '${fn.name}'?`)) return;
+    if (!confirm(`Delete function '${fn.name}'?`)) return;
     setError("");
     try {
       await deleteFunction(projectId, fn.name);
-      setNotice(`Function '${fn.name}' dihapus`);
+      setNotice(`Function '${fn.name}' deleted`);
       if (running === fn.name) {
         setRunning(null);
         setRunResult(null);
       }
       load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Gagal menghapus");
+      setError(e instanceof Error ? e.message : "Failed to delete");
     }
   }
 
@@ -110,22 +111,22 @@ export default function FunctionsPage() {
       try {
         body = JSON.parse(runBody || "{}");
       } catch {
-        throw new Error("Body JSON tidak valid");
+        throw new Error("Invalid JSON body");
       }
       const result = await executeFunction(projectId, fn.name, body);
       setRunResult(result);
     } catch (e) {
-      setRunResult({ ok: false, error: e instanceof Error ? e.message : "Gagal menjalankan", logs: [], durationMs: 0 });
+      setRunResult({ ok: false, error: e instanceof Error ? e.message : "Execution failed", logs: [], durationMs: 0 });
     }
   }
 
   function badges(fn: StoredFunction) {
-    const items: string[] = [];
-    if (fn.schedule) items.push(`⏰ ${fn.schedule}`);
+    const items: { icon: LucideIcon; label: string }[] = [];
+    if (fn.schedule) items.push({ icon: Clock, label: fn.schedule });
     for (const t of fn.triggers) {
-      items.push(`🔗 ${t.collection}:${t.actions.join("/")}`);
+      items.push({ icon: GitFork, label: `${t.collection}:${t.actions.join("/")}` });
     }
-    if (items.length === 0) items.push("▶ callable");
+    if (items.length === 0) items.push({ icon: Play, label: "callable" });
     return items;
   }
 
@@ -140,7 +141,7 @@ export default function FunctionsPage() {
         {/* ─── MAIN CONTENT ─── */}
         <div className="flex-1 min-w-0">
           <div className="flex justify-between items-center flex-wrap gap-2">
-            <h2 className="text-2xl font-bold">
+            <h2 className="text-2xl font-semibold tracking-tight">
               Functions <span className="text-muted-foreground text-base font-normal">({functions.length})</span>
             </h2>
             <Button
@@ -148,33 +149,37 @@ export default function FunctionsPage() {
                 setCreating(true);
                 setEditing(null);
               }}
+              className="gap-1.5"
             >
-              + Function baru
+              <Plus className="w-3.5 h-3.5" />
+              <span>New Function</span>
             </Button>
           </div>
 
           <p className="text-sm text-muted-foreground mt-1">
-            Kode berjalan di sandbox: tanpa <code>process</code>/<code>require</code>, timeout, console tertangkap.
+            Code runs in a sandbox: no <code>process</code>/<code>require</code>, enforced timeouts, captured console output.
           </p>
 
           {notice && (
-            <Card className="p-3 mt-3 border-green-600 bg-green-50">
-              ✅ {notice}
+            <Card className="p-3 mt-3 border-emerald-500/40 bg-emerald-500/10 text-emerald-400 text-sm flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 shrink-0" />
+              <span>{notice}</span>
             </Card>
           )}
           {error && (
-            <Card className="p-3 mt-3 border-destructive bg-destructive/10">
-              ⚠️ {error}
+            <Card className="p-3 mt-3 border-destructive/50 bg-destructive/10 text-destructive text-sm flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 shrink-0" />
+              <span>{error}</span>
             </Card>
           )}
 
       {/* Daftar functions */}
       <Card className="p-4 mt-4">
         {loading ? (
-          <p className="text-muted-foreground">Memuat…</p>
+          <p className="text-muted-foreground">Loading…</p>
         ) : functions.length === 0 ? (
           <p className="text-muted-foreground">
-            Belum ada function. Klik <strong>+ Function baru</strong> untuk membuat pertama.
+            No functions yet. Click <strong>+ New Function</strong> to create your first one.
           </p>
         ) : (
           functions.map((fn) => (
@@ -184,12 +189,22 @@ export default function FunctionsPage() {
             >
               <div className="flex items-center gap-2.5 flex-wrap">
                 <strong className="text-sm">{fn.name}</strong>
-                {badges(fn).map((b, i) => (
-                  <Badge key={i} variant="secondary" className="text-xs">
-                    {b}
+                {badges(fn).map((b, i) => {
+                  const Icon = b.icon;
+                  return (
+                    <Badge key={i} variant="secondary" className="text-xs gap-1">
+                      <Icon className="w-3 h-3" />
+                      <span>{b.label}</span>
+                    </Badge>
+                  );
+                })}
+                {fn.httpAllow.length > 0 && (
+                  <Badge variant="blue" className="text-xs gap-1" title={`$http allowed: ${fn.httpAllow.join(", ")}`}>
+                    <Globe className="w-3 h-3" />
+                    <span>$http</span>
                   </Badge>
-                ))}
-                <span className="text-xs text-muted-foreground">
+                )}
+                <span className="text-xs text-muted-foreground font-mono">
                   {fn.timeoutMs}ms
                 </span>
                 <span className="flex-1" />
@@ -198,10 +213,11 @@ export default function FunctionsPage() {
                     checked={fn.enabled}
                     onCheckedChange={() => handleToggle(fn)}
                   />
-                  {fn.enabled ? "aktif" : "nonaktif"}
+                  {fn.enabled ? "active" : "disabled"}
                 </label>
-                <Button variant="secondary" size="sm" onClick={() => handleRun(fn)}>
-                  ▶ Run
+                <Button variant="secondary" size="sm" onClick={() => handleRun(fn)} className="gap-1">
+                  <Play className="w-3 h-3 fill-current" />
+                  <span>Run</span>
                 </Button>
                 <Button
                   size="sm"
@@ -229,8 +245,9 @@ export default function FunctionsPage() {
                     className="font-mono text-sm mt-1"
                   />
                   <div className="flex gap-2 mt-2">
-                    <Button size="sm" onClick={() => handleRun(fn)}>
-                      Jalankan
+                    <Button size="sm" onClick={() => handleRun(fn)} className="gap-1">
+                      <Play className="w-3 h-3 fill-current" />
+                      <span>Run</span>
                     </Button>
                     <Button variant="secondary" size="sm" onClick={() => setRunning(null)}>
                       Tutup
@@ -238,12 +255,22 @@ export default function FunctionsPage() {
                   </div>
                   {runResult && (
                     <div className="mt-3 text-sm">
-                      <div>
-                        {runResult.ok ? "✅" : "❌"} <strong>{runResult.durationMs}ms</strong>
-                        {runResult.timedOut && " ⏱ timeout"}
+                      <div className="flex items-center gap-2">
+                        {runResult.ok ? (
+                          <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                        ) : (
+                          <XCircle className="w-4 h-4 text-destructive" />
+                        )}
+                        <strong className="font-mono">{runResult.durationMs}ms</strong>
+                        {runResult.timedOut && (
+                          <Badge variant="destructive" className="gap-1 text-xs">
+                            <Clock className="w-3 h-3" />
+                            <span>timeout</span>
+                          </Badge>
+                        )}
                       </div>
                       {runResult.error && (
-                        <div className="text-destructive">{runResult.error}</div>
+                        <div className="text-destructive mt-1">{runResult.error}</div>
                       )}
                       {runResult.result !== undefined && runResult.result !== null && (
                         <pre className="bg-card p-2 rounded mt-2 overflow-x-auto text-xs">
@@ -282,7 +309,7 @@ export default function FunctionsPage() {
           onSaved={() => {
             setCreating(false);
             setEditing(null);
-            setNotice("Function tersimpan");
+            setNotice("Function saved");
             load();
           }}
         />

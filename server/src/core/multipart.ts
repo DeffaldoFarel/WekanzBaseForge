@@ -92,7 +92,7 @@ export function parseMultipart(body: Buffer, boundary: string): Promise<Multipar
         if (fileStream.truncated) {
           // fileSize limit tercapai — reject (field maxSize dicek di records.ts,
           // di sini hard cap proteksi memori)
-          if (!settled) { settled = true; reject(new Error(`File melebihi batas 100MB`)); }
+          if (!settled) { settled = true; reject(new Error(`File exceeds the 100MB limit`)); }
           return;
         }
         result.files.push({

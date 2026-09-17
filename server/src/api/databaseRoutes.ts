@@ -33,9 +33,18 @@ import {
   deleteRecord,
   listRecords,
 } from '../core/records.js';
+import { fireWebhooks } from '../core/webhooks.js';
+import { fireTriggersSafe } from '../core/triggerExecutor.js';
 import type { CollectionDefinition, IndexDefinition } from '../core/schema.js';
 import type { CollectionRules } from '../core/rules.js';
 import type { FieldDefinition } from '../core/fieldTypes.js';
+import type { DatabaseSync } from 'node:sqlite';
+
+// Helper: snapshot record sebelum update (untuk webhook previous)
+function snapshotRecord(db: DatabaseSync, collection: string, id: string): Record<string, unknown> | null {
+  const rec = getRecord(db, collection, id);
+  return rec as unknown as Record<string, unknown> | null;
+}
 
 export function createDatabaseRouter(): Router {
   const router = new Router();
@@ -83,7 +92,7 @@ export function createDatabaseRouter(): Router {
 
       if (!body?.name) {
         res.status(400).json({
-          error: { code: 'BAD_REQUEST', message: 'name wajib diisi' },
+          error: { code: 'BAD_REQUEST', message: 'name is required' },
         });
         return;
       }
@@ -91,7 +100,7 @@ export function createDatabaseRouter(): Router {
       if (body.type === 'view') {
         if (!body.viewQuery || typeof body.viewQuery !== 'string') {
           res.status(400).json({
-            error: { code: 'BAD_REQUEST', message: 'viewQuery wajib diisi untuk collection type view' },
+            error: { code: 'BAD_REQUEST', message: 'viewQuery is required for view collections' },
           });
           return;
         }
@@ -107,7 +116,7 @@ export function createDatabaseRouter(): Router {
       // Default: base collection
       if (!Array.isArray(body.fields)) {
         res.status(400).json({
-          error: { code: 'BAD_REQUEST', message: 'fields (array) wajib diisi untuk base collection' },
+          error: { code: 'BAD_REQUEST', message: 'fields (array) is required for base collections' },
         });
         return;
       }
@@ -132,7 +141,7 @@ export function createDatabaseRouter(): Router {
       const db = getProjectDb(req.params.pid);
       const meta = getCollectionByName(db, req.params.name);
       if (!meta) {
-        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Collection tidak ditemukan' } });
+        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Collection not found' } });
         return;
       }
       res.json({ collection: meta });
@@ -147,7 +156,7 @@ export function createDatabaseRouter(): Router {
       const db = getProjectDb(req.params.pid);
       const body = req.body as { fields?: FieldDefinition[] } | undefined;
       if (!Array.isArray(body?.fields)) {
-        res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'fields harus berupa array' } });
+        res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'fields must be an array' } });
         return;
       }
       const updated = updateCollection(db, req.params.name, { fields: body.fields });
@@ -167,7 +176,7 @@ export function createDatabaseRouter(): Router {
         rules?: Partial<CollectionRules>;
       } | undefined;
       if (!Array.isArray(body?.fields)) {
-        res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'fields harus berupa array' } });
+        res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'fields must be an array' } });
         return;
       }
       const updated = rebuildCollection(db, req.params.name, {
@@ -190,7 +199,7 @@ export function createDatabaseRouter(): Router {
       const db = getProjectDb(req.params.pid);
       const deleted = deleteCollection(db, req.params.name);
       if (!deleted) {
-        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Collection tidak ditemukan' } });
+        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Collection not found' } });
         return;
       }
       res.json({ success: true });
@@ -211,13 +220,13 @@ export function createDatabaseRouter(): Router {
       const fn = req.query.get('function');
       if (!fn) {
         res.status(400).json({
-          error: { code: 'BAD_REQUEST', message: "Query param 'function' wajib (count|sum|avg|min|max)" },
+          error: { code: 'BAD_REQUEST', message: "Query param 'function' is required (count|sum|avg|min|max)" },
         });
         return;
       }
       if (!['count', 'sum', 'avg', 'min', 'max'].includes(fn)) {
         res.status(400).json({
-          error: { code: 'BAD_REQUEST', message: `Aggregate function tidak dikenal: '${fn}'` },
+          error: { code: 'BAD_REQUEST', message: `Unknown aggregate function: '${fn}'` },
         });
         return;
       }
@@ -268,6 +277,14 @@ export function createDatabaseRouter(): Router {
       const db = getProjectDb(req.params.pid);
       const body = (req.body ?? {}) as Record<string, unknown>;
       const record = createRecord(db, req.params.name, body);
+      // M28: webhook + trigger + realtime untuk admin API juga
+      fireWebhooks(db, {
+        projectId: req.params.pid,
+        action: 'create',
+        collection: req.params.name,
+        record: record as Record<string, unknown>,
+      });
+      fireTriggersSafe(db, req.params.name, 'create', record as Record<string, unknown>);
       res.status(201).json({ record });
     } catch (err) {
       handleError(res, err);
@@ -279,11 +296,20 @@ export function createDatabaseRouter(): Router {
     try {
       const db = getProjectDb(req.params.pid);
       const body = (req.body ?? {}) as Record<string, unknown>;
+      const oldRecord = snapshotRecord(db, req.params.name, req.params.id);
       const record = updateRecord(db, req.params.name, req.params.id, body);
       if (!record) {
-        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Record tidak ditemukan' } });
+        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Record not found' } });
         return;
       }
+      fireWebhooks(db, {
+        projectId: req.params.pid,
+        action: 'update',
+        collection: req.params.name,
+        record: record as Record<string, unknown>,
+        previous: (oldRecord ?? null) as Record<string, unknown> | null,
+      });
+      fireTriggersSafe(db, req.params.name, 'update', record as Record<string, unknown>, oldRecord ?? undefined);
       res.json({ record });
     } catch (err) {
       handleError(res, err);
@@ -296,9 +322,16 @@ export function createDatabaseRouter(): Router {
       const db = getProjectDb(req.params.pid);
       const deleted = deleteRecord(db, req.params.name, req.params.id);
       if (!deleted) {
-        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Record tidak ditemukan' } });
+        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Record not found' } });
         return;
       }
+      fireWebhooks(db, {
+        projectId: req.params.pid,
+        action: 'delete',
+        collection: req.params.name,
+        record: { id: req.params.id },
+      });
+      fireTriggersSafe(db, req.params.name, 'delete', { id: req.params.id });
       res.json({ success: true });
     } catch (err) {
       handleError(res, err);
@@ -318,7 +351,7 @@ export function createDatabaseRouter(): Router {
 
       if (!body?.newName) {
         res.status(400).json({
-          error: { code: 'BAD_REQUEST', message: 'newName wajib diisi' },
+          error: { code: 'BAD_REQUEST', message: 'newName is required' },
         });
         return;
       }
@@ -341,7 +374,7 @@ export function createDatabaseRouter(): Router {
 
       if (!Array.isArray(body?.records)) {
         res.status(400).json({
-          error: { code: 'BAD_REQUEST', message: 'records harus berupa array' },
+          error: { code: 'BAD_REQUEST', message: 'records must be an array' },
         });
         return;
       }
@@ -411,14 +444,14 @@ function handleError(res: { status: (c: number) => { json: (d: unknown) => void 
   const message = err instanceof Error ? err.message : 'Unknown error';
 
   // Error "tidak ditemukan"
-  if (/tidak ditemukan|not found/i.test(message)) {
+  if (/not found/i.test(message)) {
     res.status(404).json({ error: { code: 'NOT_FOUND', message } });
     return;
   }
   // Error validasi (user input salah)
   // M21 (B3): 'Duplicate' ditambahkan — field duplikat adalah kesalahan input
   // klien, sebelumnya lolos ke cabang 500 karena SQLite yang melaporkannya.
-  if (/required|must be|Invalid|tidak ada|already exists|reserved|Duplicate|duplicate column/i.test(message)) {
+  if (/required|must be|Invalid|not exist|already exists|reserved|Duplicate|duplicate column/i.test(message)) {
     res.status(400).json({ error: { code: 'VALIDATION_ERROR', message } });
     return;
   }

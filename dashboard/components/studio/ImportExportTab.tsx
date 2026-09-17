@@ -4,6 +4,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Download, Upload } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -45,16 +46,25 @@ export function ImportExportTab({
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Export Box */}
         <div className="bg-muted p-5 rounded-xl border border-border">
-          <h4 className="font-semibold mb-2">📥 Export Collection</h4>
+          <h4 className="font-semibold mb-2 flex items-center gap-2">
+            <Download className="w-4 h-4 text-muted-foreground" />
+            <span>Export Collection</span>
+          </h4>
           <p className="text-sm text-muted-foreground mb-4">
             Download <code className="text-xs bg-background px-1.5 py-0.5 rounded">{collectionName}-export.json</code> containing all field definitions and data rows.
           </p>
-          <Button onClick={onExport}>Download Export JSON File</Button>
+          <Button onClick={onExport} className="gap-1.5">
+            <Download className="w-4 h-4" />
+            <span>Download Export JSON</span>
+          </Button>
         </div>
 
         {/* Import Box */}
         <div className="bg-muted p-5 rounded-xl border border-border">
-          <h4 className="font-semibold mb-2">📤 Import JSON Data</h4>
+          <h4 className="font-semibold mb-2 flex items-center gap-2">
+            <Upload className="w-4 h-4 text-muted-foreground" />
+            <span>Import JSON Data</span>
+          </h4>
 
           <div className="space-y-4">
             <div className="space-y-2">
@@ -86,15 +96,16 @@ export function ImportExportTab({
             {ioMessage && (
               <div
                 className={`text-sm font-medium ${
-                  ioMessage.includes("Successfully") ? "text-green-600" : "text-destructive"
+                  ioMessage.includes("Successfully") ? "text-emerald-400" : "text-destructive"
                 }`}
               >
                 {ioMessage}
               </div>
             )}
 
-            <Button onClick={onImport} disabled={importing || !importJsonText.trim()}>
-              {importing ? "Importing…" : "Start JSON Import"}
+            <Button onClick={onImport} disabled={importing || !importJsonText.trim()} className="gap-1.5">
+              <Upload className="w-4 h-4" />
+              <span>{importing ? "Importing…" : "Start JSON Import"}</span>
             </Button>
           </div>
         </div>

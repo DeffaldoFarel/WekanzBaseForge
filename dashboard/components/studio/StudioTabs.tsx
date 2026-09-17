@@ -1,6 +1,7 @@
 "use client";
 
 import { cn } from "@/lib/utils";
+import { Table, Columns3, Shield, Sigma, ArrowUpDown, type LucideIcon } from "lucide-react";
 
 export type StudioTabValue = "records" | "schema" | "rules" | "agg" | "io";
 
@@ -11,12 +12,12 @@ interface StudioTabsProps {
   fieldCount: number;
 }
 
-const TABS: { value: StudioTabValue; label: string }[] = [
-  { value: "records", label: "📊 Records" },
-  { value: "schema", label: "📐 Schema & Fields" },
-  { value: "rules", label: "🔒 API Rules" },
-  { value: "agg", label: "🧮 Aggregations" },
-  { value: "io", label: "💾 Export / Import" },
+const TABS: { value: StudioTabValue; label: string; icon: LucideIcon }[] = [
+  { value: "records", label: "Records", icon: Table },
+  { value: "schema", label: "Schema & Fields", icon: Columns3 },
+  { value: "rules", label: "API Rules", icon: Shield },
+  { value: "agg", label: "Aggregations", icon: Sigma },
+  { value: "io", label: "Export / Import", icon: ArrowUpDown },
 ];
 
 export function StudioTabs({
@@ -31,10 +32,11 @@ export function StudioTabs({
   };
 
   return (
-    <div className="inline-flex items-center gap-1 rounded-full bg-secondary p-1 border border-border mb-6">
+    <div className="inline-flex items-center gap-1 rounded-lg bg-secondary p-1 border border-border mb-6">
       {TABS.map((tab) => {
         const isActive = activeTab === tab.value;
         const count = counts[tab.value];
+        const Icon = tab.icon;
         return (
           <button
             key={tab.value}
@@ -44,14 +46,15 @@ export function StudioTabs({
             data-state={isActive ? "active" : "inactive"}
             onClick={() => onTabChange(tab.value)}
             className={cn(
-              "inline-flex items-center justify-center whitespace-nowrap rounded-full px-4 py-1.5 text-xs font-semibold transition-all",
+              "inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-3.5 py-1.5 text-xs font-medium transition-colors",
               isActive
-                ? "bg-primary text-primary-foreground shadow-pill"
-                : "text-muted-foreground hover:text-foreground hover:bg-white/60"
+                ? "bg-accent text-foreground"
+                : "text-muted-foreground hover:text-foreground"
             )}
           >
-            {tab.label}
-            {count !== undefined && ` (${count})`}
+            <Icon className="w-3.5 h-3.5 shrink-0" />
+            <span>{tab.label}</span>
+            {count !== undefined && <span className="opacity-70 font-mono">({count})</span>}
           </button>
         );
       })}

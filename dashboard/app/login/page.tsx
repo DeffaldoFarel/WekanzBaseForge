@@ -4,19 +4,12 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { login } from "@/lib/api";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  BookOpen,
-  Eye,
-  EyeOff,
-  Loader2,
-  Zap,
-} from "lucide-react";
+import { AuthSplitLayout } from "@/components/auth/AuthSplitLayout";
+import { Eye, EyeOff, Loader2 } from "lucide-react";
 
 export default function LoginPage() {
   const router = useRouter();
-  const [mode, setMode] = useState<"signin" | "signup">("signup");
   const [email, setEmail] = useState("admin@baseforge.local");
   const [password, setPassword] = useState("admin123");
   const [showPassword, setShowPassword] = useState(false);
@@ -42,205 +35,89 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen w-full grid grid-cols-1 lg:grid-cols-[460px_1fr] xl:grid-cols-[500px_1fr] bg-white text-zinc-900">
-      {/* ─── LEFT COLUMN: AUTH FORM ─── */}
-      <aside className="relative flex flex-col justify-between border-r border-zinc-200 px-8 sm:px-12 py-8 min-h-screen bg-white">
-        {/* Top Logo */}
-        <div className="flex items-center gap-2.5">
-          <div className="w-7 h-7 rounded-lg bg-brand flex items-center justify-center shadow-sm">
-            <Zap className="w-4 h-4 text-white fill-white" />
-          </div>
-          <span className="font-bold text-lg tracking-tight text-zinc-900">
-            wekanz<span className="text-brand">BaseForge</span>
-          </span>
-        </div>
-
-        {/* Central Form Container */}
-        <div className="w-full max-w-sm mx-auto my-auto py-10">
-          <div className="space-y-1.5 mb-6 text-left">
-            <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-zinc-900">
-              {mode === "signup" ? "Get started" : "Welcome back"}
-            </h1>
-            <p className="text-sm text-zinc-500">
-              {mode === "signup"
-                ? "Create a new account"
-                : "Sign in to your platform account"}
-            </p>
-          </div>
-
-          {/* Form */}
-          <form onSubmit={onSubmit} className="space-y-4 text-left">
-            <div className="space-y-1.5">
-              <label
-                htmlFor="email"
-                className="text-xs font-medium text-zinc-900 block"
-              >
-                Email
-              </label>
-              <Input
-                id="email"
-                type="email"
-                placeholder="you@example.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                className="h-10 bg-[#f9fafb] border-zinc-300 rounded-md text-sm px-3.5 focus-visible:ring-1 focus-visible:ring-zinc-400 focus-visible:border-zinc-400"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <label
-                htmlFor="password"
-                className="text-xs font-medium text-zinc-900 block"
-              >
-                Password
-              </label>
-              <div className="relative">
-                <Input
-                  id="password"
-                  type={showPassword ? "text" : "password"}
-                  placeholder="••••••••"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  className="h-10 bg-[#f9fafb] border-zinc-300 rounded-md text-sm px-3.5 pr-11 focus-visible:ring-1 focus-visible:ring-zinc-400 focus-visible:border-zinc-400"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 rounded text-zinc-400 hover:text-zinc-700 transition-colors"
-                  tabIndex={-1}
-                  title={showPassword ? "Hide password" : "Show password"}
-                >
-                  {showPassword ? (
-                    <EyeOff className="w-4 h-4" />
-                  ) : (
-                    <Eye className="w-4 h-4" />
-                  )}
-                </button>
-              </div>
-            </div>
-
-            {/* Mint Green Sign Up / Sign In Button */}
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full h-10 mt-6 rounded-md bg-emerald-200 hover:bg-emerald-300 text-emerald-800 font-medium text-sm transition-all flex items-center justify-center gap-2 active:scale-[0.99] disabled:opacity-50 shadow-sm"
-            >
-              {loading ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin text-emerald-800" />
-                  <span>Processing...</span>
-                </>
-              ) : (
-                <span>{mode === "signup" ? "Sign up" : "Sign in"}</span>
-              )}
-            </button>
-
-            {error && (
-              <div className="p-3 rounded-md bg-red-50 border border-red-200 text-red-700 text-xs font-medium text-center">
-                {error}
-              </div>
-            )}
-          </form>
-
-          {/* Toggle Sign in / Sign up Mode */}
-          <p className="text-center text-sm text-zinc-500 mt-6">
-            {mode === "signup" ? (
-              <>
-                Have an account?{" "}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMode("signin");
-                    setError("");
-                  }}
-                  className="underline underline-offset-4 text-zinc-900 font-medium hover:text-black transition-colors"
-                >
-                  Sign in
-                </button>
-              </>
-            ) : (
-              <>
-                Don&apos;t have an account?{" "}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMode("signup");
-                    setError("");
-                  }}
-                  className="underline underline-offset-4 text-zinc-900 font-medium hover:text-black transition-colors"
-                >
-                  Sign up
-                </button>
-              </>
-            )}
-          </p>
-        </div>
-
-        {/* Bottom Legal Disclaimer */}
-        <p className="text-[11px] leading-relaxed text-zinc-500 text-center sm:text-left max-w-sm mx-auto">
-          By continuing, you agree to WekanzBaseForge&apos;s{" "}
-          <Link href="#" className="underline underline-offset-2 hover:text-zinc-800">
-            Terms of Service
-          </Link>{" "}
-          and{" "}
-          <Link href="#" className="underline underline-offset-2 hover:text-zinc-800">
-            Privacy Policy
-          </Link>
-          , and to receive periodic emails with platform updates.
+    <AuthSplitLayout>
+      <div className="space-y-1.5 mb-6 text-left">
+        <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-foreground">
+          Welcome back
+        </h1>
+        <p className="text-sm text-muted-foreground">
+          Sign in to your platform account
         </p>
-      </aside>
+      </div>
 
-      {/* ─── RIGHT COLUMN: DOCUMENTATION & TESTIMONIAL ─── */}
-      <main className="hidden lg:flex flex-col justify-between p-10 xl:p-14 bg-white relative">
-        {/* Top-Right Documentation Button */}
-        <div className="flex justify-end">
-          <a
-            href="https://github.com/DeffaldoFarel/WekanzBaseForge"
-            target="_blank"
-            rel="noreferrer"
-          >
-            <Button
-              variant="outline"
-              size="sm"
-              className="gap-2 text-zinc-700 border-zinc-200 rounded-md font-normal hover:bg-zinc-50 shadow-sm text-xs px-3.5 h-9"
-            >
-              <BookOpen className="w-4 h-4 text-zinc-500" />
-              <span>Documentation</span>
-            </Button>
-          </a>
+      <form onSubmit={onSubmit} className="space-y-4 text-left">
+        <div className="space-y-1.5">
+          <label htmlFor="email" className="text-xs font-medium text-foreground block">
+            Email
+          </label>
+          <Input
+            id="email"
+            type="email"
+            placeholder="you@example.com"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+            autoFocus
+          />
         </div>
 
-        {/* Testimonial Section */}
-        <div className="max-w-xl mx-auto my-auto px-6 text-left">
-          {/* Big Quotation Mark Watermark */}
-          <span className="text-8xl font-serif text-zinc-200 select-none block -mb-8 leading-none">
-            “
-          </span>
-          <blockquote className="text-2xl xl:text-3xl font-medium tracking-tight text-zinc-900 leading-snug">
-            Love BaseForge unified collections &amp; edge functions. Cursor + BaseForge + SQLite is all I need to build anything
-          </blockquote>
-
-          {/* Author Row */}
-          <div className="flex items-center gap-3.5 mt-8">
-            <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-amber-200 via-rose-300 to-teal-200 flex items-center justify-center text-zinc-800 font-bold text-xs shadow-sm ring-2 ring-white">
-              DF
-            </div>
-            <div>
-              <span className="text-sm font-medium text-zinc-900 block">
-                @deffaldo
-              </span>
-              <span className="text-xs text-zinc-500 font-normal">
-                Lead Architect • Wekanz Ecosystem
-              </span>
-            </div>
+        <div className="space-y-1.5">
+          <label htmlFor="password" className="text-xs font-medium text-foreground block">
+            Password
+          </label>
+          <div className="relative">
+            <Input
+              id="password"
+              type={showPassword ? "text" : "password"}
+              placeholder="••••••••"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              className="pr-11"
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword(!showPassword)}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 rounded text-muted-foreground hover:text-foreground transition-colors"
+              tabIndex={-1}
+              title={showPassword ? "Hide password" : "Show password"}
+            >
+              {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            </button>
           </div>
         </div>
 
-        {/* Empty bottom spacer to keep center vertically centered */}
-        <div className="h-9" />
-      </main>
-    </div>
+        <button
+          type="submit"
+          disabled={loading}
+          className="w-full h-10 mt-6 rounded-md bg-primary hover:bg-primary/85 text-primary-foreground font-medium text-sm transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+        >
+          {loading ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" />
+              <span>Signing in…</span>
+            </>
+          ) : (
+            <span>Sign in</span>
+          )}
+        </button>
+
+        {error && (
+          <div className="p-3 rounded-md bg-destructive/10 border border-destructive/40 text-destructive text-xs font-medium text-center">
+            {error}
+          </div>
+        )}
+      </form>
+
+      <p className="text-center text-sm text-muted-foreground mt-6">
+        Don&apos;t have an account?{" "}
+        <Link
+          href="/signup"
+          className="underline underline-offset-4 text-foreground font-medium hover:text-foreground/80 transition-colors"
+        >
+          Sign up
+        </Link>
+      </p>
+    </AuthSplitLayout>
   );
 }

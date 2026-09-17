@@ -87,7 +87,7 @@ test('M06: index merujuk field yang tidak ada → ditolak', () => {
       fields: [{ name: 'title', type: 'text' }],
       indexes: [{ name: 'idx_bad', fields: ['field_hantu'] }],
     });
-  }, /tidak ada di collection/);
+  }, /does not exist in collection/);
 
   db.close();
 });

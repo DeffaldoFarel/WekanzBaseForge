@@ -31,9 +31,20 @@
 - [ ] M07 — Transactions, ACID & WAL
 - [ ] M08 — Password hashing
 - [ ] M09 — JWT & sessions
-- [ ] M10 — OAuth2 flow
+- [x] [M10 — OAuth2 flow](M10-oauth2.md)
 - [ ] M11 — Row-level security
 - [ ] M12 — Relasi & N+1 problem
 - [ ] M13 — Realtime & WebSocket
 - [ ] M14 — File storage
 - [ ] M15 — Functions & triggers
+- [x] [M23 — Email service, verifikasi & reset password](M23-email-service.md)
+- [x] [M24 — Usage metrics: request & bandwidth](M24-metrics.md)
+- [x] [M25 — $http network access terkurasi di sandbox](M25-http-sandbox.md)
+- [x] [M26 — Per-project API keys](M26-api-keys.md)
+- [x] [M27 — MFA/TOTP (RFC 6238)](M27-mfa-totp.md)
+- [x] [M28 — Webhooks + CLI](M28-webhooks-cli.md)
+- [x] [M29 — Vector Search: embeddings & similarity](M29-vector-search.md)
+- [x] [M30 — S3/R2 Storage Backend](M30-s3-storage.md)
+- [x] [M31 — OAuth2 Multi-Provider (7)](M31-oauth-providers.md)
+- [x] [M32 — Scheduled Backup](M32-backup.md)
+- [x] [M33 — Monitoring/Alerting](M33-monitoring.md)

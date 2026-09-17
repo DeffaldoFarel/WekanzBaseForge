@@ -99,13 +99,13 @@ export async function refreshAccessToken(
   const row = db
     .prepare(
       `SELECT t.id, t.user_id, t.expires_at, t.revoked,
-              u.email, u.name
+              u.email, u.name, u.avatar_url
        FROM _auth_tokens t
        JOIN _auth_users u ON u.id = t.user_id
        WHERE t.token_hash = ?`
     )
     .get(tokenHash) as
-    | { id: string; user_id: string; expires_at: string; revoked: number; email: string; name: string | null }
+    | { id: string; user_id: string; expires_at: string; revoked: number; email: string; name: string | null; avatar_url: string | null }
     | undefined;
 
   if (!row) return null;                    // token tidak dikenal
@@ -117,6 +117,7 @@ export async function refreshAccessToken(
     id: row.user_id,
     email: row.email,
     name: row.name,
+    avatarUrl: row.avatar_url,
     verified: true,
     created: '',
     updated: '',

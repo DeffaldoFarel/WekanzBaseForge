@@ -62,13 +62,13 @@ export function createRealtimeRouter(): Router {
 
       const clientId = body.clientId;
       if (!clientId) {
-        res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'clientId wajib' } });
+        res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'clientId is required' } });
         return;
       }
 
       const client = realtimeHub.getClient(clientId);
       if (!client) {
-        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'clientId tidak dikenal — connect dulu' } });
+        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Unknown clientId — connect first' } });
         return;
       }
 
@@ -76,13 +76,13 @@ export function createRealtimeRouter(): Router {
       const db = getProjectDb(req.params.pid);
       const collections = body.collections ?? (body.collection ? [body.collection] : []);
       if (collections.length === 0) {
-        res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'collection(s) wajib' } });
+        res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'collection(s) are required' } });
         return;
       }
       for (const name of collections) {
         const meta = getCollectionByName(db, name);
         if (!meta) {
-          res.status(404).json({ error: { code: 'NOT_FOUND', message: `Collection '${name}' tidak ditemukan` } });
+          res.status(404).json({ error: { code: 'NOT_FOUND', message: `Collection '${name}' not found` } });
           return;
         }
       }
@@ -105,7 +105,7 @@ export function createRealtimeRouter(): Router {
     try {
       const body = (req.body ?? {}) as { clientId?: string; subId?: string };
       if (!body.clientId || !body.subId) {
-        res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'clientId dan subId wajib' } });
+        res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'clientId and subId are required' } });
         return;
       }
       const ok = realtimeHub.unsubscribe(body.clientId, body.subId);

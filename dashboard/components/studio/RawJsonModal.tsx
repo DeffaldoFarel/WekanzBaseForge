@@ -7,6 +7,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Copy } from "lucide-react";
 
 interface RawJsonModalProps {
   data: Record<string, unknown> | null;
@@ -23,12 +24,14 @@ export function RawJsonModal({ data, onClose }: RawJsonModalProps) {
             <Button
               variant="secondary"
               size="sm"
+              className="gap-1.5"
               onClick={() => {
                 navigator.clipboard.writeText(JSON.stringify(data, null, 2));
-                alert("JSON berhasil di-copy ke clipboard!");
+                alert("JSON copied to clipboard!");
               }}
             >
-              📋 Copy JSON
+              <Copy className="w-3.5 h-3.5" />
+              <span>Copy JSON</span>
             </Button>
           </DialogTitle>
         </DialogHeader>

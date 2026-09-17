@@ -30,6 +30,11 @@ import {
 } from '../auth/tokens.js';
 import { verifyToken } from '../auth/jwt.js';
 import { checkRateLimit, secondsUntilReset } from '../auth/rateLimiter.js';
+import { createEmailToken, initEmailTokensTable } from '../auth/emailTokens.js';
+import { isMfaEnabled, initMfaTable } from '../auth/mfa.js';
+import { sendMail } from '../auth/mailer.js';
+import { verificationEmail } from '../auth/emails.js';
+import { getProject } from '../core/platformDb.js';
 import type { DatabaseSync } from 'node:sqlite';
 import type { AuthUser } from '../auth/users.js';
 import type { TokenPair } from '../auth/tokens.js';
@@ -46,9 +51,35 @@ function getAuthDb(projectId: string): DatabaseSync | null {
     const db = getProjectDb(projectId);
     initAuthUsersTable(db);
     initAuthTokensTable(db);
+    initEmailTokensTable(db);
+    initMfaTable(db); // M27
     return db;
   } catch {
     return null; // project tidak ada
+  }
+}
+
+/**
+ * M23: kirim email verifikasi setelah register — SEMUA error ditelan.
+ * Respons register tidak boleh gagal karena SMTP down / outbox error.
+ */
+async function sendVerificationEmailQuietly(
+  db: DatabaseSync,
+  projectId: string,
+  user: AuthUser,
+  headers: Record<string, unknown>
+): Promise<void> {
+  try {
+    if (user.verified) return; // user OAuth verified — skip
+    initEmailTokensTable(db);
+    const token = createEmailToken(db, user.id, 'verify');
+    const host = String(headers['x-forwarded-host'] ?? headers['host'] ?? 'localhost');
+    const proto = String(headers['x-forwarded-proto'] ?? 'http').split(',')[0].trim();
+    const url = `${proto}://${host}/api/p/${projectId}/auth/verify-email?token=${token}`;
+    const tpl = verificationEmail(getProject(projectId)?.name ?? 'BaseForge', url);
+    await sendMail({ to: user.email, subject: tpl.subject, text: tpl.text, html: tpl.html });
+  } catch (err) {
+    console.error('[mail] auto verification email failed:', err);
   }
 }
 
@@ -63,6 +94,7 @@ function clientIp(req: { headers: Record<string, unknown>; raw: { socket: { remo
 
 // Helper: kirim response auth sukses (user + tokens)
 function sendAuthSuccess(
+  db: DatabaseSync,
   res: MinimalResponse,
   user: AuthUser,
   tokens: TokenPair,
@@ -73,7 +105,9 @@ function sendAuthSuccess(
       id: user.id,
       email: user.email,
       name: user.name,
+      avatarUrl: user.avatarUrl,
       verified: user.verified,
+      mfaEnabled: isMfaEnabled(db, user.id),
       created: user.created,
     },
     accessToken: tokens.accessToken,
@@ -95,21 +129,21 @@ export function createProjectAuthRouter(): Router {
     // M18d: rate limiter async (Redis backend + memory fallback)
     if (!(await checkRateLimit(`register:${ip}`, 10, 60_000))) {
       res.status(429).json({
-        error: { code: 'RATE_LIMITED', message: 'Terlalu banyak percobaan. Coba lagi nanti.' },
+        error: { code: 'RATE_LIMITED', message: 'Too many attempts. Please try again later.' },
       });
       return;
     }
 
     const db = getAuthDb(req.params.pid);
     if (!db) {
-      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Project tidak ditemukan' } });
+      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Project not found' } });
       return;
     }
 
     const body = req.body as { email?: string; password?: string; name?: string } | undefined;
     if (!body?.email || !body?.password) {
       res.status(400).json({
-        error: { code: 'BAD_REQUEST', message: 'email dan password wajib diisi' },
+        error: { code: 'BAD_REQUEST', message: 'email and password are required' },
       });
       return;
     }
@@ -122,10 +156,15 @@ export function createProjectAuthRouter(): Router {
       });
 
       const tokens = await issueTokens(db, user);
-      sendAuthSuccess(res, user, tokens, 201);
+      sendAuthSuccess(db, res, user, tokens, 201);
+
+      // M23: kirim email verifikasi otomatis (fire-and-forget —
+      // kegagalan email TIDAK boleh menggagalkan register).
+      // Outbox mode (tanpa SMTP) tetap menyimpan link — dev/test bisa ambil.
+      sendVerificationEmailQuietly(db, req.params.pid, user, req.headers).catch(() => {});
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Gagal mendaftar';
-      if (/sudah terdaftar/i.test(message)) {
+      const message = err instanceof Error ? err.message : 'Registration failed';
+      if (/already registered/i.test(message)) {
         res.status(409).json({ error: { code: 'EMAIL_TAKEN', message } });
         return;
       }
@@ -148,7 +187,7 @@ export function createProjectAuthRouter(): Router {
       res.status(429).json({
         error: {
           code: 'RATE_LIMITED',
-          message: `Terlalu banyak percobaan. Coba lagi dalam ${retryAfter} detik.`,
+          message: `Too many attempts. Please try again in ${retryAfter} seconds.`,
         },
       });
       return;
@@ -156,14 +195,14 @@ export function createProjectAuthRouter(): Router {
 
     const db = getAuthDb(req.params.pid);
     if (!db) {
-      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Project tidak ditemukan' } });
+      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Project not found' } });
       return;
     }
 
     const body = req.body as { email?: string; password?: string } | undefined;
     if (!body?.email || !body?.password) {
       res.status(400).json({
-        error: { code: 'BAD_REQUEST', message: 'email dan password wajib diisi' },
+        error: { code: 'BAD_REQUEST', message: 'email and password are required' },
       });
       return;
     }
@@ -172,13 +211,26 @@ export function createProjectAuthRouter(): Router {
     const user = verifyAuthCredentials(db, body.email, body.password);
     if (!user) {
       res.status(401).json({
-        error: { code: 'INVALID_CREDENTIALS', message: 'Email atau password salah' },
+        error: { code: 'INVALID_CREDENTIALS', message: 'Invalid email or password' },
+      });
+      return;
+    }
+
+    // M27: MFA aktif → JANGAN terbitkan token. Login "setengah berhasil":
+    // password benar (bukti faktor-1), beri mfaToken pendek umur untuk
+    // challenge. Token penuh hanya setelah kode TOTP/recovery benar.
+    if (isMfaEnabled(db, user.id)) {
+      const mfaToken = createEmailToken(db, user.id, 'mfa'); // 5 menit, sekali sukses
+      res.status(200).json({
+        mfaRequired: true,
+        mfaToken,
+        message: 'MFA verification required — POST /auth/mfa/challenge { mfaToken, token }',
       });
       return;
     }
 
     const tokens = await issueTokens(db, user);
-    sendAuthSuccess(res, user, tokens, 200);
+    sendAuthSuccess(db, res, user, tokens, 200);
   });
 
   // ─── REFRESH ─────────────────────────────────────────────────────────────
@@ -186,14 +238,14 @@ export function createProjectAuthRouter(): Router {
   router.post('/api/p/:pid/auth/refresh', async (req, res) => {
     const db = getAuthDb(req.params.pid);
     if (!db) {
-      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Project tidak ditemukan' } });
+      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Project not found' } });
       return;
     }
 
     const body = req.body as { refreshToken?: string } | undefined;
     if (!body?.refreshToken) {
       res.status(400).json({
-        error: { code: 'BAD_REQUEST', message: 'refreshToken wajib diisi' },
+        error: { code: 'BAD_REQUEST', message: 'refreshToken is required' },
       });
       return;
     }
@@ -201,7 +253,7 @@ export function createProjectAuthRouter(): Router {
     const tokens = await refreshAccessToken(db, body.refreshToken);
     if (!tokens) {
       res.status(401).json({
-        error: { code: 'INVALID_REFRESH', message: 'Refresh token tidak valid atau kedaluwarsa' },
+        error: { code: 'INVALID_REFRESH', message: 'Refresh token is invalid or expired' },
       });
       return;
     }
@@ -218,7 +270,7 @@ export function createProjectAuthRouter(): Router {
   router.get('/api/p/:pid/auth/me', async (req, res) => {
     const db = getAuthDb(req.params.pid);
     if (!db) {
-      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Project tidak ditemukan' } });
+      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Project not found' } });
       return;
     }
 
@@ -232,19 +284,19 @@ export function createProjectAuthRouter(): Router {
 
     const result = await verifyToken(token);
     if (!result.valid) {
-      const reason = result.reason === 'expired' ? 'Token kedaluwarsa' : 'Token tidak valid';
+      const reason = result.reason === 'expired' ? 'Token kedaluwarsa' : 'Invalid token';
       res.status(401).json({ error: { code: 'UNAUTHORIZED', message: reason } });
       return;
     }
     if (!result.payload) {
-      res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'Token tidak valid' } });
+      res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'Invalid token' } });
       return;
     }
 
     // Ambil user dari DB (data terbaru — bukan hanya dari payload JWT)
     const user = findAuthUserById(db, result.payload.sub);
     if (!user) {
-      res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'User tidak ditemukan' } });
+      res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'User not found' } });
       return;
     }
 
@@ -253,7 +305,9 @@ export function createProjectAuthRouter(): Router {
         id: user.id,
         email: user.email,
         name: user.name,
+        avatarUrl: user.avatarUrl,
         verified: user.verified,
+        mfaEnabled: isMfaEnabled(db, user.id),
         created: user.created,
       },
     });
@@ -264,14 +318,14 @@ export function createProjectAuthRouter(): Router {
   router.post('/api/p/:pid/auth/logout', (req, res) => {
     const db = getAuthDb(req.params.pid);
     if (!db) {
-      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Project tidak ditemukan' } });
+      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Project not found' } });
       return;
     }
 
     const body = req.body as { refreshToken?: string } | undefined;
     if (!body?.refreshToken) {
       res.status(400).json({
-        error: { code: 'BAD_REQUEST', message: 'refreshToken wajib diisi' },
+        error: { code: 'BAD_REQUEST', message: 'refreshToken is required' },
       });
       return;
     }

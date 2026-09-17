@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
+import { Layers, Plus, X } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -60,11 +61,12 @@ export function IndexesEditor({
     <div className="mt-6">
       <div className="flex justify-between items-center mb-3">
         <div>
-          <h4 className="text-base font-semibold m-0">
-            📇 Indexes & Unique Constraints ({indexes.length})
+          <h4 className="text-base font-semibold m-0 flex items-center gap-2">
+            <Layers className="w-4 h-4 text-muted-foreground" />
+            <span>Indexes & Unique Constraints ({indexes.length})</span>
           </h4>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Kelola Index pencarian & aturan Unique (Single maupun Composite multi-kolom).
+            Manage search indexes and unique constraints (single or composite multi-column).
           </p>
         </div>
         <Button
@@ -72,14 +74,16 @@ export function IndexesEditor({
           variant="secondary"
           size="sm"
           onClick={handleAddIndex}
+          className="gap-1.5"
         >
-          + New Index
+          <Plus className="w-3.5 h-3.5" />
+          <span>New Index</span>
         </Button>
       </div>
 
       {indexes.length === 0 ? (
         <div className="p-4 bg-muted rounded-lg border border-dashed border-border text-sm text-muted-foreground text-center">
-          Belum ada custom index. Tabel menggunakan primary key <code>id</code>. Klik <strong>+ New Index</strong> untuk membuat index atau aturan Unique constraint.
+          No custom indexes yet. The table uses the primary key <code>id</code>. Click <strong>+ New Index</strong> to create an index or a unique constraint.
         </div>
       ) : (
         <div className="grid gap-3">
@@ -95,7 +99,7 @@ export function IndexesEditor({
                 <div className="flex gap-2.5 items-center">
                   {/* Name */}
                   <Input
-                    placeholder="nama index (e.g. idx_email)"
+                    placeholder="index name (e.g. idx_email)"
                     value={idx.name}
                     onChange={(e) =>
                       handleUpdateIndex(i, {
@@ -108,7 +112,7 @@ export function IndexesEditor({
                   {/* Type (INDEX vs UNIQUE INDEX) */}
                   <Select
                     value={idx.unique ? "unique" : "index"}
-                    onValueChange={(v) =>
+                    onValueChange={(v: string) =>
                       handleUpdateIndex(i, { unique: v === "unique" })
                     }
                   >
@@ -116,14 +120,14 @@ export function IndexesEditor({
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="index">Index Biasa (B-Tree)</SelectItem>
+                      <SelectItem value="index">Standard Index (B-Tree)</SelectItem>
                       <SelectItem value="unique">UNIQUE INDEX</SelectItem>
                     </SelectContent>
                   </Select>
 
                   {/* Fields selector (multi or comma-separated) */}
                   <Input
-                    placeholder="kolom (pisahkan koma jika composite)"
+                    placeholder="columns (comma separated for composite)"
                     value={idx.fields.join(", ")}
                     onChange={(e) =>
                       handleUpdateIndex(i, {
@@ -143,8 +147,9 @@ export function IndexesEditor({
                     size="icon"
                     onClick={() => handleRemoveIndex(i)}
                     title="Delete Index"
+                    className="text-muted-foreground hover:text-destructive"
                   >
-                    ✕
+                    <X className="w-4 h-4" />
                   </Button>
                 </div>
 

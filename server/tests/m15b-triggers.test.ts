@@ -142,7 +142,7 @@ test('M15b: trigger collection yang tidak ada → ditolak', async () => {
     triggers: [{ collection: 'tidak_ada', actions: ['create'] }],
   }, adminToken);
   assert.equal(res.status, 400);
-  assert.ok(/tidak ada di project/.test(res.data.error.message));
+  assert.ok(/does not exist in this project/.test(res.data.error.message));
 });
 
 test('M15b: trigger action invalid → ditolak', async () => {
@@ -152,7 +152,7 @@ test('M15b: trigger action invalid → ditolak', async () => {
     triggers: [{ collection: 'orders', actions: ['explode'] }],
   }, adminToken);
   assert.equal(res.status, 400);
-  assert.ok(/tidak valid/.test(res.data.error.message));
+  assert.ok(/is not valid/.test(res.data.error.message));
 });
 
 test('M15b: create record → trigger berjalan (crud sukses, server hidup)', async () => {

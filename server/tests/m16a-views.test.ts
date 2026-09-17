@@ -126,11 +126,11 @@ describe('M16a: View Collections', () => {
     const db = freshDb();
     assert.throws(
       () => createViewCollection(db, { name: 'bad', viewQuery: 'SELECT * FROM nonexistent_table' }),
-      /tidak valid|no such table/i
+      /Invalid viewQuery|no such table/i
     );
     assert.throws(
       () => createViewCollection(db, { name: 'bad2', viewQuery: 'DELETE FROM orders' }),
-      /harus dimulai dengan SELECT/
+      /must start with SELECT/
     );
     assert.throws(
       () => createViewCollection(db, { name: 'bad3', viewQuery: 'SELECT 1; SELECT 2' }),
@@ -166,7 +166,7 @@ describe('M16a: View Collections', () => {
     assert.equal(getCollectionByName(db, 'stats'), undefined);
 
     // List records setelah delete → 404
-    assert.throws(() => listRecords(db, 'stats'), /tidak ditemukan|not found/i);
+    assert.throws(() => listRecords(db, 'stats'), /not found/i);
   });
 
   test('M16a: rules berlaku di view (admin-only default → user melihat kosong)', () => {

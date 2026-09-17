@@ -61,7 +61,7 @@ export async function getThumb(
 ): Promise<Buffer> {
   const size = parseThumbSize(sizeSpec);
   if (!size) {
-    throw new Error(`Format thumb tidak valid: '${sizeSpec}' (contoh: 100x300, 100x300t, 0x300f)`);
+    throw new Error(`Invalid thumb format: '${sizeSpec}' (examples: 100x300, 100x300t, 0x300f)`);
   }
 
   if (!isThumbable(filename)) {

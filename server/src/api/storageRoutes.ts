@@ -18,6 +18,7 @@ import { getRecord } from '../core/records.js';
 import { readFile, storedFilenames, deleteFile, listProjectStorageFiles, cleanOrphanedFiles } from '../core/storage.js';
 import { RequestContext } from '../core/query/sqlBuilder.js';
 import { verifyToken } from '../auth/jwt.js';
+import { extractApiKey, resolveApiKey, ApiKeyError } from '../auth/apiKeys.js'; // M26
 import { requireAdmin, validateToken } from '../platform/adminAuth.js';
 import { getThumb, isThumbable } from '../core/thumbs.js';
 
@@ -53,33 +54,50 @@ export function createStorageRouter(): Router {
     try {
       const { pid, collection, rid, filename } = req.params;
 
-      // ── Identitas peminta (admin bypass, end user via JWT) ──
-      let reqCtx: RequestContext | undefined;
-      const auth = req.headers.authorization;
-      const bearer = auth?.startsWith('Bearer ') ? auth.slice(7) : null;
-      if (bearer) {
-        if (validateToken(bearer)) {
-          reqCtx = undefined; // admin — bypass
-        } else {
-          const result = await verifyToken(bearer);
-          reqCtx = result.valid && result.payload
-            ? { auth: { id: String(result.payload.sub ?? ''), email: String(result.payload.email ?? '') } }
-            : { auth: null };
-        }
-      } else {
-        reqCtx = { auth: null }; // anonymous
-      }
-
       // ── Record harus "terlihat" (viewRule diterapkan getRecord) ──
       const db = getProjectDb(pid);
+
+      // ── Identitas peminta (admin bypass, end user via JWT, M26: API key read) ──
+      let reqCtx: RequestContext | undefined;
+      const apiKey = extractApiKey(req.headers as Record<string, unknown>);
+      if (apiKey) {
+        // M26: API key = service access (scope read cukup — file GET)
+        // Invalid → ApiKeyError 401/403/429
+        try {
+          await resolveApiKey(db, apiKey, { pid });
+          reqCtx = undefined; // service → bypass rules
+        } catch (err) {
+          if (err instanceof ApiKeyError) {
+            res.status(err.status).json({ error: { code: err.code, message: err.message } });
+            return;
+          }
+          throw err;
+        }
+      } else {
+        const auth = req.headers.authorization;
+        const bearer = auth?.startsWith('Bearer ') ? auth.slice(7) : null;
+        if (bearer) {
+          if (validateToken(bearer)) {
+            reqCtx = undefined; // admin — bypass
+          } else {
+            const result = await verifyToken(bearer);
+            reqCtx = result.valid && result.payload
+              ? { auth: { id: String(result.payload.sub ?? ''), email: String(result.payload.email ?? '') } }
+              : { auth: null };
+          }
+        } else {
+          reqCtx = { auth: null }; // anonymous
+        }
+      }
+
       const meta = getCollectionByName(db, collection);
       if (!meta) {
-        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Collection tidak ditemukan' } });
+        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Collection not found' } });
         return;
       }
       const record = getRecord(db, collection, rid, reqCtx);
       if (!record) {
-        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Record tidak ditemukan' } });
+        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Record not found' } });
         return;
       }
 
@@ -94,14 +112,14 @@ export function createStorageRouter(): Router {
         }
       }
       if (!owned) {
-        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'File tidak ditemukan' } });
+        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'File not found' } });
         return;
       }
 
-      // ── Baca dari disk (path traversal dicegah di storage.ts) ──
-      const data = readFile(pid, rid, filename);
+      // ── Baca dari storage adapter (local disk atau S3) ──
+      const data = await readFile(pid, rid, filename);
       if (!data) {
-        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'File tidak ditemukan' } });
+        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'File not found' } });
         return;
       }
 
@@ -111,7 +129,7 @@ export function createStorageRouter(): Router {
       if (thumbSpec) {
         if (!isThumbable(filename)) {
           res.status(400).json({
-            error: { code: 'BAD_REQUEST', message: 'Thumbnail hanya untuk jpg/png/gif/webp' },
+            error: { code: 'BAD_REQUEST', message: 'Thumbnails are only supported for jpg/png/gif/webp' },
           });
           return;
         }
@@ -143,14 +161,14 @@ export function createStorageRouter(): Router {
   // ADMIN STORAGE EXPLORER ROUTES
   // ══════════════════════════════════════════════════════════════════════════
 
-  // GET /api/admin/projects/:pid/storage/files — list semua file fisik di disk project
-  router.get('/api/admin/projects/:pid/storage/files', requireAdmin, (req, res) => {
+  // GET /api/admin/projects/:pid/storage/files — list file di storage project
+  router.get('/api/admin/projects/:pid/storage/files', requireAdmin, async (req, res) => {
     try {
       const db = getProjectDb(req.params.pid);
-      const files = listProjectStorageFiles(req.params.pid, db);
+      const files = await listProjectStorageFiles(req.params.pid, db);
 
       const totalFiles = files.length;
-      const totalSize = files.reduce((acc, f) => acc + f.size, 0);
+      const totalSize = files.reduce((acc: number, f) => acc + f.size, 0);
       const orphanedCount = files.filter((f) => f.isOrphaned).length;
 
       res.json({
@@ -168,10 +186,10 @@ export function createStorageRouter(): Router {
   });
 
   // DELETE /api/admin/projects/:pid/storage/files/:rid/:filename — hapus 1 file
-  router.delete('/api/admin/projects/:pid/storage/files/:rid/:filename', requireAdmin, (req, res) => {
+  router.delete('/api/admin/projects/:pid/storage/files/:rid/:filename', requireAdmin, async (req, res) => {
     try {
       const { pid, rid, filename } = req.params;
-      deleteFile(pid, rid, filename);
+      await deleteFile(pid, rid, filename);
       res.json({ success: true, message: `File ${filename} berhasil dihapus` });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Internal error';
@@ -180,10 +198,10 @@ export function createStorageRouter(): Router {
   });
 
   // POST /api/admin/projects/:pid/storage/clean-orphans — bersihkan file yatim
-  router.post('/api/admin/projects/:pid/storage/clean-orphans', requireAdmin, (req, res) => {
+  router.post('/api/admin/projects/:pid/storage/clean-orphans', requireAdmin, async (req, res) => {
     try {
       const db = getProjectDb(req.params.pid);
-      const cleaned = cleanOrphanedFiles(req.params.pid, db);
+      const cleaned = await cleanOrphanedFiles(req.params.pid, db);
       res.json({ success: true, cleaned });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Internal error';

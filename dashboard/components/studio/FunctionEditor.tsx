@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
+import { AlertTriangle, GitFork, Plus, X, Globe } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -26,9 +27,9 @@ import {
   type FunctionTrigger,
 } from "@/lib/api";
 
-const DEFAULT_CODE = `// req = { body, query, auth } untuk callable
-// return apapun → JSON response
-return { hello: "dunia", dari: req.auth?.email ?? "anon" };`;
+const DEFAULT_CODE = `// req = { body, query, auth } for callable functions
+// any return value → JSON response
+return { hello: "world", from: req.auth?.email ?? "anon" };`;
 
 interface FunctionEditorProps {
   projectId: string;
@@ -50,6 +51,8 @@ export function FunctionEditor({
   const [timeoutMs, setTimeoutMs] = useState(String(existing?.timeoutMs ?? 2000));
   const [schedule, setSchedule] = useState(existing?.schedule ?? "");
   const [triggers, setTriggers] = useState<FunctionTrigger[]>(existing?.triggers ?? []);
+  // M25: allowlist host untuk $http (comma-separated → array saat save)
+  const [httpAllow, setHttpAllow] = useState((existing?.httpAllow ?? []).join(", "));
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
 
@@ -69,11 +72,16 @@ export function FunctionEditor({
     setSaving(true);
     setErr("");
     try {
+      const allowList = httpAllow
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
       const payload = {
         code,
         timeoutMs: parseInt(timeoutMs, 10) || 2000,
         schedule: schedule.trim() === "" ? null : schedule.trim(),
         triggers,
+        httpAllow: allowList,
       };
       if (existing) {
         await updateFunction(projectId, existing.name, payload);
@@ -82,7 +90,7 @@ export function FunctionEditor({
       }
       onSaved();
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Gagal menyimpan");
+      setErr(e instanceof Error ? e.message : "Failed to save");
     } finally {
       setSaving(false);
     }
@@ -92,12 +100,13 @@ export function FunctionEditor({
     <Dialog open onOpenChange={(open: boolean) => !open && onClose()}>
       <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{existing ? `Edit: ${existing.name}` : "Function baru"}</DialogTitle>
+          <DialogTitle>{existing ? `Edit: ${existing.name}` : "New Function"}</DialogTitle>
         </DialogHeader>
 
         {err && (
-          <div className="p-3 bg-destructive/15 border border-destructive rounded-lg text-destructive text-sm">
-            ⚠️ {err}
+          <div className="p-3 bg-destructive/15 border border-destructive rounded-lg text-destructive text-sm flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 shrink-0" />
+            <span>{err}</span>
           </div>
         )}
 
@@ -105,20 +114,20 @@ export function FunctionEditor({
           {!existing && (
             <div className="space-y-2">
               <Label htmlFor="fn-name">
-                Nama function * <span className="text-muted-foreground text-xs">(a-z, 0-9, _, diawali huruf)</span>
+                Function name * <span className="text-muted-foreground text-xs">(a-z, 0-9, _, must start with a letter)</span>
               </Label>
               <Input
                 id="fn-name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="hitung_total"
+                placeholder="calculate_total"
               />
             </div>
           )}
 
           <div className="space-y-2">
             <Label htmlFor="fn-code">
-              Kode * <span className="text-muted-foreground text-xs">(return value → JSON response)</span>
+              Code * <span className="text-muted-foreground text-xs">(return value → JSON response)</span>
             </Label>
             <Textarea
               id="fn-code"
@@ -144,8 +153,8 @@ export function FunctionEditor({
             </div>
             <div className="flex-[2] min-w-[200px] space-y-2">
               <Label htmlFor="fn-schedule">
-                Schedule (cron, kosongkan jika bukan scheduled){" "}
-                <span className="text-muted-foreground text-xs">mis. 0 1 * * * = harian 01:00</span>
+                Schedule (cron, leave empty if not scheduled){" "}
+                <span className="text-muted-foreground text-xs">e.g. 0 1 * * * = daily at 01:00</span>
               </Label>
               <Input
                 id="fn-schedule"
@@ -156,35 +165,65 @@ export function FunctionEditor({
             </div>
           </div>
 
+          {/* M25: $http allowlist */}
+          <div className="space-y-2">
+            <Label htmlFor="fn-http-allow" className="flex items-center gap-1.5">
+              <Globe className="w-3.5 h-3.5" />
+              <span>
+                Allowed HTTP Hosts{" "}
+                <span className="text-muted-foreground text-xs font-normal">
+                  (comma separated — enables <code className="bg-secondary px-1 rounded">$http.send</code>; empty = no network)
+                </span>
+              </span>
+            </Label>
+            <Input
+              id="fn-http-allow"
+              value={httpAllow}
+              onChange={(e) => setHttpAllow(e.target.value)}
+              placeholder="e.g. api.stripe.com, *.github.com, *"
+              className="font-mono text-sm"
+            />
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              <code className="bg-secondary px-1 rounded">*</code> allows all public internet hosts (private/loopback
+              IPs stay blocked). An exact hostname (e.g. <code className="bg-secondary px-1 rounded">192.168.1.10</code>)
+              explicitly opts in to internal access.
+            </p>
+          </div>
+
           {/* Triggers */}
           <div className="space-y-2">
             <div className="flex justify-between items-center">
-              <Label>🔗 Triggers</Label>
+              <Label className="flex items-center gap-1.5">
+                <GitFork className="w-3.5 h-3.5" />
+                <span>Triggers</span>
+              </Label>
               <Button
                 type="button"
                 variant="secondary"
                 size="sm"
+                className="gap-1"
                 onClick={() =>
                   setTriggers([...triggers, { collection: collectionNames[0] ?? "", actions: ["create"] }])
                 }
                 disabled={collectionNames.length === 0}
               >
-                + Trigger
+                <Plus className="w-3.5 h-3.5" />
+                <span>Trigger</span>
               </Button>
             </div>
             {collectionNames.length === 0 && (
               <p className="text-sm text-muted-foreground">
-                Buat collection dulu di menu Database untuk memakai trigger.
+                Create a collection in the Database section first to use triggers.
               </p>
             )}
             {triggers.map((t, idx) => (
               <div key={idx} className="flex gap-2 items-center flex-wrap">
                 <Select
                   value={t.collection}
-                  onValueChange={(v) => updateTrigger(idx, { collection: v })}
+                  onValueChange={(v: string) => updateTrigger(idx, { collection: v })}
                 >
                   <SelectTrigger className="w-[180px]">
-                    <SelectValue placeholder="Pilih collection" />
+                    <SelectValue placeholder="Select a collection" />
                   </SelectTrigger>
                   <SelectContent>
                     {collectionNames.map((c) => (
@@ -210,9 +249,10 @@ export function FunctionEditor({
                   variant="ghost"
                   size="icon"
                   onClick={() => setTriggers(triggers.filter((_, i) => i !== idx))}
-                  title="Hapus trigger"
+                  title="Delete trigger"
+                  className="text-muted-foreground hover:text-destructive"
                 >
-                  ✕
+                  <X className="w-4 h-4" />
                 </Button>
               </div>
             ))}
@@ -220,10 +260,10 @@ export function FunctionEditor({
 
           <div className="flex justify-end gap-2 pt-4 border-t border-border">
             <Button variant="secondary" onClick={onClose} disabled={saving}>
-              Batal
+              Cancel
             </Button>
             <Button onClick={handleSave} disabled={saving || (!existing && !name.trim())}>
-              {saving ? "Menyimpan…" : "Simpan Function"}
+              {saving ? "Saving…" : "Save Function"}
             </Button>
           </div>
         </div>

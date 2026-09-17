@@ -131,7 +131,7 @@ describe('M14b: getThumb (lazy generate + cache)', () => {
     const img = await makeTestImage();
     await assert.rejects(
       () => getThumb('projT', 'rec1', 'photo.png', 'besar', img),
-      /Format thumb tidak valid/
+      /Invalid thumb format/
     );
   });
 

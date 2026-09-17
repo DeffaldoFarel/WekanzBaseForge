@@ -115,7 +115,7 @@ export function RecordFormModal({
               <Input
                 id="password"
                 type="password"
-                placeholder={isEdit ? "Kosongkan jika tidak ingin mengubah password" : "Minimal 8 karakter"}
+                placeholder={isEdit ? "Leave empty to keep the current password" : "Minimum 8 characters"}
                 value={String(formData.password ?? "")}
                 onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                 required={!isEdit}
@@ -134,7 +134,7 @@ export function RecordFormModal({
                 <label className="flex items-center gap-2 cursor-pointer">
                   <Checkbox
                     checked={formData[f.name] === true}
-                    onCheckedChange={(checked) =>
+                    onCheckedChange={(checked: boolean | 'indeterminate') =>
                       setFormData({ ...formData, [f.name]: !!checked })
                     }
                   />
@@ -143,13 +143,13 @@ export function RecordFormModal({
               ) : f.type === "select" ? (
                 <Select
                   value={String(formData[f.name] ?? "")}
-                  onValueChange={(v) => setFormData({ ...formData, [f.name]: v || null })}
+                  onValueChange={(v: string) => setFormData({ ...formData, [f.name]: v || null })}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="— pilih opsi —" />
+                    <SelectValue placeholder="— select an option —" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">— pilih opsi —</SelectItem>
+                    <SelectItem value="">— select an option —</SelectItem>
                     {(f.options?.values || []).map((v: string) => (
                       <SelectItem key={v} value={v}>{v}</SelectItem>
                     ))}
@@ -168,7 +168,7 @@ export function RecordFormModal({
                   />
                   {Boolean(initialData?.[f.name]) && (
                     <div className="text-sm text-muted-foreground">
-                      File saat ini: {String(initialData![f.name])}
+                      Current file: {String(initialData![f.name])}
                     </div>
                   )}
                 </div>
@@ -191,7 +191,7 @@ export function RecordFormModal({
                 />
               ) : f.type === "autodate" ? (
                 <div className="text-sm text-muted-foreground italic">
-                  ⏱ Diisi otomatis oleh sistem
+                  Automatically filled by the system
                 </div>
               ) : (
                 <Input

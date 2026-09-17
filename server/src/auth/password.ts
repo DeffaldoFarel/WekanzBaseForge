@@ -42,13 +42,13 @@ export interface PasswordPolicyError {
  */
 export function validatePasswordStrength(password: string): string | null {
   if (typeof password !== 'string') {
-    return 'Password harus berupa teks';
+    return 'Password must be a string';
   }
   if (password.length < 8) {
-    return 'Password minimal 8 karakter';
+    return 'Password must be at least 8 characters';
   }
   if (password.length > 128) {
-    return 'Password maksimal 128 karakter';
+    return 'Password must be at most 128 characters';
   }
   return null;
 }

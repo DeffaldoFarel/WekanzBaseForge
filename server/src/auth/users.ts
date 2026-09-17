@@ -23,8 +23,9 @@ export function initAuthUsersTable(db: DatabaseSync): void {
     CREATE TABLE IF NOT EXISTS _auth_users (
       id            TEXT PRIMARY KEY,
       email         TEXT NOT NULL UNIQUE,
-      password_hash TEXT NOT NULL,
+      password_hash TEXT,
       name          TEXT,
+      avatar_url    TEXT,
       verified      INTEGER NOT NULL DEFAULT 0,
       created       TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
       updated       TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
@@ -36,6 +37,56 @@ export function initAuthUsersTable(db: DatabaseSync): void {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_auth_users_email
     ON _auth_users (email);
   `);
+
+  // M10: migrasi tabel lama (password_hash NOT NULL → nullable + avatar_url).
+  // SQLite tidak punya ALTER COLUMN → rebuild tabel ala D4 (dalam 1 transaksi).
+  migrateAuthUsersTable(db);
+}
+
+/**
+ * M10 migration: tabel _auth_users versi lama (sebelum OAuth) punya
+ * password_hash NOT NULL dan tanpa avatar_url. User OAuth tidak punya
+ * password — kolom wajib jadi nullable.
+ */
+function migrateAuthUsersTable(db: DatabaseSync): void {
+  const cols = db
+    .prepare('PRAGMA table_info(_auth_users)')
+    .all() as unknown as { name: string; notnull: number }[];
+  if (cols.length === 0) return; // tabel baru saja dibuat dengan skema terbaru
+
+  const passwordCol = cols.find((c) => c.name === 'password_hash');
+  const hasAvatar = cols.some((c) => c.name === 'avatar_url');
+  if (passwordCol && passwordCol.notnull === 0 && hasAvatar) return; // sudah mutakhir
+
+  db.exec('BEGIN');
+  try {
+    db.exec(`
+      CREATE TABLE _auth_users_m10 (
+        id            TEXT PRIMARY KEY,
+        email         TEXT NOT NULL UNIQUE,
+        password_hash TEXT,
+        name          TEXT,
+        avatar_url    TEXT,
+        verified      INTEGER NOT NULL DEFAULT 0,
+        created       TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+        updated       TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+      )
+    `);
+    db.exec(`
+      INSERT INTO _auth_users_m10 (id, email, password_hash, name, verified, created, updated)
+      SELECT id, email, password_hash, name, verified, created, updated FROM _auth_users
+    `);
+    db.exec('DROP TABLE _auth_users');
+    db.exec('ALTER TABLE _auth_users_m10 RENAME TO _auth_users');
+    db.exec(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_auth_users_email
+      ON _auth_users (email);
+    `);
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
 }
 
 // ─── Tipe ────────────────────────────────────────────────────────────────────
@@ -44,6 +95,7 @@ export interface AuthUser {
   id: string;
   email: string;
   name: string | null;
+  avatarUrl: string | null;
   verified: boolean;
   created: string;
   updated: string;
@@ -52,8 +104,9 @@ export interface AuthUser {
 interface AuthUserRow {
   id: string;
   email: string;
-  password_hash: string;
+  password_hash: string | null;
   name: string | null;
+  avatar_url: string | null;
   verified: number;
   created: string;
   updated: string;
@@ -64,6 +117,7 @@ function rowToUser(row: AuthUserRow): AuthUser {
     id: row.id,
     email: row.email,
     name: row.name,
+    avatarUrl: row.avatar_url,
     verified: row.verified === 1,
     created: row.created,
     updated: row.updated,
@@ -78,7 +132,7 @@ export function createAuthUser(
 ): AuthUser {
   // Validasi email format
   if (typeof data.email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)) {
-    throw new Error('Email tidak valid');
+    throw new Error('Invalid email address');
   }
 
   // Validasi kekuatan password (M08)
@@ -98,7 +152,37 @@ export function createAuthUser(
     const msg = err instanceof Error ? err.message : String(err);
     // D1-style: UNIQUE constraint → pesan ramah
     if (/UNIQUE constraint failed/i.test(msg)) {
-      throw new Error(`Email '${data.email}' sudah terdaftar`);
+      throw new Error(`Email '${data.email}' is already registered`);
+    }
+    throw err;
+  }
+
+  return findAuthUserById(db, id)!;
+}
+
+/**
+ * M10: user OAuth — TANPA password (login via provider identity).
+ * `verified` mengikuti konfirmasi email provider (Google = email_verified,
+ * GitHub = flag verified di /user/emails).
+ */
+export function createOAuthUser(
+  db: DatabaseSync,
+  data: { email: string; name: string | null; avatarUrl: string | null; verified: boolean }
+): AuthUser {
+  if (typeof data.email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)) {
+    throw new Error('Invalid email address from provider');
+  }
+
+  const id = generateId();
+  try {
+    db.prepare(
+      `INSERT INTO _auth_users (id, email, password_hash, name, avatar_url, verified)
+       VALUES (?, ?, NULL, ?, ?, ?)`
+    ).run(id, data.email.toLowerCase(), data.name, data.avatarUrl, data.verified ? 1 : 0);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (/UNIQUE constraint failed/i.test(msg)) {
+      throw new Error(`Email '${data.email}' is already registered`);
     }
     throw err;
   }
@@ -136,6 +220,9 @@ export function getAuthUserRowByEmail(db: DatabaseSync, email: string): AuthUser
  * Keamanan: pesan error SAMA untuk "email tidak ada" dan "password salah"
  * — supaya attacker tidak bisa mendaftar email mana yang terdaftar
  * (user enumeration).
+ *
+ * M10: user OAuth punya password_hash NULL → selalu gagal login password
+ * (harus login via provider identity-nya).
  */
 export function verifyAuthCredentials(
   db: DatabaseSync,
@@ -145,6 +232,9 @@ export function verifyAuthCredentials(
   const row = getAuthUserRowByEmail(db, email);
   if (!row) {
     return null;
+  }
+  if (!row.password_hash) {
+    return null; // user OAuth-only — tidak punya password
   }
   if (!verifyPassword(password, row.password_hash)) {
     return null;

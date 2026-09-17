@@ -27,7 +27,7 @@ export class MemoryAuthStore implements AuthStore {
     return !!this._token && !!this._user;
   }
 
-  save(token: string, refreshToken: string, user: AuthUser): void {
+  save(token: string, refreshToken: string, user: AuthUser | null): void {
     this._token = token;
     this._refreshToken = refreshToken;
     this._user = user;
@@ -84,7 +84,7 @@ export class LocalStorageAuthStore extends MemoryAuthStore {
     }
   }
 
-  override save(token: string, refreshToken: string, user: AuthUser): void {
+  override save(token: string, refreshToken: string, user: AuthUser | null): void {
     super.save(token, refreshToken, user);
     if (typeof window !== 'undefined' && window.localStorage) {
       try {

@@ -115,6 +115,44 @@ return {
 
 ---
 
+## 🌐 HTTP Keluar: `$http.send` (M25)
+
+Function dapat memanggil API eksternal (Stripe, WhatsApp API, dll.) lewat
+`$http.send` — **async, kembalian Promise, dan hanya aktif jika admin
+mengisi Allowed HTTP Hosts pada function tersebut** (fail-safe: kosong =
+tanpa jaringan).
+
+```javascript
+// Async/await didukung penuh (M25)
+const res = await $http.send({
+  url: "https://api.stripe.com/v1/charges",
+  method: "POST",
+  headers: { "Authorization": "Bearer sk_live_..." },
+  body: JSON.stringify({ amount: 1000, currency: "idr" }),
+  timeout: 5000,            // opsional, default 10s (max 30s)
+});
+
+// res = { status, headers, body, truncated }
+return {
+  httpStatus: res.status,
+  charge: res.json(),       // helper: parse body sebagai JSON
+};
+```
+
+### Aturan Keamanan (4 lapis)
+
+| Lapis | Perilaku |
+|---|---|
+| **Allowlist** | Host harus terdaftar di *Allowed HTTP Hosts* function. `api.stripe.com` = host itu saja; `*.github.com` = wildcard subdomain; `*` = semua host **publik**. |
+| **SSRF guard** | Loopback/private/link-local IP (termasuk `169.254.169.254` metadata cloud) selalu diblok kecuali host tsb terdaftar **literal** di allowlist (opt-in eksplisit untuk host internal). DNS di-resolve dan semua IP dicek. |
+| **Redirect** | Diikuti maksimal 3 hop, **setiap hop divalidasi ulang** (allowed-host → evil-host = blocked). |
+| **Budget** | Timeout per-request (AbortController), response body dibatasi **1 MB** (flag `truncated`), request body 256 KB, metode terbatas GET/POST/PUT/PATCH/DELETE/HEAD. |
+
+Total anggaran waktu function (timeoutMs) **termasuk** waktu menunggu `$http`
+(wall-clock), jadi request lambat tidak bisa memperpanjang umur function.
+
+---
+
 ## 🖥️ Mengelola Fungsi lewat Dashboard
 
 Anda dapat membuat, mengedit, dan menguji fungsi secara visual melalui Admin Dashboard di `http://localhost:7701`:

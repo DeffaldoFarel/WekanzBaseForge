@@ -358,7 +358,7 @@ export default function AdvancedDatabaseStudioPage() {
   return (
     <>
       <Navbar projectId={projectId} />
-      <div className="flex min-h-[calc(100vh-60px)] p-5 gap-5 items-start">
+      <div className="flex min-h-[calc(100vh-61px)] px-5 py-5 gap-6 items-start">
         {/* ─── GLOBAL PROJECT SIDEBAR ─── */}
         <ProjectSidebar projectId={projectId} />
 
@@ -373,36 +373,29 @@ export default function AdvancedDatabaseStudioPage() {
         />
 
       {/* ─── MAIN CONTENT STUDIO ─── */}
-      <main className="flex-1 bg-card border border-border rounded-3xl p-7 shadow-soft overflow-x-auto">
+      <main className="flex-1 bg-card border border-border rounded-xl p-6 overflow-x-auto">
         {/* Header Koleksi */}
         <div className="flex justify-between items-start mb-4 flex-wrap gap-3">
           <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-2xl bg-secondary flex items-center justify-center border border-border">
+            <div className="w-10 h-10 rounded-md bg-secondary flex items-center justify-center border border-border">
               {collection?.type === "view" ? (
-                <Eye className="w-5 h-5 text-purple-600" />
+                <Eye className="w-5 h-5 text-purple-400" />
               ) : collection?.type === "auth" ? (
-                <Users className="w-5 h-5 text-emerald-600" />
+                <Users className="w-5 h-5 text-emerald-400" />
               ) : (
                 <Database className="w-5 h-5 text-foreground" />
               )}
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h1 className="text-2xl font-bold m-0">{collectionName}</h1>
+                <h1 className="text-2xl font-semibold tracking-tight m-0">{collectionName}</h1>
                 <Badge
                   variant={
                     collection?.type === "view"
-                      ? "secondary"
+                      ? "purple"
                       : collection?.type === "auth"
-                      ? "default"
+                      ? "green"
                       : "outline"
-                  }
-                  className={
-                    collection?.type === "view"
-                      ? "bg-purple-100 text-purple-700 border-purple-200"
-                      : collection?.type === "auth"
-                      ? "bg-emerald-100 text-emerald-700 border-emerald-200"
-                      : ""
                   }
                 >
                   {collection?.type === "view"

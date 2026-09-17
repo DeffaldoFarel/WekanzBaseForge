@@ -97,6 +97,7 @@ class Scheduler {
     void runFunctionCode(fn.code, {
       timeoutMs: fn.timeoutMs,
       maxLogs: 50,
+      httpAllow: fn.httpAllow, // M25
       scheduledContext: { time: now.toISOString() },
     })
       .then((result: FunctionRunResult) => {

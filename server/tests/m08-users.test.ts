@@ -50,7 +50,7 @@ test('M08-users: email unique — duplikat DITOLAK dengan pesan ramah (D1!)', ()
 
   assert.throws(() => {
     createAuthUser(db, { email: 'farel@x.com', password: 'passwordLain456' });
-  }, /sudah terdaftar/);
+  }, /already registered/);
 
   db.close();
 });
@@ -91,7 +91,7 @@ test('M08-users: verifikasi password lemah DITOLAK saat create', () => {
 
   assert.throws(() => {
     createAuthUser(db, { email: 'a@x.com', password: 'pendek' });
-  }, /minimal 8 karakter/);
+  }, /at least 8 characters/);
 
   db.close();
 });

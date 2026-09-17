@@ -82,7 +82,7 @@ test('D1: INSERT email duplikat → DITOLAK dengan pesan ramah', () => {
   console.log('\n   🛡️  Pesan error untuk user:', error.message);
   assert.ok(error.message.includes('email'), 'pesan harus menyebut field');
   assert.ok(error.message.includes('farel@x.com'), 'pesan harus menyebut nilai duplikat');
-  assert.ok(/unik|sudah digunakan/i.test(error.message), 'pesan harus ramah, bukan SQL mentah');
+  assert.ok(/unique|already used/i.test(error.message), 'pesan harus ramah, bukan SQL mentah');
 
   // Pastikan hanya 1 user (yang palsu tidak tersimpan)
   const count = (db.prepare('SELECT COUNT(*) AS n FROM users').get() as { n: number }).n;

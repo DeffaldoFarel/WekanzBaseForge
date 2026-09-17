@@ -32,10 +32,13 @@ import type { DatabaseSync } from 'node:sqlite';
 import { deleteRecordFiles } from '../core/storage.js';
 import { realtimeHub } from '../core/realtime.js';
 import { checkSearchRateLimit } from '../core/searchGuard.js'; // M18e
+import { extractApiKey, resolveApiKey, ApiKeyError } from '../auth/apiKeys.js'; // M26
 // M19: agregasi lewat REST publik — WAJIB meneruskan reqCtx supaya listRule
 // ikut membatasi baris yang dihitung (COUNT saja sudah membocorkan data).
 import { aggregate, AggregateFunction } from '../core/aggregates.js';
 import { fireTriggersSafe } from '../core/triggerExecutor.js';
+import { fireWebhooks } from '../core/webhooks.js'; // M28
+import { vectorSearch, VectorSearchOptions } from '../core/vectorSearch.js'; // M29
 
 // ─── Helper: identitas pemanggil (admin ATAU end user) ──────────────────────
 // - Bearer JWT admin (login admin) → bypass rules (undefined ctx)
@@ -54,7 +57,7 @@ async function prepareBodyData(
   const reqExt = req as { isMultipart?: boolean; rawBody?: Buffer; body: unknown; headers: { 'content-type'?: string } };
   if (reqExt.isMultipart && reqExt.rawBody) {
     const meta = getCollectionByName(db, collectionName);
-    if (!meta) throw new Error(`Collection '${collectionName}' tidak ditemukan`);
+    if (!meta) throw new Error(`Collection '${collectionName}' not found`);
     return await multipartToRecordData(
       projectId,
       meta,
@@ -78,6 +81,10 @@ function extractBearer(header: string | null | undefined): string | null {
 function handleErrorPublic(res: {
   status: (code: number) => { json: (body: unknown) => void };
 }, err: unknown): void {
+  if (err instanceof ApiKeyError) {
+    res.status(err.status).json({ error: { code: err.code, message: err.message } });
+    return;
+  }
   if (err instanceof ForbiddenError) {
     res.status(403).json({ error: { code: 'FORBIDDEN', message: err.message } });
     return;
@@ -87,7 +94,7 @@ function handleErrorPublic(res: {
     return;
   }
   const message = err instanceof Error ? err.message : 'Internal error';
-  const status = /tidak ditemukan|not found/i.test(message) ? 404 : 400;
+  const status = /not found/i.test(message) ? 404 : 400;
   res.status(status).json({ error: { code: status === 404 ? 'NOT_FOUND' : 'BAD_REQUEST', message } });
 }
 
@@ -110,7 +117,7 @@ export function createPublicRouter(): Router {
         if (key in body) {
           const v = body[key];
           if (v !== null && typeof v !== 'string') {
-            res.status(400).json({ error: { code: 'BAD_REQUEST', message: `${key} harus string atau null` } });
+            res.status(400).json({ error: { code: 'BAD_REQUEST', message: `${key} must be a string or null` } });
             return;
           }
           rules[key] = v as string | null;
@@ -137,7 +144,7 @@ export function createPublicRouter(): Router {
       };
       if (!body.name || !body.viewQuery) {
         res.status(400).json({
-          error: { code: 'BAD_REQUEST', message: 'name dan viewQuery wajib (viewQuery harus SELECT ...)' },
+          error: { code: 'BAD_REQUEST', message: 'name and viewQuery are required (viewQuery must be a SELECT ...)' },
         });
         return;
       }
@@ -178,7 +185,7 @@ export function createPublicRouter(): Router {
       const db = getProjectDb(req.params.pid);
       const body = (req.body ?? {}) as { data?: string | object; mode?: 'create' | 'replace' | 'merge' };
       if (!body.data) {
-        res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'data (JSON export) wajib' } });
+        res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'data (JSON export) is required' } });
         return;
       }
       const json = typeof body.data === 'string' ? body.data : JSON.stringify(body.data);
@@ -204,13 +211,13 @@ export function createPublicRouter(): Router {
         const allowed = await checkSearchRateLimit(req.params.pid, ip);
         if (!allowed) {
           res.status(429).json({
-            error: { code: 'RATE_LIMITED', message: 'Terlalu banyak pencarian. Coba lagi sebentar.' },
+            error: { code: 'RATE_LIMITED', message: 'Too many search requests. Please try again shortly.' },
           });
           return;
         }
       }
       const db = getProjectDb(req.params.pid);
-      const reqCtx = await resolveEndUserCtx(req); // admin → undefined (bypass)
+      const reqCtx = await resolveEndUserCtx(req, db, { pid: req.params.pid }); // admin/apikey → undefined (bypass)
       const result = listRecords(db, req.params.name, {
         filter: req.query.get('filter') ?? undefined,
         sort: req.query.get('sort') ?? undefined,
@@ -236,18 +243,18 @@ export function createPublicRouter(): Router {
       const fn = req.query.get('function');
       if (!fn) {
         res.status(400).json({
-          error: { code: 'BAD_REQUEST', message: "Query param 'function' wajib (count|sum|avg|min|max)" },
+          error: { code: 'BAD_REQUEST', message: "Query param 'function' is required (count|sum|avg|min|max)" },
         });
         return;
       }
       if (!['count', 'sum', 'avg', 'min', 'max'].includes(fn)) {
         res.status(400).json({
-          error: { code: 'BAD_REQUEST', message: `Aggregate function tidak dikenal: '${fn}'` },
+          error: { code: 'BAD_REQUEST', message: `Unknown aggregate function: '${fn}'` },
         });
         return;
       }
       const db = getProjectDb(req.params.pid);
-      const reqCtx = await resolveEndUserCtx(req);
+      const reqCtx = await resolveEndUserCtx(req, db, { pid: req.params.pid });
       const field = req.query.get('field') ?? undefined;
       if (fn !== 'count' && !field) {
         res.status(400).json({
@@ -268,16 +275,50 @@ export function createPublicRouter(): Router {
     }
   });
 
+  // M29: POST /api/p/:pid/collections/:name/vector-search
+  //   Body: { vector: [0.1, ...], k?, field?, metric?, minScore?, filter? }
+  //   → { items: [{id, score, record}], totalSearched, vectorField, metric, durationMs }
+  //   listRule ditegakkan (sama seperti aggregate M19 — similarity bocor data).
+  router.post('/api/p/:pid/collections/:name/vector-search', async (req, res) => {
+    try {
+      const db = getProjectDb(req.params.pid);
+      const body = (req.body ?? {}) as {
+        vector?: number[]; k?: number; field?: string;
+        metric?: string; minScore?: number; filter?: string;
+      };
+      if (!Array.isArray(body.vector) || body.vector.length === 0) {
+        res.status(400).json({
+          error: { code: 'BAD_REQUEST', message: 'vector (array of numbers) is required' },
+        });
+        return;
+      }
+      const metric = body.metric === 'l2' ? 'l2' as const : 'cosine' as const;
+      const reqCtx = await resolveEndUserCtx(req, db, { pid: req.params.pid });
+      const result = vectorSearch(db, req.params.name, {
+        vector: body.vector,
+        k: body.k,
+        field: body.field,
+        metric,
+        minScore: body.minScore,
+        filter: body.filter,
+        reqCtx,
+      });
+      res.json(result);
+    } catch (err) {
+      handleErrorPublic(res, err);
+    }
+  });
+
   // GET satu record (view)
   router.get('/api/p/:pid/collections/:name/records/:id', async (req, res) => {
     try {
       const db = getProjectDb(req.params.pid);
-      const reqCtx = await resolveEndUserCtx(req);
+      const reqCtx = await resolveEndUserCtx(req, db, { pid: req.params.pid });
       const record = getRecord(db, req.params.name, req.params.id, reqCtx, {
         expand: req.query.get('expand') ?? undefined, // M19
       });
       if (!record) {
-        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Record tidak ditemukan' } });
+        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Record not found' } });
         return;
       }
       res.json({ record });
@@ -290,13 +331,13 @@ export function createPublicRouter(): Router {
   router.post('/api/p/:pid/collections/:name/records', async (req, res) => {
     try {
       const db = getProjectDb(req.params.pid);
-      const reqCtx = await resolveEndUserCtx(req);
+      const reqCtx = await resolveEndUserCtx(req, db, { pid: req.params.pid, write: true });
 
       // M14: multipart perlu recordId SEBELUM insert (nama file = <id>_<filename>).
       // Kita generate id di sini dan pass ke createRecord via data hack:
       // cara bersih = createRecord menerima optional preGeneratedId.
       const meta = getCollectionByName(db, req.params.name);
-      if (!meta) throw new Error(`Collection '${req.params.name}' tidak ditemukan`);
+      if (!meta) throw new Error(`Collection '${req.params.name}' not found`);
       const preId = generateId();
       const body = await prepareBodyData(req, db, req.params.pid, req.params.name, preId);
 
@@ -304,6 +345,13 @@ export function createPublicRouter(): Router {
       // M13: broadcast ke realtime subscribers (setelah DB sukses)
       realtimeHub.publish(db, meta, 'create', record as Record<string, unknown>);
       // M15b: jalankan functions yang ter-trigger (setelah realtime)
+      // M28: webhook outbound (fire-and-forget)
+      fireWebhooks(db, {
+        projectId: req.params.pid,
+        action: 'create',
+        collection: req.params.name,
+        record: record as Record<string, unknown>,
+      });
       fireTriggersSafe(db, req.params.name, 'create', record as Record<string, unknown>);
       res.status(201).json({ record });
     } catch (err) {
@@ -315,9 +363,9 @@ export function createPublicRouter(): Router {
   router.patch('/api/p/:pid/collections/:name/records/:id', async (req, res) => {
     try {
       const db = getProjectDb(req.params.pid);
-      const reqCtx = await resolveEndUserCtx(req);
+      const reqCtx = await resolveEndUserCtx(req, db, { pid: req.params.pid, write: true });
       const meta = getCollectionByName(db, req.params.name);
-      if (!meta) throw new Error(`Collection '${req.params.name}' tidak ditemukan`);
+      if (!meta) throw new Error(`Collection '${req.params.name}' not found`);
 
       // M14: snapshot file lama SEBELUM update (untuk cleanup yang diganti)
       const oldRecord = getRecordRawPublic(db, req.params.name, req.params.id);
@@ -325,17 +373,25 @@ export function createPublicRouter(): Router {
 
       const record = updateRecord(db, req.params.name, req.params.id, body, reqCtx);
       if (!record) {
-        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Record tidak ditemukan' } });
+        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Record not found' } });
         return;
       }
 
       // M14: hapus file lama yang diganti (setelah UPDATE sukses)
       if (oldRecord) {
-        cleanupReplacedFiles(req.params.pid, meta, req.params.id, oldRecord, body);
+        await cleanupReplacedFiles(req.params.pid, meta, req.params.id, oldRecord, body);
       }
 
       // M13: broadcast ke realtime subscribers
       realtimeHub.publish(db, meta, 'update', record as Record<string, unknown>);
+      // M28: webhook outbound (fire-and-forget, dengan previous)
+      fireWebhooks(db, {
+        projectId: req.params.pid,
+        action: 'update',
+        collection: req.params.name,
+        record: record as Record<string, unknown>,
+        previous: (oldRecord ?? null) as Record<string, unknown> | null,
+      });
       // M15b: jalankan trigger dengan previous = snapshot sebelum update
       fireTriggersSafe(
         db,
@@ -355,21 +411,28 @@ export function createPublicRouter(): Router {
   router.delete('/api/p/:pid/collections/:name/records/:id', async (req, res) => {
     try {
       const db = getProjectDb(req.params.pid);
-      const reqCtx = await resolveEndUserCtx(req);
+      const reqCtx = await resolveEndUserCtx(req, db, { pid: req.params.pid, write: true });
       const meta = getCollectionByName(db, req.params.name);
       const ok = deleteRecord(db, req.params.name, req.params.id, reqCtx);
       if (!ok) {
-        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Record tidak ditemukan' } });
+        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Record not found' } });
         return;
       }
       // M14: hapus file fisik (setelah DB sukses)
       if (meta) {
         // M13: broadcast delete (record id terakhir yang diketahui subscriber)
         realtimeHub.publish(db, meta, 'delete', { id: req.params.id } as Record<string, unknown>);
+        // M28: webhook outbound
+        fireWebhooks(db, {
+          projectId: req.params.pid,
+          action: 'delete',
+          collection: req.params.name,
+          record: { id: req.params.id },
+        });
         // M15b: trigger delete — record yang dikirim hanya { id }
         fireTriggersSafe(db, req.params.name, 'delete', { id: req.params.id });
         // record sudah terhapus — kita tak punya isinya; deleteRecordFiles by prefix
-        deleteRecordFiles(req.params.pid, req.params.id);
+        await deleteRecordFiles(req.params.pid, req.params.id);
       }
       res.json({ success: true });
     } catch (err) {
@@ -387,7 +450,7 @@ export function createPublicRouter(): Router {
       const db = getProjectDb(req.params.pid);
       const meta = getCollectionByName(db, req.params.name);
       if (!meta) {
-        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Collection tidak ditemukan' } });
+        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Collection not found' } });
         return;
       }
       if (meta.type !== 'auth') {
@@ -400,13 +463,13 @@ export function createPublicRouter(): Router {
       const password = body.password || '';
 
       if (!identity || !password) {
-        res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'Identity/email dan password wajib diisi' } });
+        res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'Identity/email and password are required' } });
         return;
       }
 
       const row = db.prepare(`SELECT * FROM "${meta.name}" WHERE email = ?`).get(identity) as Record<string, unknown> | undefined;
       if (!row || typeof row.password_hash !== 'string' || !verifyPassword(password, row.password_hash)) {
-        res.status(400).json({ error: { code: 'INVALID_CREDENTIALS', message: 'Email atau password salah.' } });
+        res.status(400).json({ error: { code: 'INVALID_CREDENTIALS', message: 'Invalid email or password.' } });
         return;
       }
 
@@ -415,6 +478,7 @@ export function createPublicRouter(): Router {
         id: String(row.id),
         email: String(row.email),
         name: typeof row.name === 'string' ? row.name : null,
+        avatarUrl: null,
         verified: row.verified === true || row.verified === 1,
         created: typeof row.created === 'string' ? row.created : '',
         updated: typeof row.updated === 'string' ? row.updated : '',
@@ -437,19 +501,19 @@ export function createPublicRouter(): Router {
       const db = getProjectDb(req.params.pid);
       const meta = getCollectionByName(db, req.params.name);
       if (!meta || meta.type !== 'auth') {
-        res.status(400).json({ error: { code: 'NOT_AUTH_COLLECTION', message: 'Bukan auth collection' } });
+        res.status(400).json({ error: { code: 'NOT_AUTH_COLLECTION', message: 'Not an auth collection' } });
         return;
       }
 
       const reqCtx = await resolveEndUserCtx(req);
       if (!reqCtx || !reqCtx.auth?.id) {
-        res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'Wajib menyertakan token otentikasi' } });
+        res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'Authentication token is required' } });
         return;
       }
 
       const record = getRecord(db, meta.name, reqCtx.auth.id, reqCtx);
       if (!record) {
-        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'User tidak ditemukan' } });
+        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'User not found' } });
         return;
       }
 
@@ -458,6 +522,7 @@ export function createPublicRouter(): Router {
         id: String(record.id),
         email: String(record.email ?? reqCtx.auth.email),
         name: typeof record.name === 'string' ? record.name : null,
+        avatarUrl: null,
         verified: record.verified === true || record.verified === 1,
         created: typeof record.created === 'string' ? record.created : '',
         updated: typeof record.updated === 'string' ? record.updated : '',
@@ -490,8 +555,23 @@ function getRecordRawPublic(
 
 // ─── Helper: resolve JWT → RequestContext (untuk end user) ──────────────────
 // M18b: verifyToken ASYNC (jose) — helper jadi async
+// M26: API key (Bearer bf_... / X-API-Key) → service access:
+//      - scope divalidasi (write untuk route mutasi)
+//      - valid → undefined ctx (bypass rules, seperti admin)
+//      - invalid → ApiKeyError (401/403/429) — dipetakan handleErrorPublic
 
-async function resolveEndUserCtx(req: { headers: { authorization?: string } }): Promise<RequestContext> {
+async function resolveEndUserCtx(
+  req: { headers: { authorization?: string; 'x-api-key'?: string } },
+  db: DatabaseSync | null = null,
+  opts: { write?: boolean; pid?: string } = {}
+): Promise<RequestContext> {
+  // M26: jalur API key (hanya jika route mengizinkan — db diteruskan)
+  const apiKey = extractApiKey(req.headers as Record<string, unknown>);
+  if (apiKey && db && opts.pid) {
+    await resolveApiKey(db, apiKey, { write: opts.write, pid: opts.pid });
+    return undefined as unknown as RequestContext; // service → bypass rules
+  }
+
   const bearer = extractBearer(req.headers.authorization ?? null);
   if (bearer) {
     if (isAdminToken(bearer)) {

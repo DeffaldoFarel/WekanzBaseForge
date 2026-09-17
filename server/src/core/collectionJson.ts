@@ -36,7 +36,7 @@ const EXPORT_VERSION = 1;
 export function exportCollection(db: DatabaseSync, name: string): string {
   const meta = getCollectionByName(db, name);
   if (!meta) {
-    throw new Error(`Collection '${name}' tidak ditemukan`);
+    throw new Error(`Collection '${name}' not found`);
   }
 
   let records: Record<string, unknown>[] = [];
@@ -98,14 +98,14 @@ export function importCollection(
   try {
     data = JSON.parse(json);
   } catch (err) {
-    throw new Error(`JSON tidak valid: ${err instanceof Error ? err.message : String(err)}`);
+    throw new Error(`Invalid JSON: ${err instanceof Error ? err.message : String(err)}`);
   }
 
   if (data.format !== EXPORT_FORMAT) {
-    throw new Error(`Format tidak dikenal: '${data.format}' (harapannya '${EXPORT_FORMAT}')`);
+    throw new Error(`Unknown format: '${data.format}' (expected '${EXPORT_FORMAT}')`);
   }
   if (!data.collection?.name || !Array.isArray(data.collection.fields)) {
-    throw new Error('Data import tidak lengkap: collection.name & collection.fields wajib');
+    throw new Error('Incomplete import data: collection.name & collection.fields are required');
   }
 
   const mode = options.mode ?? 'create';
@@ -128,7 +128,7 @@ export function importCollection(
   if (!current) {
     if (data.collection.type === 'view') {
       if (!data.collection.viewQuery) {
-        throw new Error('View collection butuh viewQuery');
+        throw new Error('View collection requires viewQuery');
       }
       meta = importView(db, name, data.collection.viewQuery, data.collection.rules);
     } else {

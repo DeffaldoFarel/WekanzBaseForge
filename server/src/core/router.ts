@@ -13,6 +13,7 @@
 // ============================================================================
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { metricsProjectId, trackRequest } from './metrics.js';
 
 // ─── Request & Response wrapper ─────────────────────────────────────────────
 // node:http memberikan IncomingMessage mentah. Kita bungkus dengan helper
@@ -172,7 +173,13 @@ export class Router {
           const text = rawBody.toString('utf-8');
           body = JSON.parse(text);
         } catch {
-          throw new Error('Invalid JSON body');
+          // M23-hardening: JSON rusak dulu = 400 rapi, BUKAN throw —
+          // throw di sini jadi unhandled rejection & MEMATIKAN server
+          // (satu request = satu DoS).
+          res.status(400).json({
+            error: { code: 'INVALID_JSON', message: 'Request body is not valid JSON' },
+          });
+          return;
         }
       }
     }
@@ -189,6 +196,37 @@ export class Router {
     // M14: lampirkan buffer mentah + flag multipart (ekstensi request)
     (req as ForgeRequest & { rawBody?: Buffer; isMultipart?: boolean }).rawBody = rawBody;
     (req as ForgeRequest & { rawBody?: Buffer; isMultipart?: boolean }).isMultipart = isMultipart;
+
+    // M24: instrumentasi metrics (request & bandwidth per project).
+    // Cara hitung bytesOut: bungkus write/end dari response mentah —
+    // mencakup res.json(), file streaming (M14), SSE (M13), semuanya.
+    // Pencatatan terjadi di event 'finish' (setelah response selesai),
+    // jadi handler tidak menanggung biaya apa pun.
+    let bytesOut = 0;
+    const trackChunk = (chunk: unknown): void => {
+      if (typeof chunk === 'string') bytesOut += Buffer.byteLength(chunk);
+      else if (chunk && typeof (chunk as Buffer).length === 'number') bytesOut += (chunk as Buffer).length;
+    };
+    const rawResAny = rawRes as unknown as {
+      write: (...args: unknown[]) => boolean;
+      end: (...args: unknown[]) => unknown;
+    };
+    const origWrite = rawResAny.write.bind(rawRes);
+    const origEnd = rawResAny.end.bind(rawRes);
+    rawResAny.write = (...args: unknown[]): boolean => {
+      trackChunk(args[0]);
+      return origWrite(...args);
+    };
+    rawResAny.end = (...args: unknown[]): unknown => {
+      trackChunk(args[0]);
+      return origEnd(...args);
+    };
+    rawRes.on('finish', () => {
+      const pid = metricsProjectId(path);
+      if (pid) {
+        trackRequest(pid, rawBody?.length ?? 0, bytesOut);
+      }
+    });
 
     // Jalankan middleware global dulu
     for (const mw of this.globalMiddlewares) {

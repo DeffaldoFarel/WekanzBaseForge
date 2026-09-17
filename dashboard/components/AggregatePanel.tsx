@@ -134,8 +134,8 @@ export default function AggregatePanel({ projectId, collection, initialFilter }:
   return (
     <div>
       <div className="flex items-center gap-2.5 mb-1.5">
-        <Sigma size={18} strokeWidth={2.4} className="text-brand-blue" />
-        <h3 className="text-base font-bold m-0">Aggregations</h3>
+        <Sigma size={18} strokeWidth={2.4} className="text-foreground" />
+        <h3 className="text-base font-semibold m-0">Aggregations</h3>
       </div>
       <p className="text-sm text-muted-foreground mt-0 max-w-[60ch]">
         Computed by SQLite and returned as a single value — rows never leave the server.
@@ -147,7 +147,7 @@ export default function AggregatePanel({ projectId, collection, initialFilter }:
           <Label className="text-xs font-semibold">Function</Label>
           <Select
             value={fn}
-            onValueChange={(v) => {
+            onValueChange={(v: string) => {
               const next = v as AggregateFunction;
               setFn(next);
               setResult(null);
@@ -178,7 +178,7 @@ export default function AggregatePanel({ projectId, collection, initialFilter }:
           </Label>
           <Select
             value={field}
-            onValueChange={(v) => {
+            onValueChange={(v: string) => {
               setField(v);
               setResult(null);
               setRanQuery(null);
@@ -202,7 +202,7 @@ export default function AggregatePanel({ projectId, collection, initialFilter }:
           <Label className="text-xs font-semibold">Group by</Label>
           <Select
             value={groupBy}
-            onValueChange={(v) => {
+            onValueChange={(v: string) => {
               setGroupBy(v);
               setResult(null);
               setRanQuery(null);
@@ -264,7 +264,7 @@ export default function AggregatePanel({ projectId, collection, initialFilter }:
             {ranQuery?.fn.toUpperCase()}
             {ranQuery?.field ? ` · ${ranQuery.field}` : ""}
           </div>
-          <div className="text-4xl font-extrabold leading-tight mt-1.5 font-mono text-foreground">
+          <div className="text-4xl font-semibold leading-tight mt-1.5 font-mono text-foreground">
             {fmt(result.value)}
           </div>
           {elapsed !== null && (
@@ -324,7 +324,7 @@ export default function AggregatePanel({ projectId, collection, initialFilter }:
                     <div className="h-2 rounded-full bg-secondary overflow-hidden">
                       <div
                         className={`h-full rounded-full transition-all duration-300 ${
-                          val < 0 ? "bg-destructive" : "bg-brand-blue"
+                          val < 0 ? "bg-destructive" : "bg-foreground"
                         }`}
                         style={{ width: `${pct}%` }}
                       />

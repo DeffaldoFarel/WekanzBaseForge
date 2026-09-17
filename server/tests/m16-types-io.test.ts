@@ -104,7 +104,7 @@ describe('M16b: field type password (hash-only)', () => {
   test('M16b: password terlalu pendek ditolak', () => {
     const db = freshDb();
     defineCollection(db, { name: 'secrets', fields: [{ name: 'pin', type: 'password' }] });
-    assert.throws(() => createRecord(db, 'secrets', { pin: 'pendek' }), /minimal 8/);
+    assert.throws(() => createRecord(db, 'secrets', { pin: 'pendek' }), /at least 8/);
   });
 });
 
@@ -221,10 +221,10 @@ describe('M16c: export/import JSON', () => {
 
   test('M16c: import JSON rusak / format salah → pesan jelas', () => {
     const db = freshDb();
-    assert.throws(() => importCollection(db, '{invalid json', {}), /JSON tidak valid/);
+    assert.throws(() => importCollection(db, '{invalid json', {}), /Invalid JSON/);
     assert.throws(
       () => importCollection(db, JSON.stringify({ format: 'lain', collection: {} })),
-      /Format tidak dikenal/
+      /Unknown format/
     );
   });
 

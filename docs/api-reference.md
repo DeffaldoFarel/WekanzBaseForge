@@ -6,6 +6,37 @@ Dokumentasi ini berisi panduan lengkap endpoint HTTP BaseForge untuk digunakan o
 
 ## 🌐 Struktur URL
 
+### 🔑 API Keys (M26) — Server-to-Server Access
+
+Per-project API keys untuk akses backend/cron/integrasi **tanpa login end-user**.
+Buat dari dashboard (project overview → **API Keys**) atau admin API.
+
+* **Header:** `Authorization: Bearer bf_...` **atau** `X-API-Key: bf_...`
+* **Scope:**
+  * `read` — GET endpoints saja (list/view records, aggregate, files)
+  * `write` — semua method (records CRUD, file upload)
+* **Perilaku:** key **melewati (bypass) API Rules** — service-level access
+  seperti `service_role` Supabase. Rate limit terpisah: 300 req/menit per key.
+* **Key penuh hanya muncul sekali** saat dibuat; yang tersimpan di DB hanya
+  hash SHA-256.
+
+```bash
+# Buat (admin)
+curl -X POST http://localhost:5100/api/admin/projects/:pid/api-keys \
+  -H "Authorization: Bearer <adminToken>" \
+  -d '{"name": "production-backend", "scope": "write"}'
+
+# Pakai (end-user API — rules dilewati)
+curl -H "Authorization: Bearer bf_xxx..." \
+  http://localhost:5100/api/p/:pid/collections/posts/records
+```
+
+Admin endpoints: `GET .../api-keys` (list masked + usage),
+`DELETE .../api-keys/:id` (revoke). Key **tidak berlaku** untuk flow
+end-user (`/auth/*`, `auth-with-password`, `auth-refresh`).
+
+---
+
 Setiap project di BaseForge memiliki ID unik (`:pid`). Semua endpoint untuk aplikasi klien Anda berakar pada prefiks `/api/p/:pid`:
 
 ```text
@@ -116,6 +147,155 @@ Mematikan refresh token agar tidak bisa digunakan kembali:
     "refreshToken": "7a8b9c..."
   }
   ```
+
+### F. OAuth2 Login (Google & GitHub) — M10
+
+Login sosial via **Authorization Code Flow**. Provider harus dikonfigurasi
+admin lebih dulu di dashboard (**Project → Auth → Settings**) atau via
+`PUT /api/admin/projects/:pid/auth/providers/:provider` (clientId, clientSecret).
+
+#### Alur lengkap
+
+```
+Browser ── GET /api/p/:pid/auth/oauth/google/authorize?redirect_to=...
+        ←─ 302 ke accounts.google.com (consent screen, state anti-CSRF)
+Browser ── login & consent di Google
+Google ── 302 ke /api/p/:pid/auth/oauth/google/callback?code=...&state=...
+Server ── tukar code → access_token Google → fetch profil → find-or-create user
+        ←─ 302 ke redirect_to#access_token=...&refresh_token=...
+           (atau JSON bila authorize dipanggil tanpa redirect_to)
+```
+
+#### Endpoint 1 — Mulai Login
+
+* **Method:** `GET`
+* **URL:** `/api/p/:pid/auth/oauth/:provider/authorize`
+* **Params:** `provider` = `google` | `github`
+* **Query (opsional):**
+  * `redirect_to` — URL aplikasi Anda (http/https). Setelah sukses, user
+    diarahkan ke sini dengan token di **URL fragment**
+    (`#access_token=…&refresh_token=…&expires_in=…`).
+    Bila admin mengisi *allowed origins* di konfigurasi provider, hanya origin
+    terdaftar yang diizinkan — URL lain diabaikan (fallback respons JSON).
+* **Response:** `302` → consent screen provider
+* **Error:** `404 PROVIDER_NOT_CONFIGURED` (belum diatur admin / disabled)
+
+#### Endpoint 2 — Callback (dipanggil provider, bukan aplikasi Anda)
+
+* **Method:** `GET`
+* **URL:** `/api/p/:pid/auth/oauth/:provider/callback?code=…&state=…`
+* **Response sukses (tanpa redirect_to):**
+  ```json
+  {
+    "user": {
+      "id": "a1b2c3...", "email": "user@gmail.com", "name": "Budi",
+      "avatarUrl": "https://...", "verified": true, "created": "..."
+    },
+    "accessToken": "eyJ...", "refreshToken": "e4f5...", "expiresIn": 900
+  }
+  ```
+
+#### SDK Client
+
+```ts
+import { BaseForge } from '@wekanz/baseforge';
+const bf = new BaseForge({ baseUrl, projectId });
+
+// 1. Redirect user ke login Google
+bf.auth.loginWithOAuth('google', 'https://myapp.com/callback');
+
+// 2. Di halaman /callback — parse token dari fragment
+const result = await bf.auth.handleOAuthCallback();
+if (result?.error) { /* tampilkan error */ }
+// token tersimpan otomatis di authStore + user diambil via /me
+```
+
+#### Aturan Keamanan Built-in
+
+| Mekanisme | Perilaku |
+|---|---|
+| **State anti-CSRF** | Random 64-hex, satu kali pakai, TTL 10 menit. Replay/mismatch → `400 BAD_STATE`. |
+| **Account linking** | Email provider yang **terverifikasi** + cocok dengan user existing → identity di-link otomatis (user bisa login Google & password). |
+| **Anti account-takeover** | Email cocok tetapi **belum terverifikasi provider** (mis. email GitHub unverified) → `409 EMAIL_UNVERIFIED_CONFLICT`. Linking ditolak. |
+| **Client secret at-rest** | Disimpan terenkripsi AES-256-GCM (key: `OAUTH_SECRET` env → fallback `JWT_SECRET`). |
+| **Token di fragment** | `#access_token` tidak dikirim ke server mana pun (tidak bocor di log akses), tidak di query string. |
+| **Rate limit** | 30 request/menit per IP per provider untuk authorize & callback. |
+
+### G. Email Verification & Password Reset (M23)
+
+### H. MFA / Two-Factor Authentication (M27 — TOTP)
+
+Dua faktor via app authenticator (Google Authenticator, Authy, 1Password —
+format `otpauth://` standar) + 10 recovery codes sekali pakai.
+
+#### 1. Enroll (login aktif)
+* **`POST /api/p/:pid/auth/mfa/enroll`** · `Authorization: Bearer <accessToken>`
+* Response: `{ secret, otpauthUrl }` — scan `otpauthUrl` dengan app authenticator.
+* Enrollment *pending* — login masih normal sampai diverifikasi.
+
+#### 2. Verify (konfirmasi + recovery codes)
+* **`POST /api/p/:pid/auth/mfa/verify`** · Bearer · Body: `{ "token": "123456" }`
+* Response: `{ mfaEnabled: true, recoveryCodes: ["..." × 10] }` — **disimpan sekali saja**.
+
+#### 3. Login dengan MFA
+* **`POST /api/p/:pid/auth/login`** → password benar = faktor-1 lolos, tapi token TIDAK terbit:
+  ```json
+  { "mfaRequired": true, "mfaToken": "..." }
+  ```
+* **`POST /api/p/:pid/auth/mfa/challenge`** · Body: `{ mfaToken, token }` atau `{ mfaToken, recoveryCode }`
+* Sukses → `{ user, accessToken, refreshToken, expiresIn }` (kontrak login normal).
+* Rate limit **5 percobaan/15 menit per mfaToken** (anti brute-force 6-digit).
+* mfaToken: TTL 5 menit, konsumsi sekali sukses; percobaan salah tidak mematikannya.
+
+#### 4. Disable
+* **`POST /api/p/:pid/auth/mfa/disable`** · Bearer · Body: `{ token }` atau `{ recoveryCode }`
+* Admin reset (user terkunci): **`POST /api/admin/projects/:pid/auth-users/:uid/mfa-reset`**
+
+#### SDK
+```ts
+const enroll = await bf.auth.mfaEnroll();        // scan enroll.otpauthUrl
+await bf.auth.mfaVerify('123456');               // simpan recoveryCodes!
+const res = await bf.auth.login(email, pass);
+if (bf.auth.isMfaRequired(res)) {
+  await bf.auth.mfaChallenge(res.mfaToken, code); // atau recoveryCode
+}
+```
+
+---
+
+Ditambah otomatis setelah `register` (email verifikasi), dan tersedia via
+endpoint khusus. Tanpa SMTP terkonfigurasi (Admin API `/api/admin/settings/mail`
+atau env `SMTP_HOST`), email masuk ke **DEV OUTBOX** (dashboard Settings → Outbox)
+— semua link tetap berfungsi.
+
+#### Request Verification Email
+* **Method:** `POST` · **URL:** `/api/p/:pid/auth/request-verification`
+* **Body:** `{ "email": "user@example.com" }` (atau kosong + Bearer token = user saat ini)
+* **Response:** selalu `200` (anti user-enumeration). Rate limit 5/15 menit/IP.
+* Link di email: `GET /api/p/:pid/auth/verify-email?token=...` → halaman sukses
+  (atau `POST { token }` untuk SDK).
+
+#### Request Password Reset
+* **Method:** `POST` · **URL:** `/api/p/:pid/auth/request-password-reset`
+* **Body:** `{ "email": "user@example.com" }`
+* **Response:** selalu `200` (anti user-enumeration). Rate limit 5/15 menit/IP.
+* Link di email: `GET /api/p/:pid/auth/confirm-password-reset?token=...` →
+  form HTML self-contained, atau `?redirect_to=` → `302` dengan
+  `#reset_token=...` untuk halaman form aplikasi Anda.
+
+#### Confirm Password Reset
+* **Method:** `POST` · **URL:** `/api/p/:pid/auth/confirm-password-reset`
+* **Body:** `{ "token": "...", "password": "newPassword123" }`
+* **Efek:** password berganti + **semua refresh token user di-revoke**
+  (logout dari semua device). Token sekali pakai, TTL 1 jam.
+
+#### SDK Client
+
+```ts
+await bf.auth.requestVerification('user@example.com');
+await bf.auth.requestPasswordReset('user@example.com');
+await bf.auth.confirmPasswordReset(token, newPassword);
+```
 
 ---
 
@@ -267,6 +447,268 @@ Jika file adalah gambar, tambahkan parameter `?thumb` di akhir URL untuk membuat
 * **`?thumb=300x0`** : Lebar 300 px, tinggi proporsional mengikuti rasio asli.
 * **`?thumb=0x200`** : Tinggi 200 px, lebar proporsional.
 * **`?thumb=200x200f`** : Fit di dalam kotak 200×200 px tanpa pemotongan (preserve aspect ratio).
+
+---
+
+## 📊 5. Project Usage Stats (M24) — Admin
+
+Statistik request & bandwidth per project (agregat harian, real-time — tampil juga di dashboard overview):
+
+* **Method:** `GET`
+* **URL:** `/api/admin/projects/:pid/stats`
+* **Headers:** `Authorization: Bearer <adminToken>`
+
+```json
+{
+  "today": { "date": "2026-09-16", "requests": 6, "bytesIn": 0, "bytesOut": 2576 },
+  "days": [ { "date": "2026-09-03", "requests": 0, "bytesIn": 0, "bytesOut": 0 } ],
+  "totals": { "requests": 6, "bytesIn": 0, "bytesOut": 2576 }
+}
+```
+
+`days` berisi 14 hari terakhir (UTC, zero-filled — siap untuk chart). Yang
+dihitung: semua request dengan projectId di path — public API
+(`/api/p/:pid/…`), admin API (`/api/admin/projects/:pid/…`), dan file serving
+(`/api/files/:pid/…`). Endpoint `/stats` sendiri tidak dihitung (observer effect).
+
+---
+
+## 🔔 6. Webhooks (M28) — Outbound HTTP on CRUD
+
+**POST** ke URL Anda saat record CRUD terjadi. Keamanan via **HMAC-SHA256
+signature** (ala Stripe/GitHub) — verifikasi di sisi penerima dengan secret
+yang sama.
+
+### Payload
+```json
+{
+  "event": "posts.create",
+  "action": "create",
+  "collection": "posts",
+  "record": { "id": "...", "title": "hello" },
+  "previous": null,
+  "timestamp": "2026-09-17T..."
+}
+```
+
+### Headers (verifikasi)
+```
+X-BaseForge-Event: posts.create
+X-BaseForge-Signature: sha256=<hex HMAC-SHA256(body, secret)>
+```
+
+### Verifikasi di penerima (Node.js)
+```javascript
+const crypto = require('crypto');
+const expected = 'sha256=' + crypto.createHmac('sha256', secret).update(rawBody).digest('hex');
+crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected)); // true = valid
+```
+⚠️ Body harus dibaca **raw** (bukan re-parse + re-stringify) — byte-level
+fidelity adalah kontrak signature.
+
+### Event Matching
+- `posts.create` — hanya event itu
+- `posts.*` — semua action pada collection `posts`
+- `*` — semua event
+
+### Delivery
+- Timeout 10 detik per attempt (AbortController)
+- **Retry: 3x dengan exponential backoff** (1s → 4s) saat non-2xx
+- Delivery log 100 terakhir per webhook (query via admin API)
+
+### Admin API
+```
+POST   /api/admin/projects/:pid/webhooks           { name, url, events } → secret sekali
+GET    /api/admin/projects/:pid/webhooks           → list (secret disamarkan)
+GET    /api/admin/projects/:pid/webhooks/:id       → detail + secret penuh
+PATCH  /api/admin/projects/:pid/webhooks/:id       { name?, url?, events?, enabled? }
+DELETE /api/admin/projects/:pid/webhooks/:id       → hapus
+POST   /api/admin/projects/:pid/webhooks/:id/test  → kirim test payload
+GET    /api/admin/projects/:pid/webhooks/:id/deliveries → log 20 terakhir
+```
+
+---
+
+## 🖥️ 7. CLI (M28)
+
+```bash
+cd server && npm run cli -- <command>
+# atau setelah build: baseforge <command>
+
+baseforge login admin@baseforge.local    # prompt password → simpan token
+baseforge use <projectId>                # set project aktif
+baseforge projects                       # tabel daftar project
+baseforge collections                    # tabel daftar collection
+baseforge records list posts --perPage 5
+baseforge records create posts '{"title":"Hello"}'
+baseforge records delete posts <id>
+baseforge functions                      # tabel daftar function
+baseforge users                          # tabel end-users (verified, MFA)
+baseforge webhooks                       # tabel daftar webhook
+baseforge whoami                         # identitas + project aktif
+baseforge logout
+```
+
+State: `~/.baseforge/cli.json` (token + project + server URL).
+
+---
+
+## 🧲 8. Vector Search (M29) — Embeddings & Similarity
+
+## 📦 9. Storage Backend (M30) — Local Disk atau S3-Compatible
+
+## 💾 10. Scheduled Backup (M32) — VACUUM INTO + Retensi Otomatis
+
+### Admin API
+```
+GET    /api/admin/projects/:pid/backup/config     → { schedule, retention }
+PUT    /api/admin/projects/:pid/backup/config     → set { schedule: 'daily'|'weekly'|'off', retention: 1-30 }
+DELETE /api/admin/projects/:pid/backup/config     → reset ke default (off, 7)
+POST   /api/admin/projects/:pid/backup/run        → trigger backup manual
+GET    /api/admin/projects/:pid/backup/list       → daftar backup + metadata
+GET    /api/admin/projects/:pid/backup/download/:filename → stream file .db
+```
+
+### Contoh
+```bash
+# Set backup harian dengan retensi 7
+curl -X PUT http://localhost:5100/api/admin/projects/:pid/backup/config \
+  -H "Authorization: Bearer <adminToken>" \
+  -d '{"schedule": "daily", "retention": 7}'
+
+# Trigger manual
+curl -X POST http://localhost:5100/api/admin/projects/:pid/backup/run \
+  -H "Authorization: Bearer <adminToken>"
+
+# List backup
+curl http://localhost:5100/api/admin/projects/:pid/backup/list \
+  -H "Authorization: Bearer <adminToken>"
+```
+
+Backup file adalah SQLite database **self-contained** — bisa dibuka dengan
+tool SQLite apa pun (DB Browser, sqlite3 CLI, atau `new DatabaseSync(path)`).
+Restore = ganti file `data.db` dengan backup.
+
+### Layout
+```
+data/backups/<projectId>/
+  ├── 2026-09-17T10-30-00-000Z.db    ← file backup (SQLite self-contained)
+  └── 2026-09-17T10-30-00-000Z.json  ← metadata (size, duration, counts)
+```
+
+---
+
+### Konfigurasi (Admin API)
+
+```
+GET    /api/admin/settings/storage           → info backend aktif
+PUT    /api/admin/settings/storage           → set config (local atau S3)
+POST   /api/admin/settings/storage/test      → test koneksi (health check)
+DELETE /api/admin/settings/storage           → reset ke local disk
+```
+
+### S3-Compatible Providers
+
+| Provider | Endpoint | Region |
+|---|---|---|
+| AWS S3 | `https://s3.amazonaws.com` | `us-east-1` |
+| Cloudflare R2 | `https://<account_id>.r2.cloudflarestorage.com` | `auto` |
+| MinIO | `http://localhost:9000` | `us-east-1` |
+| DO Spaces | `https://<region>.digitaloceanspaces.com` | `<region>` |
+| Backblaze B2 | `https://s3.<region>.backblazeb2.com` | `<region>` |
+
+### Set S3 Backend (contoh Cloudflare R2)
+
+```bash
+curl -X PUT http://localhost:5100/api/admin/settings/storage \
+  -H "Authorization: Bearer <adminToken>" \
+  -d '{
+    "backend": "s3",
+    "s3": {
+      "endpoint": "https://abc123.r2.cloudflarestorage.com",
+      "region": "auto",
+      "bucket": "baseforge-files",
+      "accessKeyId": "your-r2-access-key",
+      "secretAccessKey": "your-r2-secret"
+    }
+  }'
+```
+
+### Environment Variables (alternatif)
+
+```bash
+S3_ENDPOINT=https://s3.amazonaws.com
+S3_REGION=us-east-1
+S3_BUCKET=my-bucket
+S3_ACCESS_KEY_ID=AKIA...
+S3_SECRET_ACCESS_KEY=...
+S3_PREFIX=baseforge  # optional subdirectory dalam bucket
+```
+
+File layout di S3: `s3://<bucket>/<projectId>/<recordId>_<filename>` —
+mirror dari layout lokal, jadi migration antar backend transparan.
+
+---
+
+### Field Type: `vector`
+```json
+{ "name": "embedding", "type": "vector", "options": { "dimensions": 1536 } }
+```
+Embedding disimpan sebagai JSON array. Dimensions harus cocok dengan model
+embedding Anda (OpenAI `text-embedding-3-small` = 1536, `all-MiniLM-L6-v2` = 384).
+
+### Search
+* **`POST /api/p/:pid/collections/:name/vector-search`**
+* **Body:**
+```json
+{
+  "vector": [0.1, 0.2],
+  "k": 10,
+  "field": "embedding",
+  "metric": "cosine",
+  "minScore": 0.7,
+  "filter": "category = 'published'"
+}
+```
+* **Response:**
+```json
+{
+  "items": [
+    { "id": "...", "score": 0.95, "record": { "..." : "..." } },
+    { "id": "...", "score": 0.87, "record": { "..." : "..." } }
+  ],
+  "totalSearched": 500,
+  "vectorField": "embedding",
+  "metric": "cosine",
+  "durationMs": 42
+}
+```
+
+### Parameters
+| Param | Default | Description |
+|---|---|---|
+| `vector` | required | Query embedding (harus sama dims dengan field) |
+| `k` | 10 | Top-K results (max 100) |
+| `field` | first vector field | Nama field vector yang dicari |
+| `metric` | `cosine` | `cosine` atau `l2` (skor 1/(1+distance)) |
+| `minScore` | none | Threshold similarity (0-1) |
+| `filter` | none | Filter expression M04 untuk pre-filter |
+| **listRule** | **dievaluasi** | Security parity dengan aggregate M19 |
+
+### RAG Pipeline Example (dengan M25 $http.send)
+```javascript
+// 1. Function generate embedding via OpenAI (M25 $http.send)
+const res = await $http.send({
+  url: "https://api.openai.com/v1/embeddings",
+  method: "POST",
+  headers: { "Authorization": "Bearer sk-..." },
+  body: JSON.stringify({ input: text, model: "text-embedding-3-small" }),
+});
+const embedding = res.json().data[0].embedding;
+return embedding; // → simpan ke record field type vector
+
+// 2. Search: POST /vector-search dengan query embedding
+```
 
 ---
 

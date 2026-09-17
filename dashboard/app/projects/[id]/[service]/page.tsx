@@ -3,6 +3,7 @@
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { Card } from "@/components/ui/card";
+import { Construction } from "lucide-react";
 
 const TITLES: Record<string, { title: string; milestone: string }> = {
   database: { title: "Database", milestone: "M02–M07" },
@@ -20,15 +21,16 @@ export default function ServicePage() {
   return (
     <div className="max-w-[1180px] mx-auto px-6 py-6">
       <Link href={`/projects/${id}`} className="text-sm text-muted-foreground hover:text-foreground">
-        ← Kembali ke Project
+        ← Back to Project
       </Link>
       <h2 className="text-2xl font-bold mt-4">{info.title}</h2>
       <Card className="p-6 mt-4">
-        <p className="text-muted-foreground">
-          🚧 Layanan ini akan dibangun di milestone <strong>{info.milestone}</strong>.
+        <p className="text-muted-foreground flex items-center gap-2">
+          <Construction className="w-4 h-4 text-muted-foreground shrink-0" />
+          <span>This service will be built in milestone <strong>{info.milestone}</strong>.</span>
         </p>
         <p className="text-muted-foreground mt-2">
-          Ikuti roadmap di README — setiap milestone akan mengisi halaman ini.
+          Follow the roadmap in the README — each milestone will fill in this page.
         </p>
       </Card>
     </div>

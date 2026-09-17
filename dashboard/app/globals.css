@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -6,39 +6,41 @@
 
 @layer base {
   :root {
-    /* ─── SHADCN NEO-TACTILE LIGHT MODE ─── */
-    --background: 215 20% 89%;        /* #DDE3EA canvas */
-    --foreground: 220 15% 12%;        /* #1A1D23 */
+    /* ─── DARK MONOCHROME (Vercel/Linear-inspired) ─── */
+    color-scheme: dark;
 
-    --card: 0 0% 100%;                /* #FFFFFF */
-    --card-foreground: 220 15% 12%;
+    --background: 0 0% 4%;           /* #0A0A0A canvas */
+    --foreground: 0 0% 93%;          /* #EDEDED */
 
-    --popover: 0 0% 100%;
-    --popover-foreground: 220 15% 12%;
+    --card: 0 0% 7%;                 /* #121212 raised surface */
+    --card-foreground: 0 0% 93%;
 
-    --primary: 225 15% 5%;            /* #0A0B0D jet black */
-    --primary-foreground: 0 0% 100%;
+    --popover: 0 0% 8%;              /* #141414 overlays */
+    --popover-foreground: 0 0% 93%;
 
-    --secondary: 214 32% 96%;         /* #EFF3F8 */
-    --secondary-foreground: 220 15% 12%;
+    --primary: 0 0% 98%;             /* #FAFAFA — inverted white button */
+    --primary-foreground: 0 0% 4%;   /* black text on white */
 
-    --muted: 214 32% 96%;
-    --muted-foreground: 216 11% 54%;  /* #7E8896 */
+    --secondary: 0 0% 11%;           /* #1C1C1C */
+    --secondary-foreground: 0 0% 93%;
 
-    --accent: 218 35% 93%;            /* #E6ECF5 */
-    --accent-foreground: 225 15% 5%;
+    --muted: 0 0% 11%;
+    --muted-foreground: 0 0% 62%;    /* #9E9E9E */
 
-    --destructive: 5 76% 66%;         /* #EB7167 */
-    --destructive-foreground: 0 0% 100%;
+    --accent: 0 0% 15%;              /* #262626 hover surface */
+    --accent-foreground: 0 0% 98%;
 
-    --border: 215 25% 86%;
-    --input: 215 25% 86%;
-    --ring: 225 15% 5%;
+    --destructive: 0 72% 62%;        /* #E5484D semantic red */
+    --destructive-foreground: 0 0% 98%;
 
-    --radius: 1.25rem;                /* 20px */
+    --border: 0 0% 16%;              /* #292929 hairline */
+    --input: 0 0% 20%;
+    --ring: 0 0% 65%;
 
-    /* Brand accent (non-neutral, kept for logo/brand only) */
-    --brand: 151 59% 53%;             /* #3ECF8E emerald */
+    --radius: 0.5rem;                /* 8px — sharp modern */
+
+    /* Brand accent: monochrome white (inverted logo mark) */
+    --brand: 0 0% 98%;
   }
 
   * {
@@ -49,11 +51,15 @@
     -webkit-font-smoothing: antialiased;
   }
 
+  html {
+    scrollbar-color: hsl(0 0% 22%) hsl(0 0% 6%);
+  }
+
   body {
     @apply bg-background text-foreground;
-    background-image: radial-gradient(circle at 10% 20%, rgba(255, 255, 255, 0.3) 0%, transparent 40%),
-                      radial-gradient(circle at 90% 80%, rgba(215, 225, 238, 0.5) 0%, transparent 40%);
-    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    background-image: radial-gradient(ellipse 90% 55% at 50% -20%, rgba(255, 255, 255, 0.055) 0%, transparent 65%);
+    background-attachment: fixed;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
     min-height: 100vh;
     line-height: 1.5;
   }

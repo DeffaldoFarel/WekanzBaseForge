@@ -99,7 +99,7 @@ function walkComparison(
       case '<=': truth = (reqVal as number) <= (litVal as number); break;
       case '~': truth = String(reqVal).includes(String(litVal)); break;
       case '!~': truth = !String(reqVal).includes(String(litVal)); break;
-      default: throw new Error(`Operator tidak didukung: '${node.operator}'`);
+      default: throw new Error(`Unsupported operator: '${node.operator}'`);
     }
     return truth ? '1=1' : '1=0';
   }
@@ -119,8 +119,8 @@ function walkComparison(
   // ── Lapis pertahanan #1: field harus ada di skema ──
   if (!validFieldNames.has(node.field)) {
     throw new Error(
-      `Field '${node.field}' tidak ada di collection ini. ` +
-        `Field tersedia: ${[...validFieldNames].join(', ')}`
+      `Field '${node.field}' does not exist in this collection. ` +
+        `Available fields: ${[...validFieldNames].join(', ')}`
     );
   }
 
@@ -162,7 +162,7 @@ function walkComparison(
       params.push(`%${value}%`);
       return `${col} NOT LIKE ?`;
     default:
-      throw new Error(`Operator tidak didukung: '${node.operator}'`);
+      throw new Error(`Unsupported operator: '${node.operator}'`);
   }
 }
 
@@ -233,6 +233,6 @@ function anyMatchToSql(
       params.push(likeValue);
       return `NOT EXISTS (SELECT 1 FROM json_each(${col}) WHERE json_each.value LIKE ?)`;
     default:
-      throw new Error(`Operator any-match tidak didukung: '?${baseOp}'`);
+      throw new Error(`Unsupported any-match operator: '?${baseOp}'`);
   }
 }

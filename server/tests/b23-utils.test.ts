@@ -139,7 +139,7 @@ test('B3: duplikasi dari collection tidak ada DITOLAK', () => {
   const db = freshDb();
   assert.throws(() => {
     duplicateCollection(db, 'tidak-ada', 'baru');
-  }, /tidak ditemukan/);
+  }, /not found/);
   db.close();
 });
 

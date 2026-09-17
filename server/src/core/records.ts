@@ -27,7 +27,7 @@ import { expandRecords } from './relations.js';
 // M16a: error khusus write ke view collection
 export class ViewWriteError extends Error {
   constructor(collection: string) {
-    super(`'${collection}' adalah view collection (read-only) — tidak bisa di-INSERT/UPDATE/DELETE`);
+    super(`'${collection}' is a view collection (read-only) — INSERT/UPDATE/DELETE are not allowed`);
     this.name = 'ViewWriteError';
   }
 }
@@ -92,7 +92,7 @@ export async function multipartToRecordData(
   contentType: string
 ): Promise<Record<string, unknown>> {
   const boundary = extractBoundary(contentType);
-  if (!boundary) throw new Error('Malformed multipart: boundary tidak ditemukan');
+  if (!boundary) throw new Error('Malformed multipart: boundary not found');
 
   // M18c: busboy ASYNC
   const { fields, files } = await parseMultipart(body, boundary);
@@ -110,7 +110,7 @@ export async function multipartToRecordData(
   for (const [fieldName, fieldFiles] of filesByField) {
     const field = fmap.get(fieldName);
     if (!field) {
-      throw new Error(`Field '${fieldName}' tidak ada di collection '${meta.name}'`);
+      throw new Error(`Field '${fieldName}' does not exist in collection '${meta.name}'`);
     }
     if (field.type !== 'file') {
       throw new Error(`Field '${fieldName}' bukan tipe file — upload ditolak`);
@@ -123,7 +123,7 @@ export async function multipartToRecordData(
     for (const f of fieldFiles) {
       if (f.data.length > maxSize) {
         throw new Error(
-          `File '${f.filename}' melebihi batas ${Math.floor(maxSize / 1024 / 1024)} MB untuk field '${fieldName}'`
+          `File '${f.filename}' exceeds the ${Math.floor(maxSize / 1024 / 1024)} MB limit for field '${fieldName}'`
         );
       }
     }
@@ -131,14 +131,14 @@ export async function multipartToRecordData(
     if (isMulti) {
       const stored: string[] = [];
       for (const f of fieldFiles) {
-        stored.push(saveFile(projectId, recordId, f.filename, f.data));
+        stored.push(await saveFile(projectId, recordId, f.filename, f.data, f.contentType));
       }
       data[fieldName] = stored;
     } else {
       if (fieldFiles.length > 1) {
         throw new Error(`Field '${fieldName}' hanya menerima 1 file (maxSelect=1)`);
       }
-      data[fieldName] = saveFile(projectId, recordId, fieldFiles[0].filename, fieldFiles[0].data);
+      data[fieldName] = await saveFile(projectId, recordId, fieldFiles[0].filename, fieldFiles[0].data, fieldFiles[0].contentType);
     }
   }
 
@@ -147,13 +147,13 @@ export async function multipartToRecordData(
 
 // ─── M14: hapus file lama yang diganti saat update ──────────────────────────
 
-export function cleanupReplacedFiles(
+export async function cleanupReplacedFiles(
   projectId: string,
   meta: CollectionMeta,
   recordId: string,
   oldRecord: Record<string, unknown>,
   newData: Record<string, unknown>
-): void {
+): Promise<void> {
   const fmap = fieldMap(meta);
   for (const [key, field] of fmap) {
     if (field.type !== 'file' || !(key in newData)) continue;
@@ -161,7 +161,7 @@ export function cleanupReplacedFiles(
     const newFiles = storedFilenames(newData[key]);
     for (const f of oldFiles) {
       if (!newFiles.includes(f)) {
-        deleteFile(projectId, recordId, f);
+        await deleteFile(projectId, recordId, f);
       }
     }
   }
@@ -169,24 +169,24 @@ export function cleanupReplacedFiles(
 
 // ─── M14: hapus SEMUA file record (dipanggil deleteRecord) ──────────────────
 
-export function cleanupAllRecordFiles(
+export async function cleanupAllRecordFiles(
   projectId: string,
   meta: CollectionMeta,
   recordId: string,
   record: Record<string, unknown>
-): void {
+): Promise<void> {
   const fmap = fieldMap(meta);
   let hasFiles = false;
   for (const [key, field] of fmap) {
     if (field.type === 'file') {
       hasFiles = true;
       for (const f of storedFilenames(record[key])) {
-        deleteFile(projectId, recordId, f);
+        await deleteFile(projectId, recordId, f);
       }
     }
   }
   // Fallback: hapus sisa file dengan prefix record (berjaga kalau ada orphan)
-  if (hasFiles) deleteRecordFiles(projectId, recordId);
+  if (hasFiles) await deleteRecordFiles(projectId, recordId);
 }
 
 // ─── Helper: ambil skema collection (gagal jelas kalau tidak ada) ────────────
@@ -194,7 +194,7 @@ export function cleanupAllRecordFiles(
 function mustGetCollection(db: DatabaseSync, name: string): CollectionMeta {
   const meta = getCollectionByName(db, name);
   if (!meta) {
-    throw new Error(`Collection '${name}' tidak ditemukan`);
+    throw new Error(`Collection '${name}' not found`);
   }
   return meta;
 }
@@ -214,7 +214,7 @@ export class DuplicateError extends Error {
     public field: string,
     public value: unknown
   ) {
-    super(`Nilai '${String(value)}' sudah digunakan untuk field '${field}' (harus unik)`);
+    super(`Value '${String(value)}' is already used for field '${field}' (must be unique)`);
     this.name = 'DuplicateError';
   }
 }
@@ -265,6 +265,10 @@ function serializeValue(field: FieldDefinition, value: unknown): unknown {
     }
     case 'geoPoint': {
       // M16b: { lat, lng } → TEXT JSON
+      return JSON.stringify(value);
+    }
+    case 'vector': {
+      // M29: embedding array → TEXT JSON `[0.1, 0.2, ...]`
       return JSON.stringify(value);
     }
     case 'password': {
@@ -324,6 +328,13 @@ function deserializeRow(meta: CollectionMeta, row: Record<string, unknown>): For
       } catch {
         result[key] = null;
       }
+    } else if (field.type === 'vector' && typeof value === 'string') {
+      // M29: embedding TEXT JSON → array of numbers
+      try {
+        result[key] = JSON.parse(value);
+      } catch {
+        result[key] = null;
+      }
     } else if (field.type === 'password') {
       // M16b: HASH TIDAK PERNAH DIKEMBALIKAN — field hilang dari response.
       // (Bagi client: field ini write-only. Tidak ada verify endpoint untuk
@@ -370,7 +381,7 @@ export function createRecord(
     if (isAuth && (key === 'password' || key === 'passwordConfirm')) continue;
     const field = fmap.get(key);
     if (!field) {
-      throw new Error(`Field '${key}' tidak ada di collection '${collection}'`);
+      throw new Error(`Field '${key}' does not exist in collection '${collection}'`);
     }
     const err = validateValue(field, value);
     if (err) throw new Error(err);
@@ -388,7 +399,7 @@ export function createRecord(
   if (isAuth) {
     const pwd = data.password;
     if (typeof pwd !== 'string' || !pwd) {
-      throw new Error('Password wajib diisi untuk auth collection');
+      throw new Error('Password is required for auth collections');
     }
     const pwdErr = validatePasswordStrength(pwd);
     if (pwdErr) throw new Error(pwdErr);
@@ -568,7 +579,7 @@ export function updateRecord(
     if (isAuth && (key === 'password' || key === 'passwordConfirm')) continue;
     const field = fmap.get(key);
     if (!field) {
-      throw new Error(`Field '${key}' tidak ada di collection '${collection}'`);
+      throw new Error(`Field '${key}' does not exist in collection '${collection}'`);
     }
     // B1: autodate dikelola sistem — abaikan nilai dari user
     if (field.type === 'autodate') continue;
@@ -868,7 +879,7 @@ function buildOrderBy(sort: string, meta: CollectionMeta): string {
     }
 
     if (!validNames.has(name)) {
-      throw new Error(`Sort field '${name}' tidak ada di collection '${meta.name}'`);
+      throw new Error(`Sort field '${name}' does not exist in collection '${meta.name}'`);
     }
     return `"${name}" ${direction}`;
   });

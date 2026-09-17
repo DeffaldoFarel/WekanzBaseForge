@@ -14,11 +14,12 @@ import {
 } from "@/components/ui/select";
 import { FieldOptionsEditor } from "@/components/FieldOptionsEditor";
 import { IndexesEditor } from "@/components/IndexesEditor";
+import { Eye, Save, X, Plus } from "lucide-react";
 import type { CollectionInfo, FieldDef, IndexDef } from "@/lib/api";
 
 const FIELD_TYPES = [
   "text", "number", "bool", "email", "date", "json", "relation",
-  "select", "url", "autodate", "file", "editor", "geoPoint", "password",
+  "select", "url", "autodate", "file", "editor", "geoPoint", "password", "vector",
 ];
 
 interface SchemaTabProps {
@@ -58,14 +59,16 @@ export function SchemaTab({
           <div className="flex justify-between items-center mb-5">
             <div>
               <h3 className="text-lg font-semibold flex items-center gap-2">
-                <span>👁️</span> SQL View Definition — "{collectionName}"
+                <Eye className="w-4 h-4 text-purple-400" />
+                <span>SQL View Definition — "{collectionName}"</span>
               </h3>
               <p className="text-sm text-muted-foreground mt-1">
                 This collection is a read-only SQL View compiled and executed directly by SQLite.
               </p>
             </div>
-            <Badge variant="secondary" className="px-3 py-1.5 text-sm">
-              Read-only View
+            <Badge variant="secondary" className="px-3 py-1.5 text-sm gap-1">
+              <Eye className="w-3.5 h-3.5" />
+              <span>Read-only View</span>
             </Badge>
           </div>
 
@@ -104,21 +107,24 @@ export function SchemaTab({
             <div>
               <h3 className="text-lg font-semibold">Schema Editor — "{collectionName}"</h3>
               <p className="text-sm text-muted-foreground mt-1">
-                Ubah tipe kolom, tambah, atau hapus field. Perubahan dijalankan via SQLite Table Rebuild (data tetap selamat!).
+                Change column types, add, or remove fields. Changes are applied via SQLite Table Rebuild (data stays safe!).
               </p>
             </div>
             <div className="flex gap-2">
               <Button
                 type="button"
                 variant="secondary"
+                className="gap-1.5"
                 onClick={() =>
                   onFieldsChange([...fieldsDraft, { name: "", type: "text", required: false }])
                 }
               >
-                + Add Field
+                <Plus className="w-3.5 h-3.5" />
+                <span>Add Field</span>
               </Button>
-              <Button type="button" onClick={onSaveSchema} disabled={schemaSaving}>
-                {schemaSaving ? "Menyimpan Skema…" : "💾 Save Schema Changes"}
+              <Button type="button" onClick={onSaveSchema} disabled={schemaSaving} className="gap-1.5">
+                <Save className="w-4 h-4" />
+                <span>{schemaSaving ? "Saving Schema…" : "Save Schema Changes"}</span>
               </Button>
             </div>
           </div>
@@ -133,7 +139,7 @@ export function SchemaTab({
               <div key={i} className="bg-muted rounded-xl border border-border p-4">
                 <div className="flex items-center gap-3 mb-3">
                   <Input
-                    placeholder="nama field"
+                    placeholder="field name"
                     value={f.name}
                     onChange={(e) => {
                       const updated = [...fieldsDraft];
@@ -145,7 +151,7 @@ export function SchemaTab({
 
                   <Select
                     value={f.type}
-                    onValueChange={(v) => {
+                    onValueChange={(v: string) => {
                       const updated = [...fieldsDraft];
                       updated[i].type = v;
                       onFieldsChange(updated);
@@ -166,7 +172,7 @@ export function SchemaTab({
                   <label className="flex items-center gap-1.5 text-sm whitespace-nowrap cursor-pointer">
                     <Checkbox
                       checked={!!f.required}
-                      onCheckedChange={(checked) => {
+                      onCheckedChange={(checked: boolean | 'indeterminate') => {
                         const updated = [...fieldsDraft];
                         updated[i].required = !!checked;
                         onFieldsChange(updated);
@@ -185,8 +191,9 @@ export function SchemaTab({
                       }
                     }}
                     title="Delete column"
+                    className="text-muted-foreground hover:text-destructive"
                   >
-                    ✕
+                    <X className="w-4 h-4" />
                   </Button>
                 </div>
 
@@ -215,14 +222,17 @@ export function SchemaTab({
             <Button
               type="button"
               variant="secondary"
+              className="gap-1.5"
               onClick={() =>
                 onFieldsChange([...fieldsDraft, { name: "", type: "text", required: false }])
               }
             >
-              + Add Field
+              <Plus className="w-3.5 h-3.5" />
+              <span>Add Field</span>
             </Button>
-            <Button type="button" onClick={onSaveSchema} disabled={schemaSaving}>
-              {schemaSaving ? "Menyimpan Skema…" : "💾 Save Schema Changes"}
+            <Button type="button" onClick={onSaveSchema} disabled={schemaSaving} className="gap-1.5">
+              <Save className="w-4 h-4" />
+              <span>{schemaSaving ? "Saving Schema…" : "Save Schema Changes"}</span>
             </Button>
           </div>
         </div>

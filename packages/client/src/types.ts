@@ -6,8 +6,27 @@ export interface AuthUser {
   id: string;
   email: string;
   name?: string | null;
+  avatarUrl?: string | null;
   verified: boolean;
+  mfaEnabled?: boolean;
   created: string;
+}
+
+/** M27: respons login saat MFA aktif — password benar, kode TOTP diminta. */
+export interface MfaRequired {
+  mfaRequired: true;
+  mfaToken: string;
+  message?: string;
+}
+
+/** Provider OAuth2 yang didukung BaseForge (M10). */
+export type OAuthProvider = 'google' | 'github';
+
+/** Hasil parsing fragment URL callback OAuth. */
+export interface OAuthCallbackResult {
+  accessToken: string;
+  refreshToken: string;
+  error?: string;
 }
 
 export interface AuthResponse {
@@ -98,7 +117,7 @@ export interface AuthStore {
   refreshToken: string;
   user: AuthUser | null;
   readonly isValid: boolean;
-  save(token: string, refreshToken: string, user: AuthUser): void;
+  save(token: string, refreshToken: string, user: AuthUser | null): void;
   clear(): void;
   onChange(callback: (token: string, user: AuthUser | null) => void): () => void;
 }

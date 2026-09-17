@@ -26,6 +26,7 @@ export interface StoredFunction {
   timeoutMs: number;
   triggers: FunctionTrigger[]; // M15b: kosong = hanya callable
   schedule: string | null; // M15c: cron expression (null = bukan scheduled)
+  httpAllow: string[]; // M25: allowlist host utk $http (kosong = $http off)
   created: string;
   updated: string;
 }
@@ -38,6 +39,7 @@ interface FunctionRow {
   timeout_ms: number;
   triggers: string | null; // JSON string — M15b
   schedule: string | null; // M15c
+  http_allow: string | null; // JSON string — M25
   created: string;
   updated: string;
 }
@@ -73,6 +75,11 @@ export function initFunctionsTable(db: DatabaseSync): void {
   if (!cols.some((c) => c.name === 'schedule')) {
     db.exec(`ALTER TABLE _functions ADD COLUMN schedule TEXT`);
   }
+
+  // M25: kolom http_allow (JSON array hostname allowlist)
+  if (!cols.some((c) => c.name === 'http_allow')) {
+    db.exec(`ALTER TABLE _functions ADD COLUMN http_allow TEXT NOT NULL DEFAULT '[]'`);
+  }
 }
 
 function rowToFunction(row: FunctionRow): StoredFunction {
@@ -83,6 +90,13 @@ function rowToFunction(row: FunctionRow): StoredFunction {
   } catch {
     triggers = [];
   }
+  let httpAllow: string[] = [];
+  try {
+    const parsed = JSON.parse(row.http_allow ?? '[]');
+    if (Array.isArray(parsed)) httpAllow = parsed.filter((h) => typeof h === 'string');
+  } catch {
+    httpAllow = [];
+  }
   return {
     id: row.id,
     name: row.name,
@@ -91,35 +105,67 @@ function rowToFunction(row: FunctionRow): StoredFunction {
     timeoutMs: row.timeout_ms,
     triggers,
     schedule: row.schedule ?? null,
+    httpAllow,
     created: row.created,
     updated: row.updated,
   };
+}
+
+// M25: validasi allowlist — '*' (semua host publik) atau daftar hostname.
+// Entry literal (tanpa wildcard) = opt-in eksplisit, termasuk host privat.
+function validateHttpAllow(list: string[] | undefined | null): string[] {
+  if (list === undefined || list === null) return [];
+  if (!Array.isArray(list)) {
+    throw new Error('httpAllow must be an array of hostnames');
+  }
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of list) {
+    if (typeof raw !== 'string' || raw.trim() === '') {
+      throw new Error('httpAllow entries must be non-empty strings');
+    }
+    const entry = raw.trim().toLowerCase();
+    if (entry.length > 253) {
+      throw new Error(`httpAllow entry too long: '${entry}'`);
+    }
+    // host: `*` | `*.domain.tld` | `domain.tld` | `sub.domain.tld` | IP
+    const pattern = entry === '*' ? true : /^\*?[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/.test(entry);
+    if (!pattern) {
+      throw new Error(`Invalid httpAllow entry: '${entry}' (expected hostname, '*.hostname', or '*')`);
+    }
+    if (!seen.has(entry)) {
+      seen.add(entry);
+      out.push(entry);
+    }
+  }
+  return out;
 }
 
 // ─── CRUD ────────────────────────────────────────────────────────────────────
 
 export function createFunction(
   db: DatabaseSync,
-  def: { name: string; code: string; enabled?: boolean; timeoutMs?: number; triggers?: FunctionTrigger[]; schedule?: string | null }
+  def: { name: string; code: string; enabled?: boolean; timeoutMs?: number; triggers?: FunctionTrigger[]; schedule?: string | null; httpAllow?: string[] }
 ): StoredFunction {
   if (!isValidFunctionName(def.name)) {
     throw new Error(
-      `Invalid function name: '${def.name}' (hanya a-z, 0-9, _, diawali huruf, max 64)`
+      `Invalid function name: '${def.name}' (only a-z, 0-9, _, must start with a letter, max 64)`
     );
   }
   if (typeof def.code !== 'string' || def.code.trim() === '') {
-    throw new Error('Function code wajib diisi');
+    throw new Error('Function code is required');
   }
   if (def.code.length > 100_000) {
-    throw new Error('Function code terlalu besar (max 100KB)');
+    throw new Error('Function code is too large (max 100KB)');
   }
 
   const timeoutMs = def.timeoutMs ?? 2000;
   if (timeoutMs < 100 || timeoutMs > 30_000) {
-    throw new Error('timeoutMs harus antara 100 dan 30000 ms');
+    throw new Error('timeoutMs must be between 100 and 30000 ms');
   }
 
   const triggers = validateTriggers(def.triggers ?? []);
+  const httpAllow = validateHttpAllow(def.httpAllow ?? []);
 
   // M15c: validasi schedule (cron) — invalid ditolak di pintu
   let schedule: string | null = null;
@@ -139,8 +185,8 @@ export function createFunction(
 
   const id = generateId();
   db.prepare(
-    `INSERT INTO _functions (id, name, code, enabled, timeout_ms, triggers, schedule) VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).run(id, def.name, def.code, def.enabled === false ? 0 : 1, timeoutMs, JSON.stringify(triggers), schedule);
+    `INSERT INTO _functions (id, name, code, enabled, timeout_ms, triggers, schedule, http_allow) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(id, def.name, def.code, def.enabled === false ? 0 : 1, timeoutMs, JSON.stringify(triggers), schedule, JSON.stringify(httpAllow));
 
   return getFunctionByName(db, def.name)!;
 }
@@ -153,17 +199,17 @@ function validateTriggers(
   const validActions = new Set(['create', 'update', 'delete']);
   for (const t of triggers) {
     if (!t || typeof t.collection !== 'string' || t.collection.trim() === '') {
-      throw new Error('Trigger butuh collection yang valid');
+      throw new Error('Trigger requires a valid collection');
     }
     if (validCollections && !validCollections.has(t.collection)) {
-      throw new Error(`Trigger collection '${t.collection}' tidak ada di project ini`);
+      throw new Error(`Trigger collection '${t.collection}' does not exist in this project`);
     }
     if (!Array.isArray(t.actions) || t.actions.length === 0) {
-      throw new Error(`Trigger '${t.collection}' butuh minimal 1 action (create/update/delete)`);
+      throw new Error(`Trigger '${t.collection}' requires at least 1 action (create/update/delete)`);
     }
     for (const a of t.actions) {
       if (!validActions.has(a)) {
-        throw new Error(`Action '${String(a)}' tidak valid (hanya create/update/delete)`);
+        throw new Error(`Action '${String(a)}' is not valid (only create/update/delete)`);
       }
     }
   }
@@ -185,23 +231,28 @@ export function getFunctionByName(db: DatabaseSync, name: string): StoredFunctio
 export function updateFunction(
   db: DatabaseSync,
   name: string,
-  updates: { code?: string; enabled?: boolean; timeoutMs?: number; triggers?: FunctionTrigger[]; schedule?: string | null }
+  updates: { code?: string; enabled?: boolean; timeoutMs?: number; triggers?: FunctionTrigger[]; schedule?: string | null; httpAllow?: string[] }
 ): StoredFunction | undefined {
   const existing = getFunctionByName(db, name);
   if (!existing) return undefined;
 
   if (updates.code !== undefined) {
     if (typeof updates.code !== 'string' || updates.code.trim() === '') {
-      throw new Error('Function code wajib diisi');
+      throw new Error('Function code is required');
     }
-    if (updates.code.length > 100_000) throw new Error('Function code terlalu besar (max 100KB)');
+    if (updates.code.length > 100_000) throw new Error('Function code is too large (max 100KB)');
   }
   if (updates.timeoutMs !== undefined && (updates.timeoutMs < 100 || updates.timeoutMs > 30_000)) {
-    throw new Error('timeoutMs harus antara 100 dan 30000 ms');
+    throw new Error('timeoutMs must be between 100 and 30000 ms');
   }
   let triggersJson: string | null = null;
   if (updates.triggers !== undefined) {
     triggersJson = JSON.stringify(validateTriggers(updates.triggers));
+  }
+  // M25: httpAllow — array valid / kosong
+  let httpAllowJson: string | null = null;
+  if (updates.httpAllow !== undefined) {
+    httpAllowJson = JSON.stringify(validateHttpAllow(updates.httpAllow));
   }
   // M15c: schedule — string valid / null (hapus schedule)
   let scheduleValue: string | null | undefined;
@@ -221,6 +272,7 @@ export function updateFunction(
        timeout_ms = COALESCE(?, timeout_ms),
        triggers = COALESCE(?, triggers),
        schedule = ?,
+       http_allow = COALESCE(?, http_allow),
        updated = strftime('%Y-%m-%dT%H:%M:%fZ','now')
      WHERE name = ?`
   ).run(
@@ -229,6 +281,7 @@ export function updateFunction(
     updates.timeoutMs ?? null,
     triggersJson,
     scheduleValue !== undefined ? scheduleValue : existing.schedule, // undefined = tidak disentuh
+    httpAllowJson,
     name
   );
 

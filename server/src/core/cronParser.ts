@@ -47,7 +47,7 @@ function parseField(field: string, min: number, max: number, name: string): Set<
     if (stepMatch) {
       rangePart = stepMatch[1];
       step = parseInt(stepMatch[2], 10);
-      if (step < 1) throw new Error(`${name}: step harus >= 1 ('${part}')`);
+      if (step < 1) throw new Error(`${name}: step must be >= 1 ('${part}')`);
     }
 
     // range atau nilai tunggal atau *
@@ -56,7 +56,7 @@ function parseField(field: string, min: number, max: number, name: string): Set<
     if (rangePart !== '*') {
       const rangeMatch = rangePart.match(/^(\d+)(?:-(\d+))?$/);
       if (!rangeMatch) {
-        throw new Error(`${name}: bagian '${rangePart}' tidak valid (contoh: *, 5, 1-5)`);
+        throw new Error(`${name}: invalid part '${rangePart}' (examples: *, 5, 1-5)`);
       }
       start = parseInt(rangeMatch[1], 10);
       end = rangeMatch[2] !== undefined ? parseInt(rangeMatch[2], 10) : start;
@@ -72,7 +72,7 @@ function parseField(field: string, min: number, max: number, name: string): Set<
   }
 
   if (values.size === 0) {
-    throw new Error(`${name}: tidak ada nilai valid`);
+    throw new Error(`${name}: no valid values`);
   }
   return values;
 }
@@ -81,7 +81,7 @@ function parseField(field: string, min: number, max: number, name: string): Set<
 export function parseCron(expr: string): CronFields {
   const parts = expr.trim().split(/\s+/);
   if (parts.length !== 5) {
-    throw new Error(`Cron harus 5 field (minute hour dom month dow), dapat ${parts.length}: '${expr}'`);
+    throw new Error(`Cron must have 5 fields (minute hour dom month dow), got ${parts.length}: '${expr}'`);
   }
 
   return {

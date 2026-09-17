@@ -43,7 +43,7 @@ function freshDb(): DatabaseSync {
 }
 
 describe('M14: Multipart parser', () => {
-  test('M14: extractBoundary menemukan boundary', () => {
+  test('M14: extractBoundary menemukan boundary', async () => {
     const b = extractBoundary('multipart/form-data; boundary=----WebKitFormBoundaryABC123');
     assert.equal(b, '----WebKitFormBoundaryABC123');
   });
@@ -72,7 +72,7 @@ describe('M14: Multipart parser', () => {
     assert.ok(result.files[0].data.equals(fileBytes), 'bytes binary harus identik!');
   });
 
-  test('M14: sanitizeFilename menolak path traversal', () => {
+  test('M14: sanitizeFilename menolak path traversal', async () => {
     assert.equal(sanitizeFilename('../../etc/passwd'), 'passwd');
     assert.equal(sanitizeFilename('..\\..\\windows\\system32'), 'system32');
     assert.equal(sanitizeFilename(''), 'file');
@@ -82,28 +82,28 @@ describe('M14: Multipart parser', () => {
 });
 
 describe('M14: Storage disk', () => {
-  test('M14: saveFile + readFile — utuh kembali', () => {
+  test('M14: saveFile + readFile — utuh kembali', async () => {
     const content = Buffer.from('isi dokumen penting');
-    const stored = saveFile('proj1', 'rec123', 'test.txt', content);
+    const stored = await saveFile('proj1', 'rec123', 'test.txt', content);
     assert.equal(stored, 'test.txt');
 
-    const read = readFile('proj1', 'rec123', 'test.txt');
+    const read = await readFile('proj1', 'rec123', 'test.txt');
     assert.ok(read && read.equals(content));
   });
 
-  test('M14: readFile menolak path traversal (null, bukan crash)', () => {
-    assert.equal(readFile('proj1', 'rec123', '..\\..\\secret.txt'), null);
+  test('M14: readFile menolak path traversal (null, bukan crash)', async () => {
+    assert.equal(await readFile('proj1', 'rec123', '..\\..\\secret.txt'), null);
   });
 
-  test('M14: deleteRecordFiles menghapus semua file record', () => {
-    saveFile('proj1', 'recX', 'a.txt', Buffer.from('a'));
-    saveFile('proj1', 'recX', 'b.txt', Buffer.from('b'));
-    saveFile('proj1', 'recY', 'c.txt', Buffer.from('c'));
+  test('M14: deleteRecordFiles menghapus semua file record', async () => {
+    await saveFile('proj1', 'recX', 'a.txt', Buffer.from('a'));
+    await saveFile('proj1', 'recX', 'b.txt', Buffer.from('b'));
+    await saveFile('proj1', 'recY', 'c.txt', Buffer.from('c'));
 
-    const n = deleteRecordFiles('proj1', 'recX');
+    const n = await deleteRecordFiles('proj1', 'recX');
     assert.equal(n, 2, '2 file recX terhapus');
-    assert.equal(readFile('proj1', 'recX', 'a.txt'), null);
-    assert.ok(readFile('proj1', 'recY', 'c.txt'), 'file recY tidak ikut!');
+    assert.equal(await readFile('proj1', 'recX', 'a.txt'), null);
+    assert.ok(await readFile('proj1', 'recY', 'c.txt'), 'file recY tidak ikut!');
   });
 });
 
@@ -133,45 +133,45 @@ describe('M14: File field di records', () => {
     assert.equal(data.doc, 'gambar.png');
 
     // File fisik ada & utuh?
-    const stored = readFile('projM14', recId, 'gambar.png');
+    const stored = await readFile('projM14', recId, 'gambar.png');
     assert.ok(stored && stored.equals(png));
   });
 
-  test('M14: createRecord dgn preGeneratedId + delete + cleanup → file hilang', () => {
+  test('M14: createRecord dgn preGeneratedId + delete + cleanup → file hilang', async () => {
     const db = freshDb();
-    const stored = saveFile('projM14', 'recDEL1', 'hapus.txt', Buffer.from('file milik record'));
+    const stored = await saveFile('projM14', 'recDEL1', 'hapus.txt', Buffer.from('file milik record'));
 
     const rec = createRecord(db, 'docs', { title: 'x', doc: stored }, undefined, 'recDEL1');
     assert.equal(rec.id, 'recDEL1');
-    assert.ok(readFile('projM14', 'recDEL1', 'hapus.txt'), 'file ada sebelum delete');
+    assert.ok(await readFile('projM14', 'recDEL1', 'hapus.txt'), 'file ada sebelum delete');
 
     const ok = deleteRecord(db, 'docs', 'recDEL1');
     assert.equal(ok, true);
 
     // Cleanup file (dilakukan API layer setelah deleteRecord sukses)
-    deleteRecordFiles('projM14', 'recDEL1');
-    assert.equal(readFile('projM14', 'recDEL1', 'hapus.txt'), null, 'file ikut terhapus!');
+    await deleteRecordFiles('projM14', 'recDEL1');
+    assert.equal(await readFile('projM14', 'recDEL1', 'hapus.txt'), null, 'file ikut terhapus!');
   });
 
-  test('M14: replace file saat update → file lama hilang', () => {
+  test('M14: replace file saat update → file lama hilang', async () => {
     const db = freshDb();
     const meta = getCollectionByName(db, 'docs')!;
     const rec = createRecord(db, 'docs', { title: 'v1' });
 
-    saveFile('projM14', rec.id, 'v1.txt', Buffer.from('versi 1'));
+    await saveFile('projM14', rec.id, 'v1.txt', Buffer.from('versi 1'));
     const r1 = updateRecord(db, 'docs', rec.id, { doc: 'v1.txt' });
     assert.equal(r1?.doc, 'v1.txt');
 
-    saveFile('projM14', rec.id, 'v2.txt', Buffer.from('versi 2'));
+    await saveFile('projM14', rec.id, 'v2.txt', Buffer.from('versi 2'));
     const r2 = updateRecord(db, 'docs', rec.id, { doc: 'v2.txt' });
     assert.equal(r2?.doc, 'v2.txt');
 
     // cleanupReplacedFiles — persis seperti yang dipanggil publicRoutes PATCH
     const oldSnapshot = { doc: 'v1.txt' };
-    cleanupReplacedFiles('projM14', meta, rec.id, oldSnapshot, { doc: 'v2.txt' });
+    await cleanupReplacedFiles('projM14', meta, rec.id, oldSnapshot, { doc: 'v2.txt' });
 
-    assert.equal(readFile('projM14', rec.id, 'v1.txt'), null, 'file lama harus terhapus');
-    assert.ok(readFile('projM14', rec.id, 'v2.txt'), 'file baru tetap ada');
+    assert.equal(await readFile('projM14', rec.id, 'v1.txt'), null, 'file lama harus terhapus');
+    assert.ok(await readFile('projM14', rec.id, 'v2.txt'), 'file baru tetap ada');
   });
 
   test('M14: multi-file (maxSelect=3) — semua tersimpan sebagai array', async () => {
@@ -198,7 +198,7 @@ describe('M14: File field di records', () => {
     assert.ok(Array.isArray(data.gallery), 'multi-file = array');
     assert.equal((data.gallery as string[]).length, 2);
 
-    assert.ok(readFile('projM14', recId, 'a.png'));
-    assert.ok(readFile('projM14', recId, 'b.png'));
+    assert.ok(await readFile('projM14', recId, 'a.png'));
+    assert.ok(await readFile('projM14', recId, 'b.png'));
   });
 });

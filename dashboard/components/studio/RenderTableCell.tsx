@@ -3,6 +3,7 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { fileUrl, type FieldDef } from "@/lib/api";
+import { Check, X, Paperclip } from "lucide-react";
 
 interface RenderTableCellProps {
   field: FieldDef;
@@ -29,9 +30,15 @@ export function RenderTableCell({
 
   if (field.type === "bool") {
     return value ? (
-      <Badge variant="default" className="bg-green-600">✓ true</Badge>
+      <Badge variant="green" className="gap-1 text-[11px] py-0">
+        <Check className="w-3 h-3" />
+        <span>true</span>
+      </Badge>
     ) : (
-      <Badge variant="secondary">✕ false</Badge>
+      <Badge variant="secondary" className="gap-1 text-[11px] py-0">
+        <X className="w-3 h-3" />
+        <span>false</span>
+      </Badge>
     );
   }
 
@@ -54,9 +61,10 @@ export function RenderTableCell({
           href={url}
           target="_blank"
           rel="noreferrer"
-          className="text-accent-foreground hover:underline text-sm"
+          className="text-accent-foreground hover:underline text-sm inline-flex items-center gap-1"
         >
-          📎 {filename.slice(0, 18)}
+          <Paperclip className="w-3 h-3 text-muted-foreground" />
+          <span>{filename.slice(0, 18)}</span>
         </a>
       </div>
     );

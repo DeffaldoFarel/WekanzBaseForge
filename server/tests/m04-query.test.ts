@@ -160,7 +160,7 @@ test('M04 sqlBuilder: null menjadi IS NULL / IS NOT NULL', () => {
 test('M04 keamanan: field yang tidak ada di skema → DITOLAK', () => {
   assert.throws(
     () => filterToSql('password = "x"', habitFields),
-    /tidak ada di collection/
+    /does not exist in this collection/
   );
 });
 

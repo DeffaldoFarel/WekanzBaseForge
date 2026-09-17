@@ -35,7 +35,7 @@ export const DEFAULT_RULES: CollectionRules = {
 };
 
 export class ForbiddenError extends Error {
-  constructor(message = 'Forbidden — rule tidak mengizinkan operasi ini') {
+  constructor(message = 'Forbidden — the rule does not allow this operation') {
     super(message);
     this.name = 'ForbiddenError';
   }
@@ -195,7 +195,7 @@ export function validateRuleFields(rule: string, fields: FieldDefinition[]): str
     const ident = m[2];
     if (ident.startsWith('"') || ident.startsWith("'") || ident.startsWith('@')) continue;
     if (!valid.has(ident)) {
-      return `Field '${ident}' tidak ada di skema collection`;
+      return `Field '${ident}' does not exist in the collection schema`;
     }
   }
   return null;

@@ -106,7 +106,7 @@ test('M05: validasi menolak tipe salah & field asing', () => {
   // field tidak ada di skema
   assert.throws(() => {
     createRecord(db, 'habits', { title: 'X', hacker: 'coba' } as never);
-  }, /tidak ada di collection/);
+  }, /does not exist in collection/);
 
   // required tidak diisi
   assert.throws(() => {

@@ -1,36 +1,433 @@
 "use client";
 
-import { useEffect } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useCallback, useEffect, useState } from "react";
+import { useParams } from "next/navigation";
 import Link from "next/link";
+import {
+  listOAuthProviders,
+  upsertOAuthProvider,
+  deleteOAuthProvider,
+  oauthAuthorizeUrl,
+  getToken,
+  type OAuthProviderInfo,
+} from "@/lib/api";
+import { Navbar } from "@/components/Navbar";
+import { ProjectSidebar } from "@/components/ProjectSidebar";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Globe,
+  GitFork,
+  MessageCircle,
+  Apple,
+  KeyRound,
+  Link2,
+  Loader2,
+  Save,
+  Trash2,
+  Check,
+  AlertTriangle,
+  ExternalLink,
+  ArrowRight,
+  Database,
+  Users,
+} from "lucide-react";
 
-export default function AuthServiceRedirectPage() {
+interface ProviderFormState {
+  clientId: string;
+  clientSecret: string;
+  enabled: boolean;
+  callbackUrl: string;
+  allowedOrigins: string;
+}
+
+const EMPTY_FORM: ProviderFormState = {
+  clientId: "",
+  clientSecret: "",
+  enabled: true,
+  callbackUrl: "",
+  allowedOrigins: "",
+};
+
+const PROVIDER_META: Record<
+  string,
+  { label: string; icon: typeof Globe; docsUrl: string; note?: string }
+> = {
+  google: {
+    label: "Google",
+    icon: Globe,
+    docsUrl: "https://console.cloud.google.com/apis/credentials",
+  },
+  github: {
+    label: "GitHub",
+    icon: GitFork,
+    docsUrl: "https://github.com/settings/developers",
+  },
+  microsoft: {
+    label: "Microsoft",
+    icon: Globe,
+    docsUrl: "https://portal.azure.com/#blade/Microsoft_AAD_RegisteredApps/ApplicationsListBlade",
+  },
+  discord: {
+    label: "Discord",
+    icon: MessageCircle,
+    docsUrl: "https://discord.com/developers/applications",
+  },
+  gitlab: {
+    label: "GitLab",
+    icon: GitFork,
+    docsUrl: "https://gitlab.com/-/profile/applications",
+  },
+  facebook: {
+    label: "Facebook",
+    icon: Globe,
+    docsUrl: "https://developers.facebook.com/apps",
+  },
+  apple: {
+    label: "Apple",
+    icon: Apple,
+    docsUrl: "https://developer.apple.com/account/resources/identifiers/list/serviceId",
+    note: "Requires ES256-signed client secret JWT (coming soon)",
+  },
+};
+
+export default function AuthSettingsPage() {
   const params = useParams();
-  const router = useRouter();
   const projectId = params.id as string;
 
+  const [providers, setProviders] = useState<OAuthProviderInfo[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [error, setError] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+
+  // draft form per provider
+  const [forms, setForms] = useState<Record<string, ProviderFormState>>({});
+
   useEffect(() => {
-    // Otomatis arahkan ke Database Studio (Pola 1 PocketBase)
-    const timer = setTimeout(() => {
-      router.replace(`/projects/${projectId}/database`);
-    }, 1200);
-    return () => clearTimeout(timer);
-  }, [projectId, router]);
+    if (!getToken()) {
+      window.location.href = "/login";
+      return;
+    }
+    listOAuthProviders(projectId)
+      .then((list) => {
+        setProviders(list);
+        const drafts: Record<string, ProviderFormState> = {};
+        for (const p of list) {
+          drafts[p.provider] = {
+            clientId: p.clientId,
+            clientSecret: "",
+            enabled: p.enabled,
+            callbackUrl: p.callbackUrl ?? "",
+            allowedOrigins: p.allowedOrigins.join(", "),
+          };
+        }
+        setForms(drafts);
+      })
+      .catch((e) => setError(e instanceof Error ? e.message : "Failed to load providers"))
+      .finally(() => setLoaded(true));
+  }, [projectId]);
+
+  const registerCallbackUrl = (provider: string): string => {
+    return `${window.location.protocol}//${window.location.hostname}:5100/api/p/${projectId}/auth/oauth/${provider}/callback`;
+  };
+
+  const updateForm = useCallback((provider: string, patch: Partial<ProviderFormState>) => {
+    setForms((prev) => ({
+      ...prev,
+      [provider]: { ...(prev[provider] ?? EMPTY_FORM), ...patch },
+    }));
+  }, []);
+
+  async function handleSave(provider: string) {
+    setLoading(true);
+    setError("");
+    setNotice("");
+    try {
+      const form = forms[provider] ?? EMPTY_FORM;
+      await upsertOAuthProvider(projectId, provider, {
+        clientId: form.clientId,
+        clientSecret: form.clientSecret || undefined,
+        enabled: form.enabled,
+        callbackUrl: form.callbackUrl || undefined,
+        allowedOrigins: form.allowedOrigins,
+      });
+      // reload + kosongkan field secret (aman)
+      const list = await listOAuthProviders(projectId);
+      setProviders(list);
+      updateForm(provider, { clientSecret: "" });
+      setNotice(`${PROVIDER_META[provider]?.label ?? provider} configuration saved.`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to save provider");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleDelete(provider: string) {
+    setLoading(true);
+    setError("");
+    try {
+      await deleteOAuthProvider(projectId, provider);
+      const list = await listOAuthProviders(projectId);
+      setProviders(list);
+      setForms((prev) => {
+        const next = { ...prev };
+        delete next[provider];
+        return next;
+      });
+      setConfirmDelete(null);
+      setNotice(`${PROVIDER_META[provider]?.label ?? provider} removed.`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to delete provider");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const isConfigured = (provider: string) =>
+    providers.some((p) => p.provider === provider);
+
+  if (!loaded) return null;
 
   return (
-    <div className="max-w-[640px] mx-auto py-12 px-6">
-      <Card className="p-10 text-center">
-        <div className="text-4xl mb-4">👤 ➔ 🗄️</div>
-        <h2 className="text-xl font-bold mb-2">Auth Kini Terintegrasi di Database Studio</h2>
-        <p className="text-sm text-muted-foreground leading-relaxed mb-6">
-          Mengikuti arsitektur PocketBase, pengelolaan akun pengguna kini menjadi <strong>Unified Auth Collections</strong> di Database Studio. Kamu bisa mengelola data user, foto avatar, role, dan kolom profil kustom lainnya secara langsung.
-        </p>
-        <Link href={`/projects/${projectId}/database`}>
-          <Button>Buka Database &amp; Collections Studio →</Button>
-        </Link>
-      </Card>
-    </div>
+    <>
+      <Navbar projectId={projectId} />
+
+      <div className="max-w-[1180px] mx-auto px-6 py-6 flex gap-6 items-start">
+        <ProjectSidebar projectId={projectId} />
+
+        <div className="flex-1 min-w-0">
+          <div className="flex justify-between items-center flex-wrap gap-2">
+            <div>
+              <h2 className="text-2xl font-semibold tracking-tight flex items-center gap-2.5">
+                <KeyRound className="w-6 h-6" />
+                <span>Auth Settings</span>
+              </h2>
+              <p className="text-sm text-muted-foreground mt-1">
+                Enable social login (OAuth2) for end users of this project.
+              </p>
+            </div>
+          </div>
+
+          {/* Info: user management ada di Database Studio */}
+          <Card className="p-4 mt-4 mb-6">
+            <div className="flex items-start gap-3">
+              <Database className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
+              <div className="text-sm">
+                <span className="text-foreground font-medium">User management</span>{" "}
+                <span className="text-muted-foreground">
+                  follows the unified Auth Collections pattern — manage user records directly in Database Studio.
+                </span>
+                <Link
+                  href={`/projects/${projectId}/database`}
+                  className="ml-1 inline-flex items-center gap-1 text-foreground font-medium hover:underline"
+                >
+                  <span>Open Collections</span>
+                  <ArrowRight className="w-3 h-3" />
+                </Link>
+              </div>
+            </div>
+          </Card>
+
+          {notice && (
+            <Card className="p-3 mb-4 border-emerald-500/40 bg-emerald-500/10 text-emerald-400 text-sm flex items-center gap-2">
+              <Check className="w-4 h-4 shrink-0" />
+              <span>{notice}</span>
+            </Card>
+          )}
+          {error && (
+            <Card className="p-3 mb-4 border-destructive/50 bg-destructive/10 text-destructive text-sm flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 shrink-0" />
+              <span>{error}</span>
+            </Card>
+          )}
+
+          <div className="grid gap-4">
+            {(["google", "github", "microsoft", "discord", "gitlab", "facebook", "apple"] as const).map((provider) => {
+              const meta = PROVIDER_META[provider];
+              const Icon = meta.icon;
+              const configured = isConfigured(provider);
+              const form = forms[provider] ?? EMPTY_FORM;
+              const isApple = provider === "apple";
+
+              return (
+                <Card key={provider} className={`p-5 ${isApple ? "opacity-60" : ""}`}>
+                  <div className="flex justify-between items-start mb-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-md bg-secondary border border-border flex items-center justify-center">
+                        <Icon className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-base font-semibold">{meta.label} OAuth</h3>
+                          {configured ? (
+                            form.enabled ? (
+                              <Badge variant="green" className="gap-1 text-[11px]">
+                                <Check className="w-3 h-3" />
+                                <span>Active</span>
+                              </Badge>
+                            ) : (
+                              <Badge variant="secondary" className="text-[11px]">Disabled</Badge>
+                            )
+                          ) : (
+                            <Badge variant="outline" className="text-[11px]">Not configured</Badge>
+                          )}
+                        </div>
+                        <a
+                          href={meta.docsUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1 mt-0.5"
+                        >
+                          <span>Get credentials</span>
+                          <ExternalLink className="w-3 h-3" />
+                        </a>
+                        {meta.note && (
+                          <p className="text-[11px] text-amber-400/80 mt-0.5">{meta.note}</p>
+                        )}
+                      </div>
+                    </div>
+
+                    {configured && (
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          className="gap-1.5"
+                          onClick={() => window.open(oauthAuthorizeUrl(projectId, provider), "_blank")}
+                          title="Test the authorization flow in a new tab"
+                        >
+                          <Users className="w-3.5 h-3.5" />
+                          <span>Test Flow</span>
+                        </Button>
+                        {confirmDelete === provider ? (
+                          <div className="flex items-center gap-1.5">
+                            <Button variant="destructive" size="sm" onClick={() => handleDelete(provider)} disabled={loading}>
+                              Confirm
+                            </Button>
+                            <Button variant="secondary" size="sm" onClick={() => setConfirmDelete(null)}>
+                              Cancel
+                            </Button>
+                          </div>
+                        ) : (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                            onClick={() => setConfirmDelete(provider)}
+                            title={`Remove ${meta.label} provider`}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="grid gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <Label htmlFor={`${provider}-client-id`} className="text-xs">
+                          Client ID
+                        </Label>
+                        <Input
+                          id={`${provider}-client-id`}
+                          value={form.clientId}
+                          onChange={(e) => updateForm(provider, { clientId: e.target.value })}
+                          placeholder={configured ? "Current client ID" : "e.g. 123456789-abc.apps.googleusercontent.com"}
+                          className="font-mono text-sm"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor={`${provider}-client-secret`} className="text-xs">
+                          Client Secret
+                        </Label>
+                        <Input
+                          id={`${provider}-client-secret`}
+                          type="password"
+                          value={form.clientSecret}
+                          onChange={(e) => updateForm(provider, { clientSecret: e.target.value })}
+                          placeholder={configured ? "Keep existing (blank = unchanged)" : "Secret from provider console"}
+                          className="font-mono text-sm"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">Redirect URI (register this in {meta.label})</Label>
+                        <div className="h-9 px-3 bg-secondary border border-border rounded-md flex items-center text-xs font-mono text-muted-foreground truncate">
+                          {form.callbackUrl || registerCallbackUrl(provider)}
+                        </div>
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor={`${provider}-origins`} className="text-xs">
+                          Allowed redirect origins (optional, comma separated)
+                        </Label>
+                        <Input
+                          id={`${provider}-origins`}
+                          value={form.allowedOrigins}
+                          onChange={(e) => updateForm(provider, { allowedOrigins: e.target.value })}
+                          placeholder="e.g. https://app.mydomain.com"
+                          className="text-xs font-mono"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between flex-wrap gap-3">
+                      <label className="flex items-center gap-2 text-sm cursor-pointer">
+                        <Checkbox
+                          checked={form.enabled}
+                          onCheckedChange={(c: boolean | 'indeterminate') => updateForm(provider, { enabled: !!c })}
+                        />
+                        <span className="text-muted-foreground">Enable {meta.label} sign-in</span>
+                      </label>
+
+                      <Button
+                        onClick={() => handleSave(provider)}
+                        disabled={loading || !form.clientId.trim()}
+                        className="gap-1.5"
+                      >
+                        {loading ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            <span>Saving…</span>
+                          </>
+                        ) : (
+                          <>
+                            <Save className="w-3.5 h-3.5" />
+                            <span>{configured ? "Update" : "Save"} Configuration</span>
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+                </Card>
+              );
+            })}
+          </div>
+
+          {/* Integrasi untuk developer end-user app */}
+          <Card className="p-5 mt-6">
+            <div className="flex items-center gap-2 mb-3">
+              <Link2 className="w-4 h-4 text-muted-foreground" />
+              <h3 className="text-sm font-semibold">Integrate from your app</h3>
+            </div>
+            <p className="text-xs text-muted-foreground mb-3 leading-relaxed">
+              Send users to the authorize URL — after consent, BaseForge redirects them back with tokens in the URL fragment (<code className="bg-secondary px-1.5 py-0.5 rounded font-mono">#access_token=…&refresh_token=…</code>).
+            </p>
+            <div className="bg-secondary border border-border rounded-md p-3 font-mono text-xs text-foreground overflow-x-auto whitespace-nowrap">
+              GET {typeof window !== "undefined" ? window.location.protocol : "http:"}//api-host:5100/api/p/{projectId}/auth/oauth/{"{google|github}"}/authorize?redirect_to=https://your-app.com/callback
+            </div>
+          </Card>
+        </div>
+      </div>
+    </>
   );
 }

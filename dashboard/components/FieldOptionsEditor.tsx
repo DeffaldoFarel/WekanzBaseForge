@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
+import { Settings2, Lock, MapPin, Info } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -74,7 +75,7 @@ function OptCheckbox({
 }) {
   return (
     <label className="flex items-center gap-2 text-sm cursor-pointer">
-      <Checkbox checked={checked} onCheckedChange={(c) => onCheckedChange(!!c)} />
+      <Checkbox checked={checked} onCheckedChange={(c: boolean | 'indeterminate') => onCheckedChange(!!c)} />
       {label}
     </label>
   );
@@ -99,14 +100,17 @@ export function FieldOptionsEditor({
   return (
     <div className="mt-2.5 p-3 bg-muted/50 rounded-md border border-border text-sm">
       <div className="flex justify-between items-center mb-2 font-semibold text-xs text-accent-foreground uppercase tracking-wider">
-        <span>⚙️ Options: {field.type}</span>
+        <span className="flex items-center gap-1.5">
+          <Settings2 className="w-3.5 h-3.5 text-muted-foreground" />
+          <span>Options: {field.type}</span>
+        </span>
       </div>
 
       {/* ─── 1. TEXT ─── */}
       {field.type === "text" && (
         <div className="grid grid-cols-2 gap-3">
           <OptInput
-            label="Min Karakter:"
+            label="Min Characters:"
             type="number"
             placeholder="e.g. 3"
             value={opts.min ?? ""}
@@ -115,7 +119,7 @@ export function FieldOptionsEditor({
             }
           />
           <OptInput
-            label="Max Karakter:"
+            label="Max Characters:"
             type="number"
             placeholder="e.g. 255"
             value={opts.max ?? ""}
@@ -134,9 +138,9 @@ export function FieldOptionsEditor({
           </div>
           <div className="col-span-2 mt-1">
             <OptCheckbox
-              label={<>Aktifkan <strong>SQLite FTS5 Full-Text Search</strong> Index</>}
+              label={<>Enable <strong>SQLite FTS5 Full-Text Search</strong> index</>}
               checked={!!opts.fulltext}
-              onCheckedChange={(c) => updateOptions({ fulltext: c })}
+              onCheckedChange={(c: boolean | 'indeterminate') => updateOptions({ fulltext: c })}
             />
           </div>
         </div>
@@ -146,7 +150,7 @@ export function FieldOptionsEditor({
       {field.type === "number" && (
         <div className="grid grid-cols-2 gap-3">
           <OptInput
-            label="Nilai Minimum:"
+            label="Minimum Value:"
             type="number"
             placeholder="e.g. 0"
             value={opts.min ?? ""}
@@ -155,7 +159,7 @@ export function FieldOptionsEditor({
             }
           />
           <OptInput
-            label="Nilai Maksimum:"
+            label="Maximum Value:"
             type="number"
             placeholder="e.g. 99999"
             value={opts.max ?? ""}
@@ -167,7 +171,7 @@ export function FieldOptionsEditor({
             <OptCheckbox
               label="Disallow Decimals (Integers Only)"
               checked={!!opts.noDecimal}
-              onCheckedChange={(c) => updateOptions({ noDecimal: c })}
+              onCheckedChange={(c: boolean | 'indeterminate') => updateOptions({ noDecimal: c })}
             />
           </div>
         </div>
@@ -175,8 +179,9 @@ export function FieldOptionsEditor({
 
       {/* ─── 3. BOOL ─── */}
       {field.type === "bool" && (
-        <div className="text-sm text-muted-foreground">
-          ℹ️ Stored as <code>INTEGER 0/1</code> in SQLite, automatically deserialized to <code>true/false</code> in JSON responses.
+        <div className="text-sm text-muted-foreground flex items-center gap-1.5">
+          <Info className="w-3.5 h-3.5 shrink-0" />
+          <span>Stored as <code>INTEGER 0/1</code> in SQLite, automatically deserialized to <code>true/false</code> in JSON responses.</span>
         </div>
       )}
 
@@ -184,7 +189,7 @@ export function FieldOptionsEditor({
       {field.type === "email" && (
         <div className="grid gap-3">
           <OptInput
-            label="Only Allowed Domains (pisahkan dengan koma):"
+            label="Only Allowed Domains (comma separated):"
             type="text"
             placeholder="gmail.com, wekanz.id"
             value={opts.onlyDomains?.join(", ") ?? ""}
@@ -198,7 +203,7 @@ export function FieldOptionsEditor({
             }
           />
           <OptInput
-            label="Blocked / Except Domains (pisahkan dengan koma):"
+            label="Blocked / Except Domains (comma separated):"
             type="text"
             placeholder="tempmail.com, 10minutemail.com"
             value={opts.exceptDomains?.join(", ") ?? ""}
@@ -218,7 +223,7 @@ export function FieldOptionsEditor({
       {field.type === "url" && (
         <div className="grid gap-3">
           <OptInput
-            label="Only Allowed Hosts (pisahkan dengan koma):"
+            label="Only Allowed Hosts (comma separated):"
             type="text"
             placeholder="github.com, wekanz.id"
             value={opts.onlyDomains?.join(", ") ?? ""}
@@ -232,7 +237,7 @@ export function FieldOptionsEditor({
             }
           />
           <OptInput
-            label="Blocked Hosts (pisahkan dengan koma):"
+            label="Blocked Hosts (comma separated):"
             type="text"
             placeholder="malicious.com"
             value={opts.exceptDomains?.join(", ") ?? ""}
@@ -323,7 +328,7 @@ export function FieldOptionsEditor({
             }
           />
           <div className="col-span-2 space-y-1">
-            <Label className="text-xs text-muted-foreground">Allowed MIME Types (pisahkan dengan koma):</Label>
+            <Label className="text-xs text-muted-foreground">Allowed MIME Types (comma separated):</Label>
             <Input
               type="text"
               placeholder="image/jpeg, image/png, application/pdf"
@@ -358,7 +363,7 @@ export function FieldOptionsEditor({
             <OptCheckbox
               label={<><strong>Protected File:</strong> Requires Authorization Token to access file URL</>}
               checked={!!opts.protected}
-              onCheckedChange={(c) => updateOptions({ protected: c })}
+              onCheckedChange={(c: boolean | 'indeterminate') => updateOptions({ protected: c })}
             />
           </div>
         </div>
@@ -371,7 +376,7 @@ export function FieldOptionsEditor({
             <Label className="text-xs text-muted-foreground">Target Collection:</Label>
             <Select
               value={opts.collectionId ?? ""}
-              onValueChange={(v) => updateOptions({ collectionId: v })}
+              onValueChange={(v: string) => updateOptions({ collectionId: v })}
             >
               <SelectTrigger>
                 <SelectValue placeholder="— pilih target collection —" />
@@ -389,15 +394,15 @@ export function FieldOptionsEditor({
             <Label className="text-xs text-muted-foreground">Cascade Delete Action:</Label>
             <Select
               value={opts.cascadeDelete ?? "setNull"}
-              onValueChange={(v) => updateOptions({ cascadeDelete: v })}
+              onValueChange={(v: string) => updateOptions({ cascadeDelete: v })}
             >
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="setNull">setNull (ubah jadi null)</SelectItem>
-                <SelectItem value="cascade">cascade (ikut terhapus)</SelectItem>
-                <SelectItem value="restrict">restrict (tolak hapus parent)</SelectItem>
+                <SelectItem value="setNull">setNull (set to null)</SelectItem>
+                <SelectItem value="cascade">cascade (delete too)</SelectItem>
+                <SelectItem value="restrict">restrict (block parent deletion)</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -446,11 +451,12 @@ export function FieldOptionsEditor({
       {/* ─── 12. PASSWORD ─── */}
       {field.type === "password" && (
         <div className="grid grid-cols-2 gap-3">
-          <div className="col-span-2 text-sm text-muted-foreground">
-            🔒 Password di-hash menggunakan algoritma <code>scrypt</code> node:crypto sebelum disimpan. Bersifat write-only (hash asli tidak pernah dibocorkan ke JSON response).
+          <div className="col-span-2 text-sm text-muted-foreground flex items-center gap-1.5">
+            <Lock className="w-3.5 h-3.5 shrink-0" />
+            <span>Passwords are hashed with <code>scrypt</code> (node:crypto) before storage. Write-only: the original hash is never exposed in JSON responses.</span>
           </div>
           <OptInput
-            label="Min Karakter:"
+            label="Min Characters:"
             type="number"
             min={6}
             value={opts.min ?? 8}
@@ -472,8 +478,9 @@ export function FieldOptionsEditor({
 
       {/* ─── 13. GEOPOINT ─── */}
       {field.type === "geoPoint" && (
-        <div className="text-sm text-muted-foreground">
-          📍 Koordinat Geografis valid <code>{`{ lat: -90..90, lng: -180..180 }`}</code>.
+        <div className="text-sm text-muted-foreground flex items-center gap-1.5">
+          <MapPin className="w-3.5 h-3.5 shrink-0" />
+          <span>Koordinat Geografis valid <code>{`{ lat: -90..90, lng: -180..180 }`}</code>.</span>
         </div>
       )}
 
@@ -490,6 +497,29 @@ export function FieldOptionsEditor({
             checked={opts.onUpdate !== false}
             onCheckedChange={(c) => updateOptions({ onUpdate: c })}
           />
+        </div>
+      )}
+
+      {/* ─── 15. VECTOR (M29) ─── */}
+      {field.type === "vector" && (
+        <div className="grid grid-cols-2 gap-3">
+          <OptInput
+            label="Dimensions:"
+            type="number"
+            placeholder="e.g. 384, 768, 1536"
+            value={opts.dimensions ?? ""}
+            onChange={(e) =>
+              updateOptions({ dimensions: e.target.value ? Number(e.target.value) : undefined })
+            }
+          />
+          <div className="col-span-2 text-xs text-muted-foreground flex items-center gap-1.5">
+            <Info className="w-3.5 h-3.5 shrink-0" />
+            <span>
+              Embedding vector untuk similarity search (RAG/AI). Dimensions harus cocok dengan
+              model embedding Anda (OpenAI text-embedding-3-small = 1536). Gunakan{" "}
+              <code className="bg-secondary px-1 rounded">POST /vector-search</code> untuk mencari.
+            </span>
+          </div>
         </div>
       )}
     </div>

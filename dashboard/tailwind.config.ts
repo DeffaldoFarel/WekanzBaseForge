@@ -45,10 +45,7 @@ const config: Config = {
           foreground: "hsl(var(--card-foreground))",
         },
         brand: {
-          blue: "#5B86E5",
-          coral: "#EB7167",
-          sage: "#3EAE7D",
-          peach: "#F5BE75",
+          DEFAULT: "hsl(var(--brand))",
         },
       },
       borderRadius: {
@@ -57,13 +54,13 @@ const config: Config = {
         sm: "calc(var(--radius) - 8px)",
       },
       boxShadow: {
-        soft: "0 10px 28px rgba(15, 23, 42, 0.04), 0 2px 6px rgba(15, 23, 42, 0.02)",
-        pill: "0 6px 18px rgba(10, 11, 13, 0.12)",
-        modal: "0 24px 64px rgba(15, 23, 42, 0.12), 0 8px 24px rgba(15, 23, 42, 0.06)",
+        soft: "0 1px 2px rgba(0, 0, 0, 0.5)",
+        pill: "0 1px 3px rgba(0, 0, 0, 0.55)",
+        modal: "0 16px 48px rgba(0, 0, 0, 0.6), 0 4px 12px rgba(0, 0, 0, 0.4)",
       },
     },
   },
-  plugins: [require("tailwindcss-animate")],
+  plugins: [require("tailwindcss-animate"), require("@tailwindcss/typography")],
 };
 
 export default config;

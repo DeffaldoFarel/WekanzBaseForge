@@ -139,7 +139,7 @@ test('M09u: register email duplikat → 409', async () => {
     password: 'passwordLain456',
   });
   assert.equal(res.status, 409);
-  assert.match(res.body.error.message, /sudah terdaftar/);
+  assert.match(res.body.error.message, /already registered/);
 });
 
 test('M09u: register password lemah → 400', async () => {
@@ -148,7 +148,7 @@ test('M09u: register password lemah → 400', async () => {
     password: 'pendek',
   });
   assert.equal(res.status, 400);
-  assert.match(res.body.error.message, /minimal 8/);
+  assert.match(res.body.error.message, /at least 8/);
 });
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -174,7 +174,7 @@ test('M09u: login password salah → 401 dengan pesan SERAGAM', async () => {
     password: 'passwordSalah999',
   });
   assert.equal(res.status, 401);
-  assert.match(res.body.error.message, /Email atau password salah/);
+  assert.match(res.body.error.message, /Invalid email or password/);
 
   // Email tidak terdaftar → PESAN SAMA (anti user enumeration!)
   const res2 = await http('POST', `/api/p/${projectId}/auth/login`, {
@@ -285,7 +285,7 @@ test('M09u: RATE LIMIT — 11 percobaan login dalam 1 menit → 429', async () =
     password: 'coba-ke-11',
   });
   assert.equal(res11.status, 429);
-  assert.match(res11.body.error.message, /Terlalu banyak/);
+  assert.match(res11.body.error.message, /Too many/);
   assert.ok(res11.headers['retry-after'], 'harus ada header Retry-After');
 
   console.log('\n   🚦 Rate limit: percobaan ke-11 → 429, Retry-After =',

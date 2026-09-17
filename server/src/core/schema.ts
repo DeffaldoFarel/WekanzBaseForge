@@ -210,13 +210,13 @@ export function generateCreateIndexSql(
     throw new Error(`Invalid index name: '${index.name}'`);
   }
   if (index.fields.length === 0) {
-    throw new Error(`Index '${index.name}' harus punya minimal 1 field`);
+    throw new Error(`Index '${index.name}' must have at least 1 field`);
   }
 
   for (const fieldName of index.fields) {
     if (!validNames.has(fieldName)) {
       throw new Error(
-        `Index '${index.name}' merujuk field '${fieldName}' yang tidak ada di collection '${collectionName}'`
+        `Index '${index.name}' references field '${fieldName}' which does not exist in collection '${collectionName}'`
       );
     }
   }
@@ -459,11 +459,11 @@ export function createViewCollection(
   }
   const query = def.viewQuery.trim();
   if (!/^select\s/i.test(query)) {
-    throw new Error('viewQuery harus dimulai dengan SELECT');
+    throw new Error('viewQuery must start with SELECT');
   }
   // Anti multi-statement
   if (/;\s*\S/i.test(query)) {
-    throw new Error('viewQuery tidak boleh mengandung multiple statements');
+    throw new Error('viewQuery must not contain multiple statements');
   }
 
   // Dry run: validasi + ekstrak kolom hasil
@@ -473,10 +473,10 @@ export function createViewCollection(
     stmt.all();
     columns = stmt.columns().map((c) => ({ name: c.name, type: String(c.column ?? '') }));
   } catch (err) {
-    throw new Error(`viewQuery tidak valid: ${err instanceof Error ? err.message : String(err)}`);
+    throw new Error(`Invalid viewQuery: ${err instanceof Error ? err.message : String(err)}`);
   }
   if (columns.length === 0) {
-    throw new Error('viewQuery harus mengembalikan minimal 1 kolom');
+    throw new Error('viewQuery must return at least 1 column');
   }
 
   // Fields dari kolom hasil (skip field sistem; semua dibaca sebagai json
@@ -737,7 +737,7 @@ export function rebuildCollection(
   } catch (err) {
     db.exec('ROLLBACK');
     throw new Error(
-      `Rebuild collection '${name}' gagal (tidak ada data yang hilang): ${err instanceof Error ? err.message : err}`
+      `Rebuild of collection '${name}' failed (no data was lost): ${err instanceof Error ? err.message : err}`
     );
   }
 }
@@ -767,7 +767,7 @@ export function duplicateCollection(
 ): CollectionMeta {
   const source = getCollectionByName(db, sourceName);
   if (!source) {
-    throw new Error(`Collection sumber '${sourceName}' tidak ditemukan`);
+    throw new Error(`Source collection '${sourceName}' not found`);
   }
   if (getCollectionByName(db, newName)) {
     throw new Error(`Collection '${newName}' sudah ada`);

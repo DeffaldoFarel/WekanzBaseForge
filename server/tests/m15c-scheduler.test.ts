@@ -47,7 +47,7 @@ describe('M15c: parseCron', () => {
     assert.throws(() => parseCron('* * * * * *'), /5 field/);
     assert.throws(() => parseCron('60 * * * *'), /di luar rentang/);
     assert.throws(() => parseCron('* 25 * * *'), /di luar rentang/);
-    assert.throws(() => parseCron('a * * * *'), /tidak valid/);
+    assert.throws(() => parseCron('a * * * *'), /invalid part/);
     assert.throws(() => parseCron('5-1 * * * *'), /terbalik/);
     assert.throws(() => parseCron('*\/0 * * * *'), /step/);
   });

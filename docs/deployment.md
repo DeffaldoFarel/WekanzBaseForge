@@ -74,6 +74,18 @@ ADMIN_PASSWORD=GantiDenganPasswordYangSangatKuat!
 JWT_SECRET=BuatStringAcakPanjangMinimal32KarakterUntukKeamananJWT
 REDIS_URL=redis://127.0.0.1:6379
 DATA_DIR=../data
+
+# M10/M23: enkripsi OAuth client secret & SMTP password (fallback: JWT_SECRET)
+OAUTH_SECRET=StringAcakLainMinimal32Karakter
+
+# M23: SMTP untuk verifikasi email & reset password (produksi WAJIB)
+# Tanpa ini, email hanya masuk dev outbox — end-user tidak menerima email sungguhan
+SMTP_HOST=smtp.domainanda.com
+SMTP_PORT=587
+SMTP_USER=no-reply@domainanda.com
+SMTP_PASS=password-smtp
+SMTP_SECURE=false
+MAIL_FROM=BaseForge <no-reply@domainanda.com>
 ```
 
 ---
