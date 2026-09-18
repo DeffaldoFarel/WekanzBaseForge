@@ -30,15 +30,21 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
+import { createInterface } from 'node:readline';
+import { resetAdminPassword } from '../platform/resetAdminPassword.js';
 
 // ─── Arg parsing (sengaja tanpa library — pelajaran router M00!) ──────────────
 
 const args = process.argv.slice(2);
 const command = args[0] ?? 'help';
-const subcommand = args[1] ?? '';
+// Subcommand hanya ada untuk perintah yang memang memakainya (records,
+// collections, functions, dst.). Perintah tanpa subcommand seperti
+// reset-admin-password harus mulai parsing flag dari args[1], bukan args[2].
+const hasSubcommand = ['records', 'collections', 'functions', 'projects', 'users', 'webhooks', 'use', 'login'].includes(command);
+const subcommand = hasSubcommand ? (args[1] ?? '') : '';
 const flags: Record<string, string> = {};
 
-for (let i = 2; i < args.length; i++) {
+for (let i = hasSubcommand ? 2 : 1; i < args.length; i++) {
   const a = args[i];
   if (a.startsWith('--')) {
     const key = a.slice(2);
@@ -349,6 +355,41 @@ async function cmdWebhooks(): Promise<void> {
   table(rows, ['ID', 'NAME', 'STATUS', 'EVENTS']);
 }
 
+async function cmdResetAdminPassword(): Promise<void> {
+  const email = flags.email;
+  if (!email) {
+    console.error('Usage: baseforge reset-admin-password --email <email> [--password <baru>]');
+    console.error('  Tanpa --password, CLI akan meminta secara interaktif (tidak echo).');
+    process.exit(1);
+  }
+
+  let password = flags.password;
+  if (!password) {
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    password = await new Promise<string>((resolve) => {
+      rl.question('Password baru: ', (answer) => {
+        rl.close();
+        resolve(answer.trim());
+      });
+    });
+  }
+
+  if (!password) {
+    console.error('Password baru tidak boleh kosong.');
+    process.exit(1);
+  }
+
+  const r = resetAdminPassword(email, password);
+  if (!r.ok) {
+    console.error(r.error);
+    process.exit(1);
+  }
+
+  console.log(`Password untuk '${email}' berhasil direset.`);
+  console.log('Login ulang di BaseForge Console dengan password baru.');
+  process.exit(0);
+}
+
 function cmdHelp(): void {
   console.log(`BaseForge CLI — manage your BaaS from the terminal
 
@@ -367,11 +408,14 @@ Commands:
   functions [list|run <name> [json]]
   users [list] [--page]
   webhooks [list]
+  reset-admin-password      Reset password admin platform (offline, butuh akses filesystem)
   help                        Show this help
 
 Options:
   --url <host>    BaseForge server URL (default: http://localhost:5100, saved)
   --pid <id>      Override active project for this command
+  --email <email> Admin email (for reset-admin-password)
+  --password <pw> New password (for reset-admin-password; omit to prompt interactively)
   --filter, --page, --perPage   Record list options
 
 State: ~/.baseforge/cli.json (token + active project + server URL)`);
@@ -390,6 +434,7 @@ const commands: Record<string, () => Promise<void> | void> = {
   functions: cmdFunctions,
   users: cmdUsers,
   webhooks: cmdWebhooks,
+  'reset-admin-password': cmdResetAdminPassword,
   help: cmdHelp,
 };
 

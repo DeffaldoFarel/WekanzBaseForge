@@ -69,7 +69,10 @@ before(async () => {
 
   const db = initPlatformDb();
   try {
-    db.prepare("DELETE FROM _platform_admins WHERE email = 'masteradmin@wekanz.id'").run();
+    // Hapus SEMUA admin, bukan hanya satu email — platform.db bersifat global
+    // dan test lain (Ops-5, auth-collection, dst.) membuat admin dengan email
+    // berbeda. needsSetup:true mengharuskan tabel benar-benar kosong.
+    db.prepare('DELETE FROM _platform_admins').run();
   } catch {}
 
   const router = new Router();
@@ -86,7 +89,9 @@ after(async () => {
   }
   try {
     const db = initPlatformDb();
-    db.prepare("DELETE FROM _platform_admins WHERE email = 'masteradmin@wekanz.id'").run();
+    // Bersihkan semua admin yang dibuat test ini agar tidak mencemari
+    // test berikutnya (platform.db global).
+    db.prepare('DELETE FROM _platform_admins').run();
   } catch {}
 });
 
