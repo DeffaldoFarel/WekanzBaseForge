@@ -181,6 +181,52 @@ function compareValues(left: unknown, op: string, right: unknown): boolean {
 
 // ─── Helper tipe untuk schema.ts ─────────────────────────────────────────────
 
+/**
+ * Ops-4 (B3): kumpulkan nama field skema yang direferensikan sekumpulan rule.
+ *
+ * Dipakai untuk membuat index otomatis: sebuah `listRule` seper
+ * `userId = @request.auth.id` diterjemahkan menjadi `WHERE userId = ?` pada
+ * SETIAP list (`records.ts`), jadi kolom itu selalu butuh index. Sebelumnya
+ * tidak ada index yang dibuat dan tidak ada peringatan — terukur di project
+ * WekanzDashboard: `EXPLAIN QUERY PLAN` menjawab `SCAN investments` untuk
+ * seluruh 21 collection.
+ *
+ * Memakai regex yang SAMA dengan `validateRuleFields` agar dua tempat tidak
+ * pernah berbeda pendapat tentang apa yang dianggap referensi field.
+ *
+ * `id` dilewati (sudah PRIMARY KEY, index-nya implisit). `@request.*`, literal
+ * string, dan nama yang tidak ada di skema juga dilewati — yang terakhir sudah
+ * ditolak lebih dulu oleh `validateRuleFields`.
+ */
+export function collectRuleFieldNames(
+  rules: Partial<CollectionRules> | undefined,
+  fields: FieldDefinition[]
+): string[] {
+  if (!rules) return [];
+
+  const schemaFields = new Set(fields.map((f) => f.name));
+  const found = new Set<string>();
+
+  for (const rule of Object.values(rules)) {
+    if (typeof rule !== 'string' || rule.trim() === '') continue;
+
+    const identRe =
+      /(^|[\s(])("[^"]*"|'[^']*'|@request\.[a-zA-Z0-9_.]+|[a-zA-Z_][a-zA-Z0-9_.]*)\s*(=|!=|>=|<=|>|<|~|!~)/g;
+    let m: RegExpExecArray | null;
+    while ((m = identRe.exec(rule)) !== null) {
+      const ident = m[2];
+      if (ident.startsWith('"') || ident.startsWith("'") || ident.startsWith('@')) continue;
+      // 'id' sudah PRIMARY KEY; 'created'/'updated' jarang jadi predikat rule
+      // tetapi tetap boleh diindeks bila dipakai.
+      if (ident === 'id') continue;
+      if (!schemaFields.has(ident)) continue;
+      found.add(ident);
+    }
+  }
+
+  return [...found];
+}
+
 export function validateRuleFields(rule: string, fields: FieldDefinition[]): string | null {
   // Validasi ringan: nama field di rule (yang bukan @request) harus ada di
   // skema. Mencegah typo diam-diam menjadi rule yang selalu false.

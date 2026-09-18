@@ -22,6 +22,7 @@ import {
   duplicateCollection,
   updateCollection,
   rebuildCollection,
+  validateCollectionBody,
 } from '../core/schema.js';
 // M19: agregasi — modul core D7 yang sebelumnya tidak punya pintu REST.
 import { aggregate, AggregateFunction } from '../core/aggregates.js';
@@ -91,6 +92,16 @@ export function createDatabaseRouter(): Router {
       const db = getProjectDb(req.params.pid);
       const body = req.body as (CollectionDefinition & { type?: 'base' | 'view'; viewQuery?: string }) | undefined;
 
+      // Ops-4 (B1): tolak kunci tingkat teratas yang tak dikenal — terutama
+      // rule yang dikirim flat. Dulu body seperti itu membalas 201 sementara
+      // seluruh rule tersimpan null (= mode admin), sehingga collection
+      // "sukses" dibuat tapi tidak bisa dipakai end-user sama sekali.
+      const bodyErr = validateCollectionBody(body);
+      if (bodyErr) {
+        res.status(400).json({ error: { code: 'BAD_REQUEST', message: bodyErr } });
+        return;
+      }
+
       if (!body?.name) {
         res.status(400).json({
           error: { code: 'BAD_REQUEST', message: 'name is required' },
@@ -155,7 +166,26 @@ export function createDatabaseRouter(): Router {
   router.patch('/api/admin/projects/:pid/collections/:name', requireAdmin, (req, res) => {
     try {
       const db = getProjectDb(req.params.pid);
-      const body = req.body as { fields?: FieldDefinition[] } | undefined;
+      const body = req.body as { fields?: FieldDefinition[]; rules?: unknown } | undefined;
+
+      // Ops-4 (B2): PATCH hanya melakukan perubahan ADITIF pada fields
+      // (updateCollection → ALTER TABLE ADD COLUMN) dan TIDAK pernah menyimpan
+      // rules. Sebelumnya body dengan `rules` dibalas 200 tanpa mengubah apa
+      // pun — pemanggil mengira rules sudah diperbarui. Rules punya rumah yang
+      // benar (PATCH .../rules sejak M11, atau PUT), jadi tolak di sini
+      // sambil menunjukkan jalurnya.
+      if (body && Object.prototype.hasOwnProperty.call(body, 'rules')) {
+        res.status(400).json({
+          error: {
+            code: 'BAD_REQUEST',
+            message:
+              'rules cannot be updated via PATCH /collections/:name — ' +
+              'use PATCH /collections/:name/rules or PUT /collections/:name',
+          },
+        });
+        return;
+      }
+
       if (!Array.isArray(body?.fields)) {
         res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'fields must be an array' } });
         return;
@@ -176,6 +206,15 @@ export function createDatabaseRouter(): Router {
         indexes?: IndexDefinition[];
         rules?: Partial<CollectionRules>;
       } | undefined;
+
+      // Ops-4 (B1): validasi yang sama dengan POST — PUT juga menerima rules,
+      // jadi bentuk flat harus ditolak di sini agar tidak diam-diam terabaikan.
+      const putBodyErr = validateCollectionBody(body);
+      if (putBodyErr) {
+        res.status(400).json({ error: { code: 'BAD_REQUEST', message: putBodyErr } });
+        return;
+      }
+
       if (!Array.isArray(body?.fields)) {
         res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'fields must be an array' } });
         return;

@@ -12,7 +12,7 @@
 
 import { DatabaseSync } from 'node:sqlite';
 import { generateId } from './router.js';
-import { CollectionRules, DEFAULT_RULES, validateRuleFields } from './rules.js';
+import { CollectionRules, DEFAULT_RULES, validateRuleFields, collectRuleFieldNames } from './rules.js';
 import { createFts, dropFts } from './fts.js';
 import {
   FieldDefinition,
@@ -244,6 +244,94 @@ export function generateUniqueIndexSql(
 
 // ─── CRUD untuk collections (meta-level) ─────────────────────────────────────
 
+/**
+ * Ops-4 (B1): validasi kunci tingkat teratas body collection.
+ *
+ * Kenapa perlu: `POST /collections` dulu menerima rule yang dikirim FLAT
+ * (`{ name, fields, listRule }`) dan membalas **201** sementara seluruh rule
+ * tersimpan `null` → `decideRule` jatuh ke mode admin → end-user tidak bisa
+ * mengakses datanya sama sekali. Terjadi nyata saat provisioning 21 collection
+ * WekanzDashboard (2026-09-18): semua collection "sukses" dibuat tetapi tidak
+ * satu pun berguna, dan tidak ada tanda apa pun.
+ *
+ * Server sudah ketat untuk field RECORD yang tak dikenal
+ * ("Field 'updatedAt' does not exist in collection ..."); ini membawa
+ * konsistensi yang sama ke jalur schema.
+ *
+ * @returns pesan error, atau null bila body bersih.
+ */
+export function validateCollectionBody(body: unknown): string | null {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return 'request body must be an object';
+  }
+
+  const allowed = new Set(['name', 'type', 'fields', 'indexes', 'rules', 'viewQuery']);
+  const ruleKeys = new Set([
+    'listRule',
+    'viewRule',
+    'createRule',
+    'updateRule',
+    'deleteRule',
+  ]);
+
+  for (const key of Object.keys(body as Record<string, unknown>)) {
+    if (allowed.has(key)) continue;
+
+    // Kesalahan yang BENAR-BENAR terjadi: rule dikirim flat. Beri pesan yang
+    // menuntun ke bentuk benar, bukan sekadar "unknown field".
+    if (ruleKeys.has(key)) {
+      return `unknown field '${key}' at top level — did you mean rules.${key}?`;
+    }
+    return `unknown field '${key}' in collection body (allowed: ${[...allowed].join(', ')})`;
+  }
+
+  return null;
+}
+
+/**
+ * Ops-4 (B3): buat B-Tree index untuk setiap kolom yang direferensikan rule.
+ *
+ * Alasan ada: `listRule` seperti `userId = @request.auth.id` menjadi
+ * `WHERE userId = ?` pada SETIAP pembacaan (`records.ts`), tetapi tidak pernah
+ * ada index yang dibuat untuknya. Terukur pada project WekanzDashboard:
+ * `EXPLAIN QUERY PLAN` menjawab `SCAN investments` di seluruh 21 collection
+ * (hanya 3 index non-sistem yang ada, semuanya milik tabel auth internal).
+ *
+ * Aman secara semantik: index tidak mengubah hasil query, hanya rencana
+ * eksekusinya. `IF NOT EXISTS` membuat pemanggilan berulang idempoten.
+ *
+ * Akhiran `_rule` menandai index ini lahir otomatis, sehingga bisa dibedakan
+ * dari index buatan pengguna (yang tidak pernah disentuh fungsi ini).
+ */
+function createRuleIndexes(
+  db: DatabaseSync,
+  collectionName: string,
+  rules: Partial<CollectionRules> | undefined,
+  fields: FieldDefinition[],
+  userIndexes: IndexDefinition[]
+): void {
+  const ruleFields = collectRuleFieldNames(rules, fields);
+  if (ruleFields.length === 0) return;
+
+  // Jangan duplikasi kolom yang SUDAH punya index buatan pengguna sebagai
+  // kolom pertama — index tersebut sudah melayani predikat kesetaraan.
+  const alreadyIndexed = new Set(
+    userIndexes.map((ix) => ix.fields?.[0]).filter((f): f is string => typeof f === 'string')
+  );
+  // Field unique juga sudah punya UNIQUE INDEX sendiri.
+  for (const f of fields) {
+    if (f.unique) alreadyIndexed.add(f.name);
+  }
+
+  for (const fieldName of ruleFields) {
+    if (alreadyIndexed.has(fieldName)) continue;
+    db.exec(
+      `CREATE INDEX IF NOT EXISTS "idx_${collectionName}_${fieldName}_rule" ` +
+        `ON "${collectionName}" ("${fieldName}");`
+    );
+  }
+}
+
 export function defineCollection(
   db: DatabaseSync,
   def: CollectionDefinition
@@ -340,6 +428,9 @@ export function defineCollection(
     const indexSql = generateCreateIndexSql(def.name, index, def.fields);
     db.exec(indexSql);
   }
+
+  // ── Ops-4 (B3): index otomatis untuk kolom yang dipakai rule ──
+  createRuleIndexes(db, def.name, rules, fieldsToUse, indexes);
 
   // ── D5: catat migrasi ──
   recordMigration(db, def.name, 'create', { fields: def.fields, indexes });
@@ -694,6 +785,18 @@ export function rebuildCollection(
         db.exec(generateCreateIndexSql(name, index, newFields));
       }
     }
+
+    // ── Ops-4 (B3): index otomatis untuk kolom yang dipakai rule ──
+    // Rebuild men-DROP tabel lama beserta seluruh index-nya, jadi index rule
+    // harus dibuat ulang di sini. Rules efektif = yang dikirim bila ada,
+    // selain itu yang sudah tersimpan (rebuild tidak boleh menghapus rules).
+    createRuleIndexes(
+      db,
+      name,
+      newDef.rules !== undefined ? { ...existing.rules, ...newDef.rules } : existing.rules,
+      newFields,
+      finalIndexes
+    );
 
     // ── 6. Update definisi di _collections ──
     // M21 (B2): rules ikut disimpan bila dikirim. Sebelumnya parameter `rules`
