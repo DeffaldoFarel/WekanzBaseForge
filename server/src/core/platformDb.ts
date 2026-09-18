@@ -65,6 +65,12 @@ export function initPlatformDb(): DatabaseSync {
   // PocketBase juga mengaktifkannya.
   platformDb.exec('PRAGMA journal_mode = WAL');
 
+  // Ops-1: busy_timeout — WAL mengizinkan pembaca + SATU penulis, tapi dua
+  // PENULIS tetap berebut lock. Tanpa busy_timeout, statement yang menemukan
+  // lock gagal SEKETIKA (SQLITE_BUSY) alih-alih menunggu. Kritis untuk beban
+  // dashboard: cron menulis via $db bersamaan dengan user aktif di UI.
+  platformDb.exec('PRAGMA busy_timeout = 5000');
+
   // Membuat tabel jika belum ada. Perhatikan: kita menulis SQL MENTAH di
   // sini — di M03 kita akan membuat sistem yang men-generate SQL seperti
   // ini secara otomatis dari definisi collection!
@@ -168,6 +174,7 @@ export function provisionProjectStorage(projectId: string): void {
   // Di M03, tabel _collections akan ditambahkan di sini.
   const projectDb = new DatabaseSync(projectDbPath(projectId));
   projectDb.exec('PRAGMA journal_mode = WAL');
+  projectDb.exec('PRAGMA busy_timeout = 5000'); // Ops-1
   projectDb.close();
 }
 

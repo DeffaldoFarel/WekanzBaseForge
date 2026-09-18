@@ -306,6 +306,22 @@ Untuk panduan mendalam tentang penggunaan BaseForge sebagai BaaS (Backend-as-a-S
       Admin API: GET per-function + agregat + DELETE. Sekalian memperbaiki bug
       yang Christy ciptakan di M44: errResult di path catch tidak di-return.
 
+### 🛡️ Ketahanan operasional — prasyarat migrasi WekanzDashboard
+
+- [x] Ops-1 — `busy_timeout` ✅ — `PRAGMA busy_timeout = 5000` di ketiga titik
+      pembukaan DB (platform + project create + project manager). WAL tanpa
+      busy_timeout = dua writer gagal SEKETIKA (SQLITE_BUSY); kini menunggu.
+      Temuan terukur: di satu proses Node, busy_timeout menyelamatkan lock dari
+      proses/thread LAIN (dibuktikan worker_threads), BUKAN lock lintas `await`
+- [x] Ops-2 — Batch write client transaksional ✅ — `POST
+      /api/p/:pid/collections/:name/records/batch` untuk END USER: semua record
+      dalam SATU transaksi (semua sukses / semua rollback), rules per record
+      (reqCtx diteruskan — batch TIDAK melewati keamanan), maks 100. Perbaikan
+      atas Appwrite (yang tak punya atomicity multi-document sama sekali)
+- [x] Ops-3 — Restore terdokumentasi & teruji ✅ — prosedur restore langkah-demi-
+      langkah di `docs/backup-restore.md` + test yang membuktikan backup
+      (VACUUM INTO) bisa dibuka dan datanya utuh setelah dipulihkan
+
 ### 🗺️ Rencana ke depan (M40–M58)
 
 > 18 milestone berikutnya (quick wins auth → paritas inti → ops & DX → proyek

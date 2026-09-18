@@ -41,6 +41,7 @@ export function getProjectDb(projectId: string): DatabaseSync {
   // Buka koneksi baru + pastikan tabel meta ada
   const db = new DatabaseSync(dbPath);
   db.exec('PRAGMA journal_mode = WAL');
+  db.exec('PRAGMA busy_timeout = 5000'); // Ops-1: tunggu lock, jangan gagal seketika
   initSchemaTable(db);
 
   connections.set(projectId, db);

@@ -510,7 +510,8 @@ export function createRecord(
 export function createRecordsBatch(
   db: DatabaseSync,
   collection: string,
-  recordsData: Record<string, unknown>[]
+  recordsData: Record<string, unknown>[],
+  reqCtx?: RequestContext // Ops-2: diteruskan ke createRecord agar rules berlaku
 ): ForgeRecord[] {
   mustGetCollection(db, collection);
 
@@ -518,7 +519,7 @@ export function createRecordsBatch(
   db.exec('BEGIN');
   try {
     for (const data of recordsData) {
-      created.push(createRecord(db, collection, data));
+      created.push(createRecord(db, collection, data, reqCtx));
     }
     db.exec('COMMIT');
   } catch (err) {

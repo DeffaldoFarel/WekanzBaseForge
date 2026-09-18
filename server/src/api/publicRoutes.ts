@@ -19,6 +19,7 @@ import {
   listRecords,
   getRecord,
   createRecord,
+  createRecordsBatch,
   updateRecord,
   deleteRecord,
   ViewWriteError,
@@ -365,6 +366,51 @@ export function createPublicRouter(): Router {
       });
       fireTriggersSafe(db, req.params.name, 'create', record as Record<string, unknown>);
       res.status(201).json({ record });
+    } catch (err) {
+      handleErrorPublic(res, err);
+    }
+  });
+
+  // Ops-2: POST /api/p/:pid/collections/:name/records/batch — batch transaksional
+  // untuk END USER. Semua record dalam SATU transaksi (semua sukses / semua
+  // rollback). Rules dievaluasi per record terhadap reqCtx — batch TIDAK
+  // melewati keamanan. Maks 100 record per batch.
+  router.post('/api/p/:pid/collections/:name/records/batch', async (req, res) => {
+    try {
+      const db = getProjectDb(req.params.pid);
+      const reqCtx = await resolveEndUserCtx(req, db, { pid: req.params.pid, write: true });
+
+      const meta = getCollectionByName(db, req.params.name);
+      if (!meta) throw new Error(`Collection '${req.params.name}' not found`);
+
+      const body = (req.body ?? {}) as { records?: Record<string, unknown>[] };
+      if (!Array.isArray(body.records) || body.records.length === 0) {
+        res.status(400).json({
+          error: { code: 'BAD_REQUEST', message: 'records must be a non-empty array' },
+        });
+        return;
+      }
+      if (body.records.length > 100) {
+        res.status(400).json({
+          error: { code: 'BAD_REQUEST', message: 'a batch may hold at most 100 records' },
+        });
+        return;
+      }
+
+      const created = createRecordsBatch(db, req.params.name, body.records, reqCtx);
+
+      // Side effects SETELAH commit (pola yang sama dengan single create)
+      for (const record of created) {
+        realtimeHub.publish(db, meta, 'create', record as Record<string, unknown>);
+        fireWebhooks(db, {
+          projectId: req.params.pid,
+          action: 'create',
+          collection: req.params.name,
+          record: record as Record<string, unknown>,
+        });
+        fireTriggersSafe(db, req.params.name, 'create', record as Record<string, unknown>);
+      }
+      res.status(201).json({ records: created, count: created.length });
     } catch (err) {
       handleErrorPublic(res, err);
     }
