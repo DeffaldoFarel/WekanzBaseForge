@@ -126,7 +126,10 @@ Balasan `{ "collections": [ { name, type, viewQuery, fields, indexes, rules, rec
 
 > Perhatikan **tanda hubung**: `auth-users`. Bentuk `auth/users` membalas `404`.
 
-Balasan list: `{ "users": [...], "page", "perPage", "totalItems" }`.
+Balasan list: **`{ "items": [...], "page", "perPage", "totalItems", "totalPages" }`**
+— kuncinya **`items`**, BUKAN `users`. Salah kunci membuat skrip pembersihan
+terbaca "0 akun" padahal `totalItems > 0` (terjadi nyata saat real-test
+WekanzDashboard, 2026-09-19).
 
 ---
 
