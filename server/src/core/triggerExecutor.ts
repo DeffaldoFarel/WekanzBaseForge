@@ -71,6 +71,7 @@ export function fireTriggers(
       dbAccess: fn.dbAccess,
       depth: depth + 1,
       secrets: getSecretsForFunction(db, fn.name), // M42
+      modules: fn.modules, // M43
       triggerContext: {
         action,
         collection,

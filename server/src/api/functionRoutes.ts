@@ -30,6 +30,7 @@ import {
 import { runFunctionCode } from '../core/functionRunner.js';
 import { fireTriggersSafe } from '../core/triggerExecutor.js';
 import { setSecret, listSecrets, deleteSecret, getSecretsForFunction } from '../core/secretsStore.js';
+import { setModule, listModules, getModule, deleteModule } from '../core/moduleRegistry.js';
 import type { RequestContext } from '../core/query/sqlBuilder.js';
 import { verifyToken } from '../auth/jwt.js';
 import { validateToken } from '../platform/adminAuth.js';
@@ -67,6 +68,7 @@ export function createFunctionRouter(): Router {
         httpAllow?: string[];
         timezone?: string;
         dbAccess?: boolean;
+        modules?: string[];
       };
       if (!body.name || !body.code) {
         res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'name and code are required' } });
@@ -99,6 +101,7 @@ export function createFunctionRouter(): Router {
         httpAllow: body.httpAllow, // M25
         timezone: body.timezone, // M39
         dbAccess: body.dbAccess, // M41
+        modules: body.modules, // M43
       });
       res.status(201).json({ function: fn });
     } catch (err) {
@@ -145,6 +148,7 @@ export function createFunctionRouter(): Router {
         httpAllow?: string[];
         timezone?: string;
         dbAccess?: boolean;
+        modules?: string[];
       };
       // Validasi trigger collection terhadap skema project
       let triggers;
@@ -172,6 +176,7 @@ export function createFunctionRouter(): Router {
         httpAllow: body.httpAllow, // M25: undefined = tidak disentuh
         timezone: body.timezone, // M39: undefined = tidak disentuh
         dbAccess: body.dbAccess, // M41: undefined = tidak disentuh
+        modules: body.modules, // M43: undefined = tidak disentuh
       });
       if (!fn) {
         res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Function not found' } });
@@ -263,6 +268,70 @@ export function createFunctionRouter(): Router {
   });
 
   // ═════════════════════════════════════════════════════════════════════
+  // MODULES — M43 (admin-only; kode bersama yang di-load sebagai $lib)
+  // ═════════════════════════════════════════════════════════════════════
+
+  // PUT /api/admin/projects/:pid/modules/:name  { code }
+  router.put('/api/admin/projects/:pid/modules/:name', requireAdmin, (req, res) => {
+    try {
+      const db = getProjectDb(req.params.pid);
+      const body = (req.body ?? {}) as { code?: string };
+      if (!body.code) {
+        res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'code is required' } });
+        return;
+      }
+      setModule(db, req.params.name, body.code);
+      res.json({ success: true, name: req.params.name });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Internal error';
+      res.status(400).json({ error: { code: 'BAD_REQUEST', message } });
+    }
+  });
+
+  // GET /api/admin/projects/:pid/modules → metadata semua modul
+  router.get('/api/admin/projects/:pid/modules', requireAdmin, (req, res) => {
+    try {
+      const db = getProjectDb(req.params.pid);
+      res.json({ modules: listModules(db) });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Internal error';
+      res.status(400).json({ error: { code: 'BAD_REQUEST', message } });
+    }
+  });
+
+  // GET /api/admin/projects/:pid/modules/:name → satu modul (dengan kode)
+  router.get('/api/admin/projects/:pid/modules/:name', requireAdmin, (req, res) => {
+    try {
+      const db = getProjectDb(req.params.pid);
+      const mod = getModule(db, req.params.name);
+      if (!mod) {
+        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Module not found' } });
+        return;
+      }
+      res.json({ module: mod });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Internal error';
+      res.status(400).json({ error: { code: 'BAD_REQUEST', message } });
+    }
+  });
+
+  // DELETE /api/admin/projects/:pid/modules/:name
+  router.delete('/api/admin/projects/:pid/modules/:name', requireAdmin, (req, res) => {
+    try {
+      const db = getProjectDb(req.params.pid);
+      const ok = deleteModule(db, req.params.name);
+      if (!ok) {
+        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Module not found' } });
+        return;
+      }
+      res.json({ success: true });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Internal error';
+      res.status(400).json({ error: { code: 'BAD_REQUEST', message } });
+    }
+  });
+
+  // ═════════════════════════════════════════════════════════════════════
   // EXECUTE — admin (selalu, + logs detail)
   // ═════════════════════════════════════════════════════════════════════
 
@@ -288,6 +357,7 @@ export function createFunctionRouter(): Router {
         dbAccess: fn.dbAccess,
         depth: 0,
         secrets: getSecretsForFunction(db, fn.name), // M42
+        modules: fn.modules, // M43
         onDbWrite: (action, collection, record, previous) =>
           fireTriggersSafe(db, collection, action, record, previous, 1),
       });
@@ -329,6 +399,7 @@ export function createFunctionRouter(): Router {
         dbAccess: fn.dbAccess,
         depth: 0,
         secrets: getSecretsForFunction(db, fn.name), // M42
+        modules: fn.modules, // M43
         onDbWrite: (action, collection, record, previous) =>
           fireTriggersSafe(db, collection, action, record, previous, 1),
       });

@@ -37,6 +37,7 @@ import {
   type DbCallOptions,
   type DbSandboxContext,
 } from './dbSandbox.js';
+import { buildModulesPrelude } from './moduleRegistry.js';
 import type { DatabaseSync } from 'node:sqlite';
 import type { RequestContext } from './query/sqlBuilder.js';
 
@@ -69,6 +70,12 @@ export interface FunctionRunOptions {
    * BUKAN di dalam sandbox. Function tidak bisa menulisnya balik.
    */
   secrets?: Record<string, string>;
+  /**
+   * M43: nama-nama modul $lib yang di-load (urutan = urutan eval). Prelude
+   * modul disusun di HOST (buildModulesPrelude) lalu dieval di dalam isolate
+   * SEBELUM kode user, mengisi `$lib.<name>`.
+   */
+  modules?: string[];
   triggerContext?: {
     action: 'create' | 'update' | 'delete';
     collection: string;
@@ -201,6 +208,11 @@ const RUNTIME_PRELUDE = `
     defineProperty: function() { throw new TypeError('$env is read-only'); },
     setPrototypeOf: function() { throw new TypeError('$env is read-only'); }
   });
+
+  // ── M43: $lib — registry modul bersama ──
+  // Diisi oleh prelude modul (buildModulesPrelude) yang dieval SETELAH prelude
+  // ini. Objek biasa: modul BISA bergantung pada modul sebelumnya lewat $lib.
+  var $lib = {};
 `;
 
 export async function runFunctionCode(
@@ -235,9 +247,16 @@ export async function runFunctionCode(
 
   // Wall-clock race: anggaran TOTAL function (termasuk nunggu $http).
   // ivm timeout hanya menjaga CPU sync — await di $http tidak men-tick-nya.
+  // PENTING: handle timer disimpan agar di-clearTimeout di finally. Tanpa itu,
+  // setiap eksekusi menyisakan timer yang meledak SETELAH function selesai —
+  // rejection tak tertangani yang muncul di event loop sebagai async activity
+  // (bug lama, tersembunyi karena jarang ada yang memicu path throw).
+  let wallClockTimer: ReturnType<typeof setTimeout> | null = null;
   const wallClock = new Promise<never>((_, reject) => {
-    setTimeout(() => reject(new Error(`__WALLCLOCK__`)), timeoutMs);
+    wallClockTimer = setTimeout(() => reject(new Error(`__WALLCLOCK__`)), timeoutMs);
   });
+  // Cegah unhandledRejection bila wallClock tidak memenangkan race.
+  wallClock.catch(() => {});
 
   try {
     const context = await isolate.createContext();
@@ -359,6 +378,19 @@ export async function runFunctionCode(
     // ── Runtime prelude (console, $http shim, serializer) ──
     await context.eval(RUNTIME_PRELUDE, { timeout: timeoutMs });
 
+    // ── M43: prelude modul — disusun di HOST, dieval sebelum kode user ──
+    // Mengisi $lib.<name> lewat factory IIFE gaya CJS. Urutan = urutan array.
+    if (opts.modules && opts.modules.length > 0) {
+      const dbForModules = opts.projectDb;
+      if (!dbForModules) {
+        throw new Error('$lib modules require projectDb (modules live in the project DB)');
+      }
+      const modulesPrelude = buildModulesPrelude(dbForModules, opts.modules);
+      if (modulesPrelude) {
+        await context.eval(modulesPrelude, { timeout: timeoutMs });
+      }
+    }
+
     // ── Injeksi req via ExternalCopy ──
     const req = safeForTransfer(buildReq(opts));
     jail.setSync('req', new ivm.ExternalCopy(req).copyInto());
@@ -428,6 +460,7 @@ export async function runFunctionCode(
       oom,
     };
   } finally {
+    if (wallClockTimer) clearTimeout(wallClockTimer);
     dispose();
   }
 }

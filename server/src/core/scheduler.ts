@@ -114,6 +114,7 @@ class Scheduler {
       dbAccess: fn.dbAccess,
       depth: 0,
       secrets: db ? getSecretsForFunction(db, fn.name) : {}, // M42
+      modules: fn.modules, // M43
       scheduledContext: { time: now.toISOString() },
     })
       .then((result: FunctionRunResult) => {

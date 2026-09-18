@@ -251,6 +251,50 @@ kode**.
 
 ---
 
+## 📦 Module Registry: `$lib` (M43)
+
+Function adalah satu string kode tanpa `import`/`require`. Logika domain yang
+dipakai banyak function (mis. `shared/domain.ts` — di-import oleh beberapa
+function) akan terpaksa disalin ke setiap function: satu perbaikan bug harus
+disalin berkali-kali. `$lib` memisahkan kode bersama ke registry per project
+dan menyuntikkannya ke sandbox.
+
+```js
+// Modul 'domain' di registry (boleh JS atau TypeScript — tipe di-strip):
+//   export function calculateStreak(habit, logs) { ... }
+
+// Di function, tautkan modulnya (modules: ['domain']) lalu pakai:
+const streak = $lib.domain.calculateStreak(habit, logs);
+const summary = $lib.billing.computeMonthlyBillSummary(bills);
+```
+
+Satu modul bisa dipakai **banyak function** — perbaikan bug di domain cukup
+di satu tempat. Modul ditulis JS biasa (`exports.x = ...` atau
+`module.exports = ...`) atau TypeScript (`export function` + `interface`);
+kompiler TypeScript bawaan server men-strip tipe saat modul disimpan.
+
+### Mengelola modul (Admin API)
+
+```
+PUT    /api/admin/projects/:pid/modules/:name     { code }
+GET    /api/admin/projects/:pid/modules           → [{ name, sizeBytes, updated }]
+GET    /api/admin/projects/:pid/modules/:name     → { name, code, updated }
+DELETE /api/admin/projects/:pid/modules/:name
+```
+
+Function menautkan modul lewat `modules: string[]` saat POST/PATCH function.
+
+### Aturan
+
+| Aturan | Perilaku |
+|---|---|
+| **Urutan eval** | Modul dieval sesuai urutan array `modules`. Modul yang lebih dulu bisa dipakai modul berikutnya lewat `$lib` yang sudah terisi. |
+| **Batas** | Maks **10** modul per function, maks **256 KB** per modul, nama `[a-z][a-z0-9_]`. |
+| **Satu isolate** | Modul berjalan di sandbox yang sama dengan function — mewarisi batas memori/timeout-nya dan tanpa akses host. Modul bisa memakai `$db`/`$env`/`$http` milik function pemanggil. |
+| **Validasi saat simpan** | Error sintaks modul ditolak saat `PUT`, bukan saat function dijalankan. |
+
+---
+
 ## 🖥️ Mengelola Fungsi lewat Dashboard
 
 Anda dapat membuat, mengedit, dan menguji fungsi secara visual melalui Admin Dashboard di `http://localhost:7701`:

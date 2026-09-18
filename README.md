@@ -103,7 +103,7 @@ Untuk panduan mendalam tentang penggunaan BaseForge sebagai BaaS (Backend-as-a-S
 * ⚡ [**Serverless Functions, Database Triggers, & Scheduler Cron**](docs/functions.md)
 * 📡 [**Realtime Subscriptions (Server-Sent Events)**](docs/realtime.md)
 * 🖥️ [**Panduan Deployment Produksi (Linux Systemd, Caddy HTTPS, & Redis)**](docs/deployment.md)
-* 🧠 [**Jurnal Belajar Arsitektur (Milestone M00 – M42)**](docs/learnings/README.md)
+* 🧠 [**Jurnal Belajar Arsitektur (Milestone M00 – M43)**](docs/learnings/README.md)
 * 🥊 [**Perbandingan BaaS + Roadmap M40–M58 (vs PocketBase, Supabase, Appwrite)**](COMPARISON.md)
 
 ## 🗺️ Roadmap (per milestone)
@@ -283,6 +283,14 @@ Untuk panduan mendalam tentang penggunaan BaseForge sebagai BaaS (Backend-as-a-S
       nilai tidak pernah keluar. Isolasi per function, maks 50 secrets,
       key `[A-Z][A-Z0-9_]`, nilai ≤ 8 KB. Rotasi = PUT ulang key tanpa mengubah
       kode yang sedang berjalan
+- [x] M43 — Module registry `$lib` ✅ — kode bersama untuk functions di tabel
+      `_function_modules`, disuntik sebagai `$lib.<name>` via factory IIFE gaya
+      CJS. TS di-strip (typescript.transpileModule — dependensi yang sudah ada,
+      bukan bundler baru). Satu modul dipakai banyak function — perbaikan bug
+      domain cukup di satu tempat. Urutan eval = urutan array (dependensi
+      antar-modul). Batas: 10 modul/function, 256 KB/modul. Sekalian
+      memperbaiki bug lama runFunctionCode: wall-clock timer kini di-clear
+      (menghapus unhandled rejection setelah eksekusi)
 
 ### 🗺️ Rencana ke depan (M40–M58)
 
