@@ -38,6 +38,7 @@ import {
   type DbSandboxContext,
 } from './dbSandbox.js';
 import { buildModulesPrelude } from './moduleRegistry.js';
+import { recordExecution, type ExecutionSource } from './executionLog.js';
 import type { DatabaseSync } from 'node:sqlite';
 import type { RequestContext } from './query/sqlBuilder.js';
 
@@ -76,6 +77,12 @@ export interface FunctionRunOptions {
    * SEBELUM kode user, mengisi `$lib.<name>`.
    */
   modules?: string[];
+  /**
+   * M46: bila diset, hasil eksekusi dicatat ke `_function_logs` (perlu
+   * projectDb). Gate di sini — bukan di call site — supaya SEMUA pemanggil
+   * (invoke, trigger, cron, dan pemanggil masa depan) otomatis tercatat.
+   */
+  executionLog?: { functionName: string; source: ExecutionSource };
   triggerContext?: {
     action: 'create' | 'update' | 'delete';
     collection: string;
@@ -228,6 +235,21 @@ export async function runFunctionCode(
 
   const logs: string[] = [];
   let logOverflowed = false;
+
+  // M46: pencatatan riwayat. Dibuat SEKALI, dipanggil di ketiga return path.
+  // recordExecution sendiri tahan-gagal (tidak pernah menggagalkan eksekusi).
+  const logExecution = (result: FunctionRunResult): void => {
+    if (!opts.executionLog || !opts.projectDb) return;
+    recordExecution(opts.projectDb, {
+      functionName: opts.executionLog.functionName,
+      source: opts.executionLog.source,
+      ok: result.ok,
+      error: result.error ?? null,
+      logs: result.logs,
+      durationMs: result.durationMs,
+      memoryMb: result.memoryMb ?? null,
+    });
+  };
 
   const isolate = new ivm.Isolate({ memoryLimit: memoryLimitMb });
   let disposed = false;
@@ -442,22 +464,32 @@ export async function runFunctionCode(
       typeof result === 'object' &&
       '__bfError' in (result as Record<string, unknown>)
     ) {
-      return {
+      const failResult: FunctionRunResult = {
         ok: false,
         error: String((result as Record<string, unknown>).__bfError),
         logs,
         durationMs: Date.now() - start,
         memoryMb: memoryLimitMb, // M44: konsisten — semua path membawa plafon
       };
+      logExecution(failResult); // M46
+      return failResult;
     }
 
-    return { ok: true, result, logs, durationMs: Date.now() - start, memoryMb: memoryLimitMb };
+    const okResult: FunctionRunResult = {
+      ok: true,
+      result,
+      logs,
+      durationMs: Date.now() - start,
+      memoryMb: memoryLimitMb,
+    };
+    logExecution(okResult); // M46
+    return okResult;
   } catch (err) {
     const rawMessage = err instanceof Error ? err.message : String(err);
     const timedOut =
       /timed out/i.test(rawMessage) || rawMessage === '__WALLCLOCK__';
     const oom = /out of memory|memory limit/i.test(rawMessage);
-    return {
+    const errResult: FunctionRunResult = {
       ok: false,
       error: timedOut
         ? `Function exceeded the ${timeoutMs}ms timeout (infinite loop or slow $http request?)`
@@ -470,6 +502,8 @@ export async function runFunctionCode(
       oom,
       memoryMb: memoryLimitMb,
     };
+    logExecution(errResult); // M46
+    return errResult;
   } finally {
     if (wallClockTimer) clearTimeout(wallClockTimer);
     dispose();

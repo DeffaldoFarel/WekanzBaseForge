@@ -31,6 +31,7 @@ import { runFunctionCode } from '../core/functionRunner.js';
 import { fireTriggersSafe } from '../core/triggerExecutor.js';
 import { setSecret, listSecrets, deleteSecret, getSecretsForFunction } from '../core/secretsStore.js';
 import { setModule, listModules, getModule, deleteModule } from '../core/moduleRegistry.js';
+import { listExecutions, clearExecutions } from '../core/executionLog.js';
 import type { RequestContext } from '../core/query/sqlBuilder.js';
 import { verifyToken } from '../auth/jwt.js';
 import { validateToken } from '../platform/adminAuth.js';
@@ -272,6 +273,63 @@ export function createFunctionRouter(): Router {
   });
 
   // ═════════════════════════════════════════════════════════════════════
+  // EXECUTION LOGS — M46 (admin-only; riwayat eksekusi function)
+  // ═════════════════════════════════════════════════════════════════════
+
+  // GET /api/admin/projects/:pid/functions/:name/logs?page&perPage
+  router.get('/api/admin/projects/:pid/functions/:name/logs', requireAdmin, (req, res) => {
+    try {
+      const db = getProjectDb(req.params.pid);
+      const fn = getFunctionByName(db, req.params.name);
+      if (!fn) {
+        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Function not found' } });
+        return;
+      }
+      const result = listExecutions(db, {
+        functionName: req.params.name,
+        page: req.query.get('page') ? parseInt(req.query.get('page')!, 10) : 1,
+        perPage: req.query.get('perPage') ? parseInt(req.query.get('perPage')!, 10) : 20,
+      });
+      res.json(result);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Internal error';
+      res.status(400).json({ error: { code: 'BAD_REQUEST', message } });
+    }
+  });
+
+  // GET /api/admin/projects/:pid/logs?page&perPage — riwayat SEMUA function
+  router.get('/api/admin/projects/:pid/logs', requireAdmin, (req, res) => {
+    try {
+      const db = getProjectDb(req.params.pid);
+      const result = listExecutions(db, {
+        page: req.query.get('page') ? parseInt(req.query.get('page')!, 10) : 1,
+        perPage: req.query.get('perPage') ? parseInt(req.query.get('perPage')!, 10) : 20,
+      });
+      res.json(result);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Internal error';
+      res.status(400).json({ error: { code: 'BAD_REQUEST', message } });
+    }
+  });
+
+  // DELETE /api/admin/projects/:pid/functions/:name/logs — bersihkan riwayat
+  router.delete('/api/admin/projects/:pid/functions/:name/logs', requireAdmin, (req, res) => {
+    try {
+      const db = getProjectDb(req.params.pid);
+      const fn = getFunctionByName(db, req.params.name);
+      if (!fn) {
+        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Function not found' } });
+        return;
+      }
+      const cleared = clearExecutions(db, req.params.name);
+      res.json({ success: true, cleared });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Internal error';
+      res.status(400).json({ error: { code: 'BAD_REQUEST', message } });
+    }
+  });
+
+  // ═════════════════════════════════════════════════════════════════════
   // MODULES — M43 (admin-only; kode bersama yang di-load sebagai $lib)
   // ═════════════════════════════════════════════════════════════════════
 
@@ -363,6 +421,7 @@ export function createFunctionRouter(): Router {
         depth: 0,
         secrets: getSecretsForFunction(db, fn.name), // M42
         modules: fn.modules, // M43
+        executionLog: { functionName: fn.name, source: 'callable' }, // M46
         onDbWrite: (action, collection, record, previous) =>
           fireTriggersSafe(db, collection, action, record, previous, 1),
       });
@@ -406,6 +465,7 @@ export function createFunctionRouter(): Router {
         depth: 0,
         secrets: getSecretsForFunction(db, fn.name), // M42
         modules: fn.modules, // M43
+        executionLog: { functionName: fn.name, source: 'public' }, // M46
         onDbWrite: (action, collection, record, previous) =>
           fireTriggersSafe(db, collection, action, record, previous, 1),
       });

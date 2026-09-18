@@ -103,7 +103,7 @@ Untuk panduan mendalam tentang penggunaan BaseForge sebagai BaaS (Backend-as-a-S
 * ⚡ [**Serverless Functions, Database Triggers, & Scheduler Cron**](docs/functions.md)
 * 📡 [**Realtime Subscriptions (Server-Sent Events)**](docs/realtime.md)
 * 🖥️ [**Panduan Deployment Produksi (Linux Systemd, Caddy HTTPS, & Redis)**](docs/deployment.md)
-* 🧠 [**Jurnal Belajar Arsitektur (Milestone M00 – M44)**](docs/learnings/README.md)
+* 🧠 [**Jurnal Belajar Arsitektur (Milestone M00 – M46)**](docs/learnings/README.md)
 * 🥊 [**Perbandingan BaaS + Roadmap M40–M58 (vs PocketBase, Supabase, Appwrite)**](COMPARISON.md)
 
 ## 🗺️ Roadmap (per milestone)
@@ -298,6 +298,13 @@ Untuk panduan mendalam tentang penggunaan BaseForge sebagai BaaS (Backend-as-a-S
       sebanding risiko state leak). Sekalian memperbaiki bug KRITIS: OOM
       sungguhan dulu crash server (`Isolate is already disposed`) — kini
       dilaporkan bersih sebagai `{ oom: true }` dan server tetap hidup
+- [x] M46 — Riwayat eksekusi function ✅ — setiap eksekusi (callable, public,
+      trigger, schedule) dicatat ke `_function_logs` dengan source, ok, error,
+      logs console, durationMs, memoryMb. Gate di `runFunctionCode` (bukan call
+      site) → semua pemanggil otomatis tercatat. Pencatatan tahan-gagal (tidak
+      pernah menggagalkan eksekusi), retensi 200 eksekusi terbaru per function.
+      Admin API: GET per-function + agregat + DELETE. Sekalian memperbaiki bug
+      yang Christy ciptakan di M44: errResult di path catch tidak di-return.
 
 ### 🗺️ Rencana ke depan (M40–M58)
 

@@ -330,6 +330,53 @@ diberi heap/waktu tanpa batas.
 
 ---
 
+## 📜 Riwayat Eksekusi (M46)
+
+Setiap eksekusi function dicatat ke `_function_logs` — dari mana pun pemicunya:
+invoke admin (`callable`), invoke publik (`public`), database trigger
+(`trigger`), dan cron (`schedule`). Tanpa ini, hasil function hanya ada di
+stdout server dan hilang saat restart.
+
+### Membaca riwayat (Admin API)
+
+```
+GET /api/admin/projects/:pid/functions/:name/logs?page&perPage   → satu function
+GET /api/admin/projects/:pid/logs?page&perPage                   → semua function
+```
+
+Setiap entri membawa:
+
+```jsonc
+{
+  "id": "…",
+  "functionName": "daily-rollover",
+  "source": "schedule",            // callable | public | trigger | schedule
+  "ok": false,
+  "error": "boom",
+  "logs": ["[log] starting", "[warn] …"],
+  "durationMs": 134,
+  "memoryMb": 64,
+  "created": "2026-09-18T13:22:10.123Z"
+}
+```
+
+### Aturan
+
+| Aturan | Perilaku |
+|---|---|
+| **Satu gerbang** | Pencatatan di `runFunctionCode`, bukan di call site — pemanggil mana pun (kini & nanti) otomatis tercatat. |
+| **Tahan-gagal** | Kegagalan logging (DB locked, dll) **tidak pernah** menggagalkan eksekusi. Observability tidak lebih penting dari hasil. |
+| **Retensi 200** | Hanya 200 eksekusi terbaru per function yang disimpan (≈3 bulan untuk cron harian) — cukup untuk debug tanpa membebani backup. |
+| **Urutan** | Terbaru dulu (`created DESC`). Kolom `source` membedakan cron tengah malam dari admin yang sedang mengetes. |
+
+Bersihkan riwayat satu function:
+
+```
+DELETE /api/admin/projects/:pid/functions/:name/logs
+```
+
+---
+
 ## 🖥️ Mengelola Fungsi lewat Dashboard
 
 Anda dapat membuat, mengedit, dan menguji fungsi secara visual melalui Admin Dashboard di `http://localhost:7701`:

@@ -215,9 +215,9 @@
 | 41 | SDK TypeScript + Docs viewer in-product | M00/M24 |
 | 42 | Query lintas collection — join dinamis + N+1 solver | M12 |
 
-### ❌ 18 gap → 🗺️ Roadmap M40–M58 (milestone ke depan)
+### ❌ 17 gap → 🗺️ Roadmap M40–M58 (milestone ke depan)
 
-> 18 gap yang tersisa dipetakan menjadi milestone lanjutan dengan konvensi repo (satu milestone per pass, dikerjakan dengan `lanjut M##`). Urutan di bawah adalah **usulan prioritas** — quick wins dulu (pola lama tinggal dipakai ulang), proyek besar belakangan. Tiap milestone standalone dan urutannya bebas diacak. Menutup 18/18 → cakupan peta kompetitif 60/60 (100%).
+> 17 gap yang tersisa dipetakan menjadi milestone lanjutan dengan konvensi repo (satu milestone per pass, dikerjakan dengan `lanjut M##`). Urutan di bawah adalah **usulan prioritas** — quick wins dulu (pola lama tinggal dipakai ulang), proyek besar belakangan. Tiap milestone standalone dan urutannya bebas diacak. Menutup 17/17 → cakupan peta kompetitif 60/60 (100%).
 >
 > **Catatan penomoran (2026-09-18):** nomor **M41 dipakai oleh milestone terkirim `$db` binding** (akses database in-process untuk functions — bukan bagian peta 60-gap, melainkan prasyarat migrasi WekanzDashboard). Entry roadmap "Generic OAuth2/OIDC provider" yang semula M41 **dipindah ke M58**. Milestone number adalah namespace BERSAMA antara roadmap dan gelombang terkirim; saat gelombang memakai nomor yang roadmap reserve, roadmap-lah yang direnumber di pass yang sama.
 >
@@ -238,7 +238,6 @@
 | Milestone | Judul | Dimiliki oleh | Prioritas | Effort | Reuse pola |
 |---|---|---|---|---|---|
 | **M45** | File token / signed URL expiring + presigned direct-upload S3 | PB, SB, AW | 🟡 Menengah | Menengah | SigV4 (M30) + token kedaluwarsa (M23) |
-| **M46** | Riwayat eksekusi function + log persisten | SB, AW | 🟡 Menengah | Menengah | Gate `runFunctionCode` (M18a) + tabel per-project |
 | **M47** | Audit log platform (siapa/apa/kapan) | SB, AW | 🟢 Opsional | Kecil | Instrumentasi router (M24) / trigger (M15b) |
 | **M48** | Import CSV | PB, SB | 🟢 Rendah | Kecil | `collectionJson` (M16c) |
 | **M49** | Batch API transaksional (mixed-op dalam satu request) | SB | 🟢 Opsional | Menengah | Transaksi ACID (M07) |
@@ -317,7 +316,7 @@ Mau BaaS lengkap (MFA + vector + webhooks + CLI + metrics + monitoring + S3 + $h
 
 **Appwrite masih unggul di:** Messaging (email/SMS/push via provider), 13+ runtime functions (termasuk Rust), Sites (hosting statis), VectorsDB dengan embedding model bawaan (di Cloud), Presences, Teams/roles, 30+ OAuth.
 
-**Cakupan fitur BaseForge: 42 dari 60 fitur kompetitif yang dipetakan (70%)** — dari 38/53 (72%) versi M29. Persentase turun sedikit karena peta fitur diperluas (schemaless DB, email policies, chunked upload, presence, monitoring pesaing ikut dihitung), bukan karena fitur berkurang: **+4 fitur inti baru (S3, backup terjadwal, monitoring, OAuth ×7) dalam M30–M33.** Di luar peta 60-gap, gelombang audit WekanzDashboard (M34–M39) menambah 6 fitur kesiapan-klien (custom document ID, bucket storage, SSE auto-reconnect, 401 auto-refresh, delete event full payload, cron timezone) — kategori "drop-in readiness" yang membuat aplikasi gaya Appwrite (client SDK + session + attachment) bisa berjalan tanpa rombak arsitektur. Menyelesaikan Tahap 1 roadmap (M40–M44) saja menutup 5 gap prioritas-tinggi → **47/60 (78%)**; seluruh M40–M57 tuntas → **60/60 (100%)**.
+**Cakupan fitur BaseForge: 43 dari 60 fitur kompetitif yang dipetakan (72%)** — dari 38/53 (72%) versi M29. Persentase turun sedikit karena peta fitur diperluas (schemaless DB, email policies, chunked upload, presence, monitoring pesaing ikut dihitung), bukan karena fitur berkurang: **+4 fitur inti baru (S3, backup terjadwal, monitoring, OAuth ×7) dalam M30–M33.** Di luar peta 60-gap, gelombang audit WekanzDashboard (M34–M39) menambah 6 fitur kesiapan-klien (custom document ID, bucket storage, SSE auto-reconnect, 401 auto-refresh, delete event full payload, cron timezone) — kategori "drop-in readiness" yang membuat aplikasi gaya Appwrite (client SDK + session + attachment) bisa berjalan tanpa rombak arsitektur. Di luar peta itu pula, gelombang function-readiness (M41 `$db`, M42 `$env`, M43 `$lib`, M44 limits) dan **M46 (riwayat eksekusi function + log persisten — menutup gap Tahap 2)** menambah paritas function yang bisa di-debug. Menyelesaikan Tahap 1 roadmap (M40–M44) saja menutup 5 gap prioritas-tinggi → **47/60 (78%)**; seluruh M40–M57 tuntas → **60/60 (100%)**.
 
 ---
 

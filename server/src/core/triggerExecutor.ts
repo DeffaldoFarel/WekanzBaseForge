@@ -73,6 +73,7 @@ export function fireTriggers(
       depth: depth + 1,
       secrets: getSecretsForFunction(db, fn.name), // M42
       modules: fn.modules, // M43
+      executionLog: { functionName: fn.name, source: 'trigger' }, // M46
       triggerContext: {
         action,
         collection,
