@@ -545,6 +545,7 @@ export function createPublicRouter(): Router {
         name: typeof row.name === 'string' ? row.name : null,
         avatarUrl: null,
         verified: row.verified === true || row.verified === 1,
+        disabled: false,
         created: typeof row.created === 'string' ? row.created : '',
         updated: typeof row.updated === 'string' ? row.updated : '',
       });
@@ -629,6 +630,7 @@ export function createPublicRouter(): Router {
           name: userRow.name,
           avatarUrl: null,
           verified: userRow.verified === true || userRow.verified === 1,
+          disabled: false,
           created: userRow.created,
           updated: userRow.updated,
         });

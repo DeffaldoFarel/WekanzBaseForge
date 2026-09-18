@@ -41,6 +41,16 @@ export function initAuthUsersTable(db: DatabaseSync): void {
   // M10: migrasi tabel lama (password_hash NOT NULL → nullable + avatar_url).
   // SQLite tidak punya ALTER COLUMN → rebuild tabel ala D4 (dalam 1 transaksi).
   migrateAuthUsersTable(db);
+
+  // M47: tambah kolom disabled (default 0 = active) bila belum ada.
+  migrateAddDisabledColumn(db);
+}
+
+/** M47: ALTER TABLE ADD COLUMN disabled — idempotent via PRAGMA check. */
+function migrateAddDisabledColumn(db: DatabaseSync): void {
+  const cols = db.prepare('PRAGMA table_info(_auth_users)').all() as unknown as { name: string }[];
+  if (cols.some((c) => c.name === 'disabled')) return; // sudah ada
+  db.exec('ALTER TABLE _auth_users ADD COLUMN disabled INTEGER NOT NULL DEFAULT 0');
 }
 
 /**
@@ -97,6 +107,7 @@ export interface AuthUser {
   name: string | null;
   avatarUrl: string | null;
   verified: boolean;
+  disabled: boolean;
   created: string;
   updated: string;
 }
@@ -108,6 +119,7 @@ interface AuthUserRow {
   name: string | null;
   avatar_url: string | null;
   verified: number;
+  disabled: number;
   created: string;
   updated: string;
 }
@@ -119,6 +131,7 @@ function rowToUser(row: AuthUserRow): AuthUser {
     name: row.name,
     avatarUrl: row.avatar_url,
     verified: row.verified === 1,
+    disabled: row.disabled === 1,
     created: row.created,
     updated: row.updated,
   };
@@ -244,20 +257,34 @@ export function verifyAuthCredentials(
 
 // ─── LIST (untuk dashboard — tanpa hash!) ────────────────────────────────────
 
-export function listAuthUsers(db: DatabaseSync, page = 1, perPage = 20): {
+export function listAuthUsers(
+  db: DatabaseSync,
+  page = 1,
+  perPage = 20,
+  search?: string
+): {
   items: AuthUser[];
   totalItems: number;
   totalPages: number;
   page: number;
   perPage: number;
 } {
-  const totalItems = (db.prepare('SELECT COUNT(*) AS n FROM _auth_users').get() as { n: number }).n;
+  let where = '';
+  const params: (string | number)[] = [];
+  if (search && search.trim().length > 0) {
+    where = 'WHERE email LIKE ?';
+    params.push(`%${search.trim()}%`);
+  }
+
+  const totalItems = (
+    db.prepare(`SELECT COUNT(*) AS n FROM _auth_users ${where}`).get(...params) as { n: number }
+  ).n;
   const totalPages = Math.max(1, Math.ceil(totalItems / perPage));
   const offset = (page - 1) * perPage;
 
   const rows = db
-    .prepare('SELECT * FROM _auth_users ORDER BY created DESC LIMIT ? OFFSET ?')
-    .all(perPage, offset) as unknown as AuthUserRow[];
+    .prepare(`SELECT * FROM _auth_users ${where} ORDER BY created DESC LIMIT ? OFFSET ?`)
+    .all(...params, perPage, offset) as unknown as AuthUserRow[];
 
   return {
     items: rows.map(rowToUser),
@@ -266,6 +293,23 @@ export function listAuthUsers(db: DatabaseSync, page = 1, perPage = 20): {
     page,
     perPage,
   };
+}
+
+// ─── M47: VERIFY / DISABLE ────────────────────────────────────────────────────
+
+export function setAuthUserVerified(db: DatabaseSync, id: string, verified: boolean): boolean {
+  const result = db
+    .prepare("UPDATE _auth_users SET verified = ?, updated = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?")
+    .run(verified ? 1 : 0, id);
+  return result.changes > 0;
+}
+
+export function setAuthUserDisabled(db: DatabaseSync, id: string, disabled: boolean): boolean {
+  // Kolom disabled ditambahkan via migrasi M47 (ALTER TABLE ADD COLUMN).
+  const result = db
+    .prepare("UPDATE _auth_users SET disabled = ?, updated = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?")
+    .run(disabled ? 1 : 0, id);
+  return result.changes > 0;
 }
 
 // ─── UPDATE PASSWORD ─────────────────────────────────────────────────────────

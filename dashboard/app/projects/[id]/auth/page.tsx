@@ -10,6 +10,11 @@ import {
   oauthAuthorizeUrl,
   getToken,
   type OAuthProviderInfo,
+  listAuthUsers,
+  setAuthUserVerified,
+  setAuthUserDisabled,
+  deleteAuthUser,
+  type AuthUser,
 } from "@/lib/api";
 import { Navbar } from "@/components/Navbar";
 import { ProjectSidebar } from "@/components/ProjectSidebar";
@@ -35,6 +40,7 @@ import {
   ArrowRight,
   Database,
   Users,
+  Search,
 } from "lucide-react";
 
 interface ProviderFormState {
@@ -106,6 +112,15 @@ export default function AuthSettingsPage() {
   const [error, setError] = useState("");
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
+  // M47: Auth Users state
+  const [authUsers, setAuthUsers] = useState<AuthUser[]>([]);
+  const [authUsersTotal, setAuthUsersTotal] = useState(0);
+  const [authUsersLoading, setAuthUsersLoading] = useState(false);
+  const [authUsersSearch, setAuthUsersSearch] = useState("");
+  const [authUsersError, setAuthUsersError] = useState("");
+  const [confirmDeleteUser, setConfirmDeleteUser] = useState<string | null>(null);
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
+
   // draft form per provider
   const [forms, setForms] = useState<Record<string, ProviderFormState>>({});
 
@@ -132,6 +147,63 @@ export default function AuthSettingsPage() {
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load providers"))
       .finally(() => setLoaded(true));
   }, [projectId]);
+
+  // M47: load auth users
+  const loadAuthUsers = useCallback(async (search?: string) => {
+    setAuthUsersLoading(true);
+    setAuthUsersError("");
+    try {
+      const result = await listAuthUsers(projectId, 1, search);
+      setAuthUsers(result.items);
+      setAuthUsersTotal(result.totalItems);
+    } catch (e) {
+      setAuthUsersError(e instanceof Error ? e.message : "Failed to load users");
+    } finally {
+      setAuthUsersLoading(false);
+    }
+  }, [projectId]);
+
+  useEffect(() => {
+    if (loaded) loadAuthUsers();
+  }, [loaded, loadAuthUsers]);
+
+  // M47: auth user actions
+  async function handleVerifyUser(userId: string, verified: boolean) {
+    setActionLoading(userId + "-verify");
+    try {
+      await setAuthUserVerified(projectId, userId, verified);
+      await loadAuthUsers(authUsersSearch || undefined);
+    } catch (e) {
+      setAuthUsersError(e instanceof Error ? e.message : "Failed to update user");
+    } finally {
+      setActionLoading(null);
+    }
+  }
+
+  async function handleDisableUser(userId: string, disabled: boolean) {
+    setActionLoading(userId + "-disable");
+    try {
+      await setAuthUserDisabled(projectId, userId, disabled);
+      await loadAuthUsers(authUsersSearch || undefined);
+    } catch (e) {
+      setAuthUsersError(e instanceof Error ? e.message : "Failed to update user");
+    } finally {
+      setActionLoading(null);
+    }
+  }
+
+  async function handleDeleteUser(userId: string) {
+    setActionLoading(userId + "-delete");
+    try {
+      await deleteAuthUser(projectId, userId);
+      setConfirmDeleteUser(null);
+      await loadAuthUsers(authUsersSearch || undefined);
+    } catch (e) {
+      setAuthUsersError(e instanceof Error ? e.message : "Failed to delete user");
+    } finally {
+      setActionLoading(null);
+    }
+  }
 
   const registerCallbackUrl = (provider: string): string => {
     return `${window.location.protocol}//${window.location.hostname}:5100/api/p/${projectId}/auth/oauth/${provider}/callback`;
@@ -411,6 +483,147 @@ export default function AuthSettingsPage() {
                 </Card>
               );
             })}
+          </div>
+
+          {/* M47: Auth Users */}
+
+          <div className="mt-8 mb-6">
+            <div className="flex justify-between items-center flex-wrap gap-2 mb-4">
+              <div>
+                <h2 className="text-2xl font-semibold tracking-tight flex items-center gap-2.5">
+                  <Users className="w-6 h-6" />
+                  <span>Auth Users</span>
+                </h2>
+                <p className="text-sm text-muted-foreground mt-1">
+                  End users registered in this project ({authUsersTotal} total).
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Input
+                  placeholder="Search by email…"
+                  value={authUsersSearch}
+                  onChange={(e) => setAuthUsersSearch(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') loadAuthUsers(authUsersSearch || undefined); }}
+                  className="w-56 text-sm"
+                />
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => loadAuthUsers(authUsersSearch || undefined)}
+                  disabled={authUsersLoading}
+                >
+                  {authUsersLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
+                </Button>
+              </div>
+            </div>
+
+            {authUsersError && (
+              <Card className="p-3 mb-4 border-destructive/50 bg-destructive/10 text-destructive text-sm flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                <span>{authUsersError}</span>
+              </Card>
+            )}
+
+            {authUsers.length === 0 && !authUsersLoading ? (
+              <Card className="p-8 text-center text-sm text-muted-foreground">
+                No auth users yet. Users will appear here after they register via your app.
+              </Card>
+            ) : (
+              <Card className="overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border bg-secondary/50">
+                      <th className="text-left p-3 font-medium text-muted-foreground">Email</th>
+                      <th className="text-left p-3 font-medium text-muted-foreground">Name</th>
+                      <th className="text-left p-3 font-medium text-muted-foreground">Status</th>
+                      <th className="text-left p-3 font-medium text-muted-foreground">MFA</th>
+                      <th className="text-left p-3 font-medium text-muted-foreground">Created</th>
+                      <th className="text-right p-3 font-medium text-muted-foreground">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {authUsers.map((u) => (
+                      <tr key={u.id} className="border-b border-border/50 hover:bg-secondary/30 transition-colors">
+                        <td className="p-3 font-mono text-xs">{u.email}</td>
+                        <td className="p-3">{u.name || "—"}</td>
+                        <td className="p-3">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            {u.verified ? (
+                              <Badge variant="green" className="text-[10px] gap-0.5"><Check className="w-2.5 h-2.5" />Verified</Badge>
+                            ) : (
+                              <Badge variant="secondary" className="text-[10px]">Unverified</Badge>
+                            )}
+                            {u.disabled && (
+                              <Badge variant="destructive" className="text-[10px]">Disabled</Badge>
+                            )}
+                          </div>
+                        </td>
+                        <td className="p-3">
+                          {u.mfaEnabled ? (
+                            <Badge variant="green" className="text-[10px]">On</Badge>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">Off</span>
+                          )}
+                        </td>
+                        <td className="p-3 text-xs text-muted-foreground">{new Date(u.created).toLocaleDateString()}</td>
+                        <td className="p-3 text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            {!u.verified && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 px-2 text-xs"
+                                disabled={actionLoading === u.id + "-verify"}
+                                onClick={() => handleVerifyUser(u.id, true)}
+                                title="Mark as verified"
+                              >
+                                {actionLoading === u.id + "-verify" ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+                              </Button>
+                            )}
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 px-2 text-xs"
+                              disabled={actionLoading === u.id + "-disable"}
+                              onClick={() => handleDisableUser(u.id, !u.disabled)}
+                              title={u.disabled ? "Enable user" : "Disable user"}
+                            >
+                              {actionLoading === u.id + "-disable" ? (
+                                <Loader2 className="w-3 h-3 animate-spin" />
+                              ) : u.disabled ? (
+                                <Check className="w-3 h-3" />
+                              ) : (
+                                <AlertTriangle className="w-3 h-3" />
+                              )}
+                            </Button>
+                            {confirmDeleteUser === u.id ? (
+                              <div className="flex items-center gap-1">
+                                <Button variant="destructive" size="sm" className="h-7 px-2 text-xs" disabled={actionLoading === u.id + "-delete"} onClick={() => handleDeleteUser(u.id)}>
+                                  {actionLoading === u.id + "-delete" ? <Loader2 className="w-3 h-3 animate-spin" /> : "Confirm"}
+                                </Button>
+                                <Button variant="secondary" size="sm" className="h-7 px-2 text-xs" onClick={() => setConfirmDeleteUser(null)}>
+                                  Cancel
+                                </Button>
+                              </div>
+                            ) : (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 px-2 text-xs text-muted-foreground hover:text-destructive"
+                                onClick={() => setConfirmDeleteUser(u.id)}
+                                title="Delete user"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </Button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </Card>
+            )}
           </div>
 
           {/* Integrasi untuk developer end-user app */}

@@ -420,6 +420,8 @@ export interface AuthUser {
   email: string;
   name?: string;
   verified: boolean;
+  disabled: boolean;
+  mfaEnabled?: boolean;
   created: string;
   updated: string;
   // password_hash TIDAK PERNAH dikirim server — lihat users.ts
@@ -435,10 +437,13 @@ export interface AuthUsersResult {
 
 export async function listAuthUsers(
   projectId: string,
-  page = 1
+  page = 1,
+  search?: string
 ): Promise<AuthUsersResult> {
+  const params = new URLSearchParams({ page: String(page), perPage: '50' });
+  if (search) params.set('search', search);
   return request<AuthUsersResult>(
-    `/api/admin/projects/${projectId}/auth-users?page=${page}&perPage=50`
+    `/api/admin/projects/${projectId}/auth-users?${params.toString()}`
   );
 }
 
@@ -468,6 +473,29 @@ export async function deleteAuthUser(projectId: string, userId: string): Promise
   await request(`/api/admin/projects/${projectId}/auth-users/${userId}`, {
     method: 'DELETE',
   });
+}
+
+// M47: verify / disable auth user
+export async function setAuthUserVerified(
+  projectId: string,
+  userId: string,
+  verified: boolean
+): Promise<{ success: boolean; verified: boolean }> {
+  return request<{ success: boolean; verified: boolean }>(
+    `/api/admin/projects/${projectId}/auth-users/${userId}/verify`,
+    { method: 'POST', body: JSON.stringify({ verified }) }
+  );
+}
+
+export async function setAuthUserDisabled(
+  projectId: string,
+  userId: string,
+  disabled: boolean
+): Promise<{ success: boolean; disabled: boolean }> {
+  return request<{ success: boolean; disabled: boolean }>(
+    `/api/admin/projects/${projectId}/auth-users/${userId}/disable`,
+    { method: 'POST', body: JSON.stringify({ disabled }) }
+  );
 }
 
 export interface CollectionRules {

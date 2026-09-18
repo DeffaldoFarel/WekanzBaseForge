@@ -18,6 +18,8 @@ import {
   findAuthUserById,
   changeAuthUserPassword,
   deleteAuthUser,
+  setAuthUserVerified,
+  setAuthUserDisabled,
 } from '../auth/users.js';
 import { initMfaTable, isMfaEnabled } from '../auth/mfa.js';
 
@@ -34,7 +36,8 @@ export function createUserAdminRouter(): Router {
       initMfaTable(db); // M27
       const page = req.query.get('page') ? parseInt(req.query.get('page')!, 10) : 1;
       const perPage = req.query.get('perPage') ? parseInt(req.query.get('perPage')!, 10) : 50;
-      const result = listAuthUsers(db, page, perPage);
+      const search = req.query.get('search') ?? undefined; // M47
+      const result = listAuthUsers(db, page, perPage, search);
       // M27: perkaya dengan status MFA per user
       const items = result.items.map((u) => ({ ...u, mfaEnabled: isMfaEnabled(db, u.id) }));
       res.json({ ...result, items });
@@ -118,6 +121,44 @@ export function createUserAdminRouter(): Router {
         return;
       }
       res.json({ user });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Internal error';
+      res.status(400).json({ error: { code: 'BAD_REQUEST', message } });
+    }
+  });
+
+  // M47: PATCH verify user
+  router.post('/api/admin/projects/:pid/auth-users/:uid/verify', requireAdmin, (req, res) => {
+    try {
+      const db = getProjectDb(req.params.pid);
+      initAuthUsersTable(db); // pastikan kolom disabled ada
+      const body = (req.body ?? {}) as { verified?: boolean };
+      const verified = body.verified !== false; // default true
+      const ok = setAuthUserVerified(db, req.params.uid, verified);
+      if (!ok) {
+        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'User not found' } });
+        return;
+      }
+      res.json({ success: true, verified });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Internal error';
+      res.status(400).json({ error: { code: 'BAD_REQUEST', message } });
+    }
+  });
+
+  // M47: PATCH disable/enable user
+  router.post('/api/admin/projects/:pid/auth-users/:uid/disable', requireAdmin, (req, res) => {
+    try {
+      const db = getProjectDb(req.params.pid);
+      initAuthUsersTable(db);
+      const body = (req.body ?? {}) as { disabled?: boolean };
+      const disabled = body.disabled !== false; // default true
+      const ok = setAuthUserDisabled(db, req.params.uid, disabled);
+      if (!ok) {
+        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'User not found' } });
+        return;
+      }
+      res.json({ success: true, disabled });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Internal error';
       res.status(400).json({ error: { code: 'BAD_REQUEST', message } });

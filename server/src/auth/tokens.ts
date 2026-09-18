@@ -120,6 +120,7 @@ export async function refreshAccessToken(
     name: row.name,
     avatarUrl: row.avatar_url,
     verified: true,
+    disabled: false,
     created: '',
     updated: '',
   };
