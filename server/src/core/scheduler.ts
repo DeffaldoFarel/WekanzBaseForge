@@ -14,6 +14,7 @@
 // ============================================================================
 
 import { listFunctions, StoredFunction } from './functionsStore.js';
+import { getSecretsForFunction } from './secretsStore.js';
 import { cronMatches, cronMatchesInTimezone } from './cronParser.js';
 import { runFunctionCode, FunctionRunResult } from './functionRunner.js';
 import type { DatabaseSync } from 'node:sqlite';
@@ -112,6 +113,7 @@ class Scheduler {
       projectDb: db,
       dbAccess: fn.dbAccess,
       depth: 0,
+      secrets: db ? getSecretsForFunction(db, fn.name) : {}, // M42
       scheduledContext: { time: now.toISOString() },
     })
       .then((result: FunctionRunResult) => {

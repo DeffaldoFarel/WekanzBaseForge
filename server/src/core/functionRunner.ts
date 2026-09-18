@@ -63,6 +63,12 @@ export interface FunctionRunOptions {
    * triggerExecutor — menghindari import melingkar.
    */
   onDbWrite?: DbSandboxContext['onWrite'];
+  /**
+   * M42: rahasia function (KEY → plaintext), disuntik sebagai `$env` frozen
+   * read-only. Didekripsi di HOST sebelum isolate dibuat (getSecretsForFunction),
+   * BUKAN di dalam sandbox. Function tidak bisa menulisnya balik.
+   */
+  secrets?: Record<string, string>;
   triggerContext?: {
     action: 'create' | 'update' | 'delete';
     collection: string;
@@ -181,6 +187,20 @@ const RUNTIME_PRELUDE = `
       };
     }
   };
+
+  // ── M42: $env — rahasia function, READ-ONLY via Proxy ──
+  // Kenapa bukan Object.freeze: ExternalCopy/copyInto melewati boundary
+  // isolate dan mengembalikan objek BARU yang tidak membawa status frozen;
+  // Object.freeze($env) di prelude pun terbukti tidak menempel (probe:
+  // isFrozen=false, write berhasil). Proxy dengan trap set/deleteProperty/
+  // defineProperty bekerja pada objek copy — deterministik & teruji.
+  // Konvensi process.env: baca key yang tidak ada → undefined (bukan error).
+  var $env = new Proxy(__envSource, {
+    set: function() { throw new TypeError('$env is read-only'); },
+    deleteProperty: function() { throw new TypeError('$env is read-only'); },
+    defineProperty: function() { throw new TypeError('$env is read-only'); },
+    setPrototypeOf: function() { throw new TypeError('$env is read-only'); }
+  });
 `;
 
 export async function runFunctionCode(
@@ -329,6 +349,12 @@ export async function runFunctionCode(
       }
     });
     jail.setSync('__setResult', setResult);
+
+    // ── M42: __envSource HARUS diset SEBELUM eval RUNTIME_PRELUDE ──
+    // Prelude membungkus __envSource menjadi $env (Proxy) — kalau variabelnya
+    // belum ada saat prelude jalan, guest melempar '__envSource is not defined'.
+    const envObject = { ...(opts.secrets ?? {}) };
+    jail.setSync('__envSource', new ivm.ExternalCopy(envObject).copyInto());
 
     // ── Runtime prelude (console, $http shim, serializer) ──
     await context.eval(RUNTIME_PRELUDE, { timeout: timeoutMs });

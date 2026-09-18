@@ -103,7 +103,7 @@ Untuk panduan mendalam tentang penggunaan BaseForge sebagai BaaS (Backend-as-a-S
 * ⚡ [**Serverless Functions, Database Triggers, & Scheduler Cron**](docs/functions.md)
 * 📡 [**Realtime Subscriptions (Server-Sent Events)**](docs/realtime.md)
 * 🖥️ [**Panduan Deployment Produksi (Linux Systemd, Caddy HTTPS, & Redis)**](docs/deployment.md)
-* 🧠 [**Jurnal Belajar Arsitektur (Milestone M00 – M41)**](docs/learnings/README.md)
+* 🧠 [**Jurnal Belajar Arsitektur (Milestone M00 – M42)**](docs/learnings/README.md)
 * 🥊 [**Perbandingan BaaS + Roadmap M40–M58 (vs PocketBase, Supabase, Appwrite)**](COMPARISON.md)
 
 ## 🗺️ Roadmap (per milestone)
@@ -276,6 +276,13 @@ Untuk panduan mendalam tentang penggunaan BaseForge sebagai BaaS (Backend-as-a-S
       (tulis pada depth ≥ 1 tidak memicu trigger), budget 200 panggilan,
       collection sistem (`_*`) ditolak. `$db` berjalan sebagai admin —
       API rules TIDAK berlaku (disengaja & terdokumentasi)
+- [x] M42 — Secrets store `$env` ✅ — rahasia per function, terenkripsi
+      at-rest (AES-256-GCM, skema mailer/MFA), disuntikkan ke sandbox sebagai
+      `$env` read-only via Proxy (Object.freeze tidak menyeberangi boundary
+      isolate). Admin API hanya mengembalikan metadata (`key`, `hasValue`) —
+      nilai tidak pernah keluar. Isolasi per function, maks 50 secrets,
+      key `[A-Z][A-Z0-9_]`, nilai ≤ 8 KB. Rotasi = PUT ulang key tanpa mengubah
+      kode yang sedang berjalan
 
 ### 🗺️ Rencana ke depan (M40–M58)
 

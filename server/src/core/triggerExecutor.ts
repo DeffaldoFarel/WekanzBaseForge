@@ -26,6 +26,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { getCollectionByName, CollectionMeta } from './schema.js';
 import { listFunctions, StoredFunction } from './functionsStore.js';
+import { getSecretsForFunction } from './secretsStore.js';
 import { runFunctionCode, FunctionRunResult } from './functionRunner.js';
 
 export interface TriggerOutcome {
@@ -69,6 +70,7 @@ export function fireTriggers(
       projectDb: db,
       dbAccess: fn.dbAccess,
       depth: depth + 1,
+      secrets: getSecretsForFunction(db, fn.name), // M42
       triggerContext: {
         action,
         collection,

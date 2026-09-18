@@ -203,6 +203,54 @@ tetap dihentikan wall-clock.
 
 ---
 
+## 🔑 Secrets: `$env` (M42)
+
+Function yang memanggil layanan luar (Stripe, Twilio, webhook pihak ketiga)
+butuh credential. Menaruhnya **di dalam kode function** berarti credential
+tersimpan plaintext di `_functions.code`, terekspos via Admin API, dan tidak
+bisa di-rotate tanpa mengubah kode. `$env` memisahkan rahasia dari kode —
+persis *project secrets* Supabase dan *environment variables* Appwrite.
+
+```js
+const key = $env.STRIPE_KEY;          // string, atau undefined jika belum diset
+if (!$env.STRIPE_KEY) throw new Error('STRIPE_KEY belum diset');
+
+const res = await $http.send({
+  url: 'https://api.stripe.com/v1/charges',
+  method: 'POST',
+  headers: { authorization: 'Bearer ' + $env.STRIPE_KEY },
+  body: payload,
+});
+```
+
+Rahasia disimpan **per function**, **terenkripsi at-rest** (AES-256-GCM, skema
+yang sama dengan mailer/MFA), dan didekripsi di host lalu disuntikkan sebagai
+objek `$env`. Key yang tidak diset bernilai `undefined` — konvensi `process.env`.
+
+### Mengelola secrets (Admin API)
+
+```
+PUT    /api/admin/projects/:pid/functions/:name/secrets          { key, value }
+GET    /api/admin/projects/:pid/functions/:name/secrets          → [{ key, hasValue: true, updated }]
+DELETE /api/admin/projects/:pid/functions/:name/secrets/:key
+```
+
+### Aturan
+
+| Aturan | Perilaku |
+|---|---|
+| **Read-only** | Function **tidak bisa** menulis `$env` balik (write → error `$env is read-only`). Rotasi hanya lewat Admin API — satu function terkompromi tidak bisa mengubah rahasia function lain. |
+| **Tidak pernah terekspos** | Admin API hanya mengembalikan **metadata** (`key`, `hasValue`, `updated`) — nilai tidak pernah keluar lewat response. |
+| **Isolasi per function** | Secret milik function A tidak terlihat di `$env` function B. |
+| **Batas** | Maks **50** secrets per function, key `[A-Z][A-Z0-9_]` (maks 64), nilai maks **8 KB**. |
+| **Tanggung jawab pemilik** | Jangan `console.log($env.KEY)` — console bridge menangkap log function, jadi rahasia yang di-log akan masuk ke log. |
+
+Rotasi = `PUT` ulang key yang sama dengan nilai baru; function yang sedang
+berjalan langsung memakai nilai baru pada eksekusi berikutnya **tanpa mengubah
+kode**.
+
+---
+
 ## 🖥️ Mengelola Fungsi lewat Dashboard
 
 Anda dapat membuat, mengedit, dan menguji fungsi secara visual melalui Admin Dashboard di `http://localhost:7701`:
