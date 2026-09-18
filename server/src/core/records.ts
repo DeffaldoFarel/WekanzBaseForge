@@ -44,6 +44,18 @@ export class DuplicateIdError extends Error {
   }
 }
 
+// M40: email sudah terpakai di auth collection (register duplikat)
+export class DuplicateEmailError extends Error {
+  collection: string;
+  email: string;
+  constructor(collection: string, email: string) {
+    super(`Email '${email}' is already registered in collection '${collection}'`);
+    this.name = 'DuplicateEmailError';
+    this.collection = collection;
+    this.email = email;
+  }
+}
+
 // M16a: guard view untuk operasi tulis
 function assertNotView(meta: CollectionMeta): void {
   if (isViewCollection(meta)) {
@@ -374,6 +386,19 @@ export function createRecord(
   const meta = mustGetCollection(db, collection);
   const fmap = fieldMap(meta);
   assertNotView(meta); // M16a: view read-only
+
+  // ── M40: email duplikat di auth collection (fail fast, sebelum validasi) ──
+  // Auth collections dipakai end-user apps (register/login) — email unik
+  // adalah kontrak inti (paritas PocketBase). Tanpa ini, register kedua
+  // dengan email sama sukses menimpa → akun lama ketinggalan / data kacau.
+  if (meta.type === 'auth' && typeof data.email === 'string') {
+    const dupe = db
+      .prepare(`SELECT id FROM \"${collection}\" WHERE LOWER(email) = ?`)
+      .get(data.email.trim().toLowerCase());
+    if (dupe) {
+      throw new DuplicateEmailError(collection, data.email.trim().toLowerCase());
+    }
+  }
 
   // ── M34: Custom document ID ──
   // Ekstrak 'id' dari data kalau ada (untuk kompatibilitas Appwrite/PocketBase migration).

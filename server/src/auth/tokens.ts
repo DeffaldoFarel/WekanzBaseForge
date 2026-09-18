@@ -46,7 +46,8 @@ export function initAuthTokensTable(db: DatabaseSync): void {
 
 // ─── Helper: hash refresh token (seperti password — M08!) ───────────────────
 
-function hashToken(token: string): string {
+// M40: diexport — dipakai auth-refresh/auth-logout collection di publicRoutes
+export function hashToken(token: string): string {
   return crypto.createHash('sha256').update(token).digest('hex');
 }
 

@@ -35,7 +35,7 @@ import {
 } from '../core/records.js';
 import { fireWebhooks } from '../core/webhooks.js';
 import { fireTriggersSafe } from '../core/triggerExecutor.js';
-import { DuplicateIdError } from '../core/records.js';
+import { DuplicateIdError, DuplicateEmailError } from '../core/records.js';
 import type { CollectionDefinition, IndexDefinition } from '../core/schema.js';
 import type { CollectionRules } from '../core/rules.js';
 import type { FieldDefinition } from '../core/fieldTypes.js';
@@ -454,6 +454,12 @@ function handleError(res: { status: (c: number) => { json: (d: unknown) => void 
   // M34: DuplicateIdError → 409 Conflict (bukan 400)
   if (err instanceof DuplicateIdError) {
     res.status(409).json({ error: { code: 'DOCUMENT_ID_TAKEN', message } });
+    return;
+  }
+
+  // M40: email duplikat di auth collection → 409 EMAIL_TAKEN
+  if (err instanceof DuplicateEmailError) {
+    res.status(409).json({ error: { code: 'EMAIL_TAKEN', message } });
     return;
   }
 
