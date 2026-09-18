@@ -64,6 +64,7 @@ export function fireTriggers(
     // Operasi CRUD asli sudah selesai; hasil trigger dicatat via .then.
     void runFunctionCode(fn.code, {
       timeoutMs: fn.timeoutMs,
+      memoryLimitMb: fn.memoryMb, // M44
       httpAllow: fn.httpAllow, // M25
       // M41: $db in-process. depth+1 = tulisan $db TIDAK memicu trigger lagi
       // (anti-rekursi: trigger → function → tulis → trigger → ... tak hingga).

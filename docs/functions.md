@@ -295,6 +295,41 @@ Function menautkan modul lewat `modules: string[]` saat POST/PATCH function.
 
 ---
 
+## ⏱️ Batas Eksekusi: `timeoutMs` & `memoryMb` (M44)
+
+Setiap function punya dua plafon yang **bisa diubah per function**:
+
+| Plafon | Default | Rentang | Artinya |
+|---|---|---|---|
+| `timeoutMs` | **2000 ms** | 100 – **120.000 ms** | Anggaran wall-clock total (termasuk menunggu `$http`). Melewatinya → `timedOut`. |
+| `memoryMb` | **32 MB** | 16 – **256 MB** | Heap isolate. Melewatinya → `oom` ("exceeded the N MB memory limit"). |
+
+Function **berat** (agregasi besar, laporan, impor) bisa dinaikkan eksplisit:
+
+```jsonc
+// POST/PATCH /api/admin/projects/:pid/functions/:name
+{ "timeoutMs": 120000, "memoryMb": 256 }
+```
+
+**Observability**: response execute mengembalikan `durationMs` dan `memoryMb`
+yang dipakai, sehingga pemilik bisa melihat kebutuhan nyata sebelum menaikkan
+plafon — angka dulu, bukan perasaan.
+
+### Kenapa plafonnya lebih ketat dari Appwrite/Supabase
+
+Appwrite memberi ~15 menit (container per invocation), Supabase 150–400 detik.
+BaseForge memberi maks **120 detik** karena arsitekturnya berbeda: **satu
+event loop**. Satu function yang macet 2 menit menahan semua request lain di
+server, jadi plafon yang lebih ketat justru melindungi tenant lain. Function
+yang butuh lebih lama harus dipecah (atau pakai schedule + chunking), bukan
+diberi heap/waktu tanpa batas.
+
+> Catatan keamanan: function yang kehabisan memori **tidak mematikan server** —
+> isolate yang OOM dibersihkan dengan aman dan dilaporkan sebagai `oom`, bukan
+> crash proses.
+
+---
+
 ## 🖥️ Mengelola Fungsi lewat Dashboard
 
 Anda dapat membuat, mengedit, dan menguji fungsi secara visual melalui Admin Dashboard di `http://localhost:7701`:

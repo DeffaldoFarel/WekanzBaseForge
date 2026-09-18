@@ -105,6 +105,7 @@ class Scheduler {
     // menunggu; anti double-fire sudah menandai SEBELUM run)
     void runFunctionCode(fn.code, {
       timeoutMs: fn.timeoutMs,
+      memoryLimitMb: fn.memoryMb, // M44
       maxLogs: 50,
       httpAllow: fn.httpAllow, // M25
       // M41: $db in-process. depth 0 = cron adalah pemanggil terluar, jadi

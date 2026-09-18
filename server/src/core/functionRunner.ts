@@ -95,6 +95,8 @@ export interface FunctionRunResult {
   durationMs: number;
   timedOut?: boolean;
   oom?: boolean;
+  /** M44: plafon memori yang dipakai eksekusi ini (untuk observability). */
+  memoryMb?: number;
 }
 
 // Bentuk req mengikuti kontrak: scheduled > trigger > callable
@@ -232,7 +234,14 @@ export async function runFunctionCode(
   const dispose = () => {
     if (!disposed) {
       disposed = true;
-      isolate.dispose();
+      try {
+        // M44: isolate yang OOM dibunuh V8 — memanggil dispose() lagi akan
+        // melempar 'Isolate is already disposed' dan MENGHANCURKAN proses,
+        // mengubah satu function yang kehabisan memori menjadi crash server.
+        if (!isolate.isDisposed) isolate.dispose();
+      } catch {
+        /* isolate sudah mati karena OOM — tidak ada yang perlu dibersihkan */
+      }
     }
   };
 
@@ -438,10 +447,11 @@ export async function runFunctionCode(
         error: String((result as Record<string, unknown>).__bfError),
         logs,
         durationMs: Date.now() - start,
+        memoryMb: memoryLimitMb, // M44: konsisten — semua path membawa plafon
       };
     }
 
-    return { ok: true, result, logs, durationMs: Date.now() - start };
+    return { ok: true, result, logs, durationMs: Date.now() - start, memoryMb: memoryLimitMb };
   } catch (err) {
     const rawMessage = err instanceof Error ? err.message : String(err);
     const timedOut =
@@ -458,6 +468,7 @@ export async function runFunctionCode(
       durationMs: Date.now() - start,
       timedOut,
       oom,
+      memoryMb: memoryLimitMb,
     };
   } finally {
     if (wallClockTimer) clearTimeout(wallClockTimer);

@@ -30,6 +30,7 @@ export interface StoredFunction {
   timezone: string; // M39: IANA timezone utk schedule (default "UTC")
   dbAccess: boolean; // M41: izin akses $db in-process (default false = off)
   modules: string[]; // M43: nama modul $lib yang di-load (urutan = urutan eval)
+  memoryMb: number; // M44: plafon memori isolate (16–256 MB, default 32)
   created: string;
   updated: string;
 }
@@ -46,6 +47,7 @@ interface FunctionRow {
   timezone: string | null; // M39
   db_access: number | null; // M41 (0/1)
   modules: string | null; // M43: JSON array nama modul
+  memory_mb: number | null; // M44
   created: string;
   updated: string;
 }
@@ -101,6 +103,11 @@ export function initFunctionsTable(db: DatabaseSync): void {
   if (!cols.some((c) => c.name === 'modules')) {
     db.exec(`ALTER TABLE _functions ADD COLUMN modules TEXT NOT NULL DEFAULT '[]'`);
   }
+
+  // M44: kolom memory_mb (16–256, default 32)
+  if (!cols.some((c) => c.name === 'memory_mb')) {
+    db.exec(`ALTER TABLE _functions ADD COLUMN memory_mb INTEGER NOT NULL DEFAULT 32`);
+  }
 }
 
 function rowToFunction(row: FunctionRow): StoredFunction {
@@ -137,6 +144,7 @@ function rowToFunction(row: FunctionRow): StoredFunction {
     timezone: row.timezone ?? 'UTC',
     dbAccess: row.db_access === 1,
     modules,
+    memoryMb: row.memory_mb ?? 32,
     created: row.created,
     updated: row.updated,
   };
@@ -195,11 +203,34 @@ function validateModules(list: string[] | undefined | null): string[] {
   return out;
 }
 
+// M44: plafon timeout dinaikkan 30s → 120s (default tetap 2000ms). BaseForge
+// berbagi SATU event loop, jadi plafon lebih ketat dari Appwrite (~15 mnt)
+// memang disengaja — satu function macet menahan semua request.
+export const MAX_FUNCTION_TIMEOUT_MS = 120_000;
+// M44: plafon memori isolate (16–256 MB). 256 MB = plafon Supabase Edge;
+// di atas itu function harus dipecah, bukan diberi heap lebih besar.
+export const MIN_FUNCTION_MEMORY_MB = 16;
+export const MAX_FUNCTION_MEMORY_MB = 256;
+
+// M44: validasi memory_mb
+function validateMemoryMb(value: number | undefined | null): number {
+  if (value === undefined || value === null) return 32;
+  if (typeof value !== 'number' || !Number.isInteger(value)) {
+    throw new Error('memoryMb must be an integer (MB)');
+  }
+  if (value < MIN_FUNCTION_MEMORY_MB || value > MAX_FUNCTION_MEMORY_MB) {
+    throw new Error(
+      `memoryMb must be between ${MIN_FUNCTION_MEMORY_MB} and ${MAX_FUNCTION_MEMORY_MB} MB`
+    );
+  }
+  return value;
+}
+
 // ─── CRUD ────────────────────────────────────────────────────────────────────
 
 export function createFunction(
   db: DatabaseSync,
-  def: { name: string; code: string; enabled?: boolean; timeoutMs?: number; triggers?: FunctionTrigger[]; schedule?: string | null; httpAllow?: string[]; timezone?: string; dbAccess?: boolean; modules?: string[] }
+  def: { name: string; code: string; enabled?: boolean; timeoutMs?: number; triggers?: FunctionTrigger[]; schedule?: string | null; httpAllow?: string[]; timezone?: string; dbAccess?: boolean; modules?: string[]; memoryMb?: number }
 ): StoredFunction {
   if (!isValidFunctionName(def.name)) {
     throw new Error(
@@ -214,9 +245,10 @@ export function createFunction(
   }
 
   const timeoutMs = def.timeoutMs ?? 2000;
-  if (timeoutMs < 100 || timeoutMs > 30_000) {
-    throw new Error('timeoutMs must be between 100 and 30000 ms');
+  if (timeoutMs < 100 || timeoutMs > MAX_FUNCTION_TIMEOUT_MS) {
+    throw new Error(`timeoutMs must be between 100 and ${MAX_FUNCTION_TIMEOUT_MS} ms`);
   }
+  const memoryMb = validateMemoryMb(def.memoryMb);
 
   const triggers = validateTriggers(def.triggers ?? []);
   const httpAllow = validateHttpAllow(def.httpAllow ?? []);
@@ -244,8 +276,8 @@ export function createFunction(
 
   const id = generateId();
   db.prepare(
-    `INSERT INTO _functions (id, name, code, enabled, timeout_ms, triggers, schedule, http_allow, timezone, db_access, modules) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(id, def.name, def.code, def.enabled === false ? 0 : 1, timeoutMs, JSON.stringify(triggers), schedule, JSON.stringify(httpAllow), timezone, def.dbAccess === true ? 1 : 0, JSON.stringify(modules));
+    `INSERT INTO _functions (id, name, code, enabled, timeout_ms, triggers, schedule, http_allow, timezone, db_access, modules, memory_mb) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(id, def.name, def.code, def.enabled === false ? 0 : 1, timeoutMs, JSON.stringify(triggers), schedule, JSON.stringify(httpAllow), timezone, def.dbAccess === true ? 1 : 0, JSON.stringify(modules), memoryMb);
 
   return getFunctionByName(db, def.name)!;
 }
@@ -290,7 +322,7 @@ export function getFunctionByName(db: DatabaseSync, name: string): StoredFunctio
 export function updateFunction(
   db: DatabaseSync,
   name: string,
-  updates: { code?: string; enabled?: boolean; timeoutMs?: number; triggers?: FunctionTrigger[]; schedule?: string | null; httpAllow?: string[]; timezone?: string; dbAccess?: boolean; modules?: string[] }
+  updates: { code?: string; enabled?: boolean; timeoutMs?: number; triggers?: FunctionTrigger[]; schedule?: string | null; httpAllow?: string[]; timezone?: string; dbAccess?: boolean; modules?: string[]; memoryMb?: number }
 ): StoredFunction | undefined {
   const existing = getFunctionByName(db, name);
   if (!existing) return undefined;
@@ -301,8 +333,13 @@ export function updateFunction(
     }
     if (updates.code.length > 100_000) throw new Error('Function code is too large (max 100KB)');
   }
-  if (updates.timeoutMs !== undefined && (updates.timeoutMs < 100 || updates.timeoutMs > 30_000)) {
-    throw new Error('timeoutMs must be between 100 and 30000 ms');
+  if (updates.timeoutMs !== undefined && (updates.timeoutMs < 100 || updates.timeoutMs > MAX_FUNCTION_TIMEOUT_MS)) {
+    throw new Error(`timeoutMs must be between 100 and ${MAX_FUNCTION_TIMEOUT_MS} ms`);
+  }
+  // M44: memory_mb — integer valid / tidak disentuh
+  let memoryMbValue: number | null = null;
+  if (updates.memoryMb !== undefined) {
+    memoryMbValue = validateMemoryMb(updates.memoryMb);
   }
   let triggersJson: string | null = null;
   if (updates.triggers !== undefined) {
@@ -348,6 +385,7 @@ export function updateFunction(
        timezone = COALESCE(?, timezone),
        db_access = COALESCE(?, db_access),
        modules = COALESCE(?, modules),
+       memory_mb = COALESCE(?, memory_mb),
        updated = strftime('%Y-%m-%dT%H:%M:%fZ','now')
      WHERE name = ?`
   ).run(
@@ -360,6 +398,7 @@ export function updateFunction(
     timezoneValue ?? null,
     updates.dbAccess === undefined ? null : updates.dbAccess ? 1 : 0,
     modulesJson,
+    memoryMbValue,
     name
   );
 

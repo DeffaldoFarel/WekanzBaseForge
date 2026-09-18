@@ -103,7 +103,7 @@ Untuk panduan mendalam tentang penggunaan BaseForge sebagai BaaS (Backend-as-a-S
 * ⚡ [**Serverless Functions, Database Triggers, & Scheduler Cron**](docs/functions.md)
 * 📡 [**Realtime Subscriptions (Server-Sent Events)**](docs/realtime.md)
 * 🖥️ [**Panduan Deployment Produksi (Linux Systemd, Caddy HTTPS, & Redis)**](docs/deployment.md)
-* 🧠 [**Jurnal Belajar Arsitektur (Milestone M00 – M43)**](docs/learnings/README.md)
+* 🧠 [**Jurnal Belajar Arsitektur (Milestone M00 – M44)**](docs/learnings/README.md)
 * 🥊 [**Perbandingan BaaS + Roadmap M40–M58 (vs PocketBase, Supabase, Appwrite)**](COMPARISON.md)
 
 ## 🗺️ Roadmap (per milestone)
@@ -291,6 +291,13 @@ Untuk panduan mendalam tentang penggunaan BaseForge sebagai BaaS (Backend-as-a-S
       antar-modul). Batas: 10 modul/function, 256 KB/modul. Sekalian
       memperbaiki bug lama runFunctionCode: wall-clock timer kini di-clear
       (menghapus unhandled rejection setelah eksekusi)
+- [x] M44 — Function limits configurable ✅ — `timeoutMs` naik ke plafon 120s
+      (dari 30s), `memoryMb` kini kolom per-function (16–256 MB, default 32).
+      Execute mengembalikan `durationMs` + `memoryMb` untuk observability.
+      Keputusan no-pool-isolate berbasis spike (hemat hanya ~1.3 ms/run, tak
+      sebanding risiko state leak). Sekalian memperbaiki bug KRITIS: OOM
+      sungguhan dulu crash server (`Isolate is already disposed`) — kini
+      dilaporkan bersih sebagai `{ oom: true }` dan server tetap hidup
 
 ### 🗺️ Rencana ke depan (M40–M58)
 

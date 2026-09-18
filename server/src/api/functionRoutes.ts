@@ -69,6 +69,7 @@ export function createFunctionRouter(): Router {
         timezone?: string;
         dbAccess?: boolean;
         modules?: string[];
+        memoryMb?: number;
       };
       if (!body.name || !body.code) {
         res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'name and code are required' } });
@@ -102,6 +103,7 @@ export function createFunctionRouter(): Router {
         timezone: body.timezone, // M39
         dbAccess: body.dbAccess, // M41
         modules: body.modules, // M43
+        memoryMb: body.memoryMb, // M44
       });
       res.status(201).json({ function: fn });
     } catch (err) {
@@ -149,6 +151,7 @@ export function createFunctionRouter(): Router {
         timezone?: string;
         dbAccess?: boolean;
         modules?: string[];
+        memoryMb?: number;
       };
       // Validasi trigger collection terhadap skema project
       let triggers;
@@ -177,6 +180,7 @@ export function createFunctionRouter(): Router {
         timezone: body.timezone, // M39: undefined = tidak disentuh
         dbAccess: body.dbAccess, // M41: undefined = tidak disentuh
         modules: body.modules, // M43: undefined = tidak disentuh
+        memoryMb: body.memoryMb, // M44: undefined = tidak disentuh
       });
       if (!fn) {
         res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Function not found' } });
@@ -350,6 +354,7 @@ export function createFunctionRouter(): Router {
         query: body.query ?? {},
         auth: null,
         timeoutMs: fn.timeoutMs,
+        memoryLimitMb: fn.memoryMb, // M44
         httpAllow: fn.httpAllow, // M25: allowlist $http per function
         // M41: $db in-process. depth 0 = invoke langsung → tulisan $db
         // boleh memicu trigger; onDbWrite disuntik agar reaksi tetap jalan.
@@ -391,6 +396,7 @@ export function createFunctionRouter(): Router {
         query: body.query ?? {},
         auth: await resolveUserAuth(req),
         timeoutMs: fn.timeoutMs,
+        memoryLimitMb: fn.memoryMb, // M44
         httpAllow: fn.httpAllow, // M25: allowlist $http per function
         // M41: $db in-process (lihat catatan IDENTITAS di dbSandbox.ts —
         // $db berjalan sebagai admin, TIDAK dibatasi API rules, walaupun
