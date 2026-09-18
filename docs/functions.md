@@ -153,6 +153,56 @@ Total anggaran waktu function (timeoutMs) **termasuk** waktu menunggu `$http`
 
 ---
 
+## 🗄️ Akses Database: `$db` (M41)
+
+`$db` memberi function akses **langsung ke database project — dalam proses yang
+sama**, tanpa lewat jaringan. Server, SQLite, dan runtime function hidup di satu
+proses, jadi tidak ada HTTP, tidak ada kredensial, dan tidak ada latensi jaringan.
+
+> Ini keunggulan struktural BaseForge: Supabase Edge Function harus memperlakukan
+> Postgres sebagai layanan remote ter-pool, dan Appwrite Function harus memanggil
+> REST API-nya sendiri. Di BaseForge, panggilannya langsung.
+
+`$db` **mati secara default**. Nyalakan dengan `dbAccess: true` pada function
+(kolom `db_access`) — function lama tidak berubah perilaku.
+
+```js
+// Semua method mengembalikan Promise → pakai await
+const res = await $db.collection('investments').list({
+  filter: 'userId = "u1"',   // sintaks filter M04, sama dengan REST API
+  sort: '-created',
+  page: 1,
+  perPage: 500,               // maksimum 500 per panggilan
+});
+// → { page, perPage, totalItems, totalPages, items: [...] }
+
+const rec  = await $db.collection('investments').get(id);        // record | null
+const made = await $db.collection('investments').create({ instrument: 'BTC' });
+const upd  = await $db.collection('investments').update(id, { totalUnits: 42 });
+const gone = await $db.collection('investments').delete(id);     // boolean
+```
+
+### ⚠️ `$db` berjalan sebagai admin — API rules TIDAK berlaku
+
+Ini **disengaja**: tugas function justru menulis field yang rules larang ditulis
+client (agregat yang dikelola backend). Konsekuensinya, kode di dalam function
+adalah kode tepercaya — `$db` bisa membaca dan menulis collection yang ditolak
+untuk end user. Karena itu aksesnya opt-in per function.
+
+### Aturan Keamanan (4 gerbang)
+
+| Gerbang | Perilaku |
+|---|---|
+| **Opt-in** | `$db` hanya hidup kalau `dbAccess: true`. Memanggilnya saat mati → error `$db is not enabled for this function`. |
+| **Anti-rekursi** | Tulisan `$db` dari function yang **dipicu trigger** (depth ≥ 1) tidak memicu trigger lagi. Tanpa ini: trigger → function → tulis → trigger → tak hingga. Dipanggil dari HTTP/cron (depth 0), tulisan `$db` **tetap** memicu trigger. |
+| **Budget** | Maksimum **200** panggilan `$db` per eksekusi (`maxDbCalls`). Proses tunggal: satu function tidak boleh memonopoli event loop. |
+| **Collection sistem** | Nama berawalan `_` (`_auth_users`, `_functions`, `_collections`, …) selalu ditolak — mencegah eskalasi privilese dari sandbox. |
+
+Anggaran `timeoutMs` function tetap berlaku penuh, jadi loop `$db` yang panjang
+tetap dihentikan wall-clock.
+
+---
+
 ## 🖥️ Mengelola Fungsi lewat Dashboard
 
 Anda dapat membuat, mengedit, dan menguji fungsi secara visual melalui Admin Dashboard di `http://localhost:7701`:

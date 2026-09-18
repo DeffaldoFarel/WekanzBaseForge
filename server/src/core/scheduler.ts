@@ -61,8 +61,10 @@ class Scheduler {
 
     for (const provider of this.dbProviders) {
       let functions: StoredFunction[];
+      let providerDb: DatabaseSync;
       try {
-        functions = listFunctions(provider());
+        providerDb = provider();
+        functions = listFunctions(providerDb);
       } catch {
         continue; // DB project belum siap — coba menit depan
       }
@@ -85,7 +87,7 @@ class Scheduler {
 
         // Tandai SEBELUM run — kalau crash, tetap tidak diulang menit ini
         this.lastRunMinute.set(runKey, minuteKey);
-        this.runScheduled(fn, now);
+        this.runScheduled(fn, now, providerDb);
 
         // Cegah Map tumbuh tanpa batas: buang run key lama (> 2 menit)
         if (this.lastRunMinute.size > 1000) {
@@ -97,13 +99,19 @@ class Scheduler {
     }
   }
 
-  private runScheduled(fn: StoredFunction, now: Date): void {
+  private runScheduled(fn: StoredFunction, now: Date, db?: DatabaseSync): void {
     // M18a: isolated-vm runner ASYNC — run di-background (scheduler tidak
     // menunggu; anti double-fire sudah menandai SEBELUM run)
     void runFunctionCode(fn.code, {
       timeoutMs: fn.timeoutMs,
       maxLogs: 50,
       httpAllow: fn.httpAllow, // M25
+      // M41: $db in-process. depth 0 = cron adalah pemanggil terluar, jadi
+      // tulisan $db BOLEH memicu trigger (perilaku yang diinginkan untuk
+      // rollover harian yang harus menjalankan reaksi turunannya).
+      projectDb: db,
+      dbAccess: fn.dbAccess,
+      depth: 0,
       scheduledContext: { time: now.toISOString() },
     })
       .then((result: FunctionRunResult) => {

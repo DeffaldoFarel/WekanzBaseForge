@@ -31,6 +31,13 @@
 
 import ivm from 'isolated-vm';
 import { sandboxedHttpSend } from './httpSandbox.js';
+import {
+  sandboxedDbCall,
+  DEFAULT_MAX_DB_CALLS,
+  type DbCallOptions,
+  type DbSandboxContext,
+} from './dbSandbox.js';
+import type { DatabaseSync } from 'node:sqlite';
 import type { RequestContext } from './query/sqlBuilder.js';
 
 export interface FunctionRunOptions {
@@ -42,6 +49,20 @@ export interface FunctionRunOptions {
   memoryLimitMb?: number; // default 32MB per isolate
   /** M25: allowlist host untuk $http (kosong = $http dimatikan) */
   httpAllow?: string[];
+  /** M41: DB project — WAJIB ada agar $db bisa aktif */
+  projectDb?: DatabaseSync;
+  /** M41: function ini diizinkan pakai $db? (default false = off) */
+  dbAccess?: boolean;
+  /** M41: kedalaman eksekusi — depth>=1 menekan trigger dari tulisan $db */
+  depth?: number;
+  /** M41: budget panggilan $db per eksekusi (default 200) */
+  maxDbCalls?: number;
+  /**
+   * M41: dipanggil setelah tulis $db sukses (depth 0 saja). Disuntik oleh
+   * pemanggil (API/trigger/scheduler) agar functionRunner tidak mengimpor
+   * triggerExecutor — menghindari import melingkar.
+   */
+  onDbWrite?: DbSandboxContext['onWrite'];
   triggerContext?: {
     action: 'create' | 'update' | 'delete';
     collection: string;
@@ -123,6 +144,41 @@ const RUNTIME_PRELUDE = `
           { arguments: [ { copy: true }, { reference: true } ], async: true }
         );
       });
+    }
+  };
+
+  // ── M41: $db shim — jembatan async ke database in-process ──
+  // Pola IDENTIK $http (M25): options JSON string (copy) + callback (reference).
+  // Host memanggil balik dengan (errorMessage | null, serializedResult).
+  var __dbCall = function(opts) {
+    return new Promise(function(resolve, reject) {
+      var serialized;
+      try { serialized = __stringify(opts); }
+      catch (e) { reject(new Error('$db: arguments are not serializable')); return; }
+      __dbSend.apply(
+        null,
+        [serialized, function(err, resultJson) {
+          if (err) {
+            reject(new Error(typeof err === 'string' ? err : __stringify(err)));
+            return;
+          }
+          try { resolve(JSON.parse(resultJson)); }
+          catch (e) { reject(e); }
+        }],
+        { arguments: [ { copy: true }, { reference: true } ], async: true }
+      );
+    });
+  };
+
+  var $db = {
+    collection: function(name) {
+      return {
+        list:   function(o) { o = o || {}; return __dbCall({ op: 'list', collection: name, filter: o.filter, sort: o.sort, page: o.page, perPage: o.perPage, expand: o.expand }); },
+        get:    function(id, o) { o = o || {}; return __dbCall({ op: 'get', collection: name, id: id, expand: o.expand }); },
+        create: function(data) { return __dbCall({ op: 'create', collection: name, data: data }); },
+        update: function(id, data) { return __dbCall({ op: 'update', collection: name, id: id, data: data }); },
+        delete: function(id) { return __dbCall({ op: 'delete', collection: name, id: id }); }
+      };
     }
   };
 `;
@@ -218,6 +274,52 @@ export async function runFunctionCode(
       }
     );
     jail.setSync('__httpSend', httpSend);
+
+    // ── M41: $db bridge — gerbang tunggal ke dbSandbox ──
+    // Pola sama dengan $http: Reference host, callback guest via .apply async.
+    // Konteks (counter budget) dibuat SEKALI per eksekusi agar budget dibagi
+    // seluruh panggilan $db dalam satu run.
+    const dbCtx: DbSandboxContext = {
+      db: opts.projectDb as DatabaseSync,
+      dbAccess: opts.dbAccess === true && opts.projectDb !== undefined,
+      depth: opts.depth ?? 0,
+      callCounter: { count: 0 },
+      maxDbCalls: opts.maxDbCalls ?? DEFAULT_MAX_DB_CALLS,
+      onWrite: opts.onDbWrite,
+    };
+
+    const dbSend = new ivm.Reference(
+      (serializedOpts: string, callback: ivm.Reference<(...args: unknown[]) => unknown>) => {
+        if (disposed) return;
+        const reply = (err: string | null, payload?: string): void => {
+          if (disposed) return;
+          try {
+            const invoked = callback.apply(
+              null,
+              [err, payload ?? null],
+              { arguments: { copy: true }, async: true }
+            ) as unknown;
+            if (invoked && typeof (invoked as Promise<unknown>).catch === 'function') {
+              (invoked as Promise<unknown>).catch(() => {});
+            }
+          } catch {
+            /* isolate sudah mati — abaikan */
+          }
+        };
+        let parsedOpts: unknown;
+        try {
+          parsedOpts = JSON.parse(serializedOpts);
+        } catch {
+          reply('$db: arguments must be valid JSON');
+          return;
+        }
+        // sandboxedDbCall async agar seragam dengan $http, walau records.ts sinkron
+        sandboxedDbCall(parsedOpts as DbCallOptions, dbCtx)
+          .then((result) => reply(null, JSON.stringify(result ?? null)))
+          .catch((err) => reply(err instanceof Error ? err.message : String(err)));
+      }
+    );
+    jail.setSync('__dbSend', dbSend);
 
     // ── Result bridge: __setResult(serialized) → resolve deferred ──
     const setResult = new ivm.Callback((serialized: string) => {

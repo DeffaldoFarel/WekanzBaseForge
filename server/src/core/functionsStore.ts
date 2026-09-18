@@ -28,6 +28,7 @@ export interface StoredFunction {
   schedule: string | null; // M15c: cron expression (null = bukan scheduled)
   httpAllow: string[]; // M25: allowlist host utk $http (kosong = $http off)
   timezone: string; // M39: IANA timezone utk schedule (default "UTC")
+  dbAccess: boolean; // M41: izin akses $db in-process (default false = off)
   created: string;
   updated: string;
 }
@@ -42,6 +43,7 @@ interface FunctionRow {
   schedule: string | null; // M15c
   http_allow: string | null; // JSON string — M25
   timezone: string | null; // M39
+  db_access: number | null; // M41 (0/1)
   created: string;
   updated: string;
 }
@@ -87,6 +89,11 @@ export function initFunctionsTable(db: DatabaseSync): void {
   if (!cols.some((c) => c.name === 'timezone')) {
     db.exec(`ALTER TABLE _functions ADD COLUMN timezone TEXT NOT NULL DEFAULT 'UTC'`);
   }
+
+  // M41: kolom db_access (0/1) — default 0 supaya function lama tidak berubah
+  if (!cols.some((c) => c.name === 'db_access')) {
+    db.exec(`ALTER TABLE _functions ADD COLUMN db_access INTEGER NOT NULL DEFAULT 0`);
+  }
 }
 
 function rowToFunction(row: FunctionRow): StoredFunction {
@@ -114,6 +121,7 @@ function rowToFunction(row: FunctionRow): StoredFunction {
     schedule: row.schedule ?? null,
     httpAllow,
     timezone: row.timezone ?? 'UTC',
+    dbAccess: row.db_access === 1,
     created: row.created,
     updated: row.updated,
   };
@@ -153,7 +161,7 @@ function validateHttpAllow(list: string[] | undefined | null): string[] {
 
 export function createFunction(
   db: DatabaseSync,
-  def: { name: string; code: string; enabled?: boolean; timeoutMs?: number; triggers?: FunctionTrigger[]; schedule?: string | null; httpAllow?: string[]; timezone?: string }
+  def: { name: string; code: string; enabled?: boolean; timeoutMs?: number; triggers?: FunctionTrigger[]; schedule?: string | null; httpAllow?: string[]; timezone?: string; dbAccess?: boolean }
 ): StoredFunction {
   if (!isValidFunctionName(def.name)) {
     throw new Error(
@@ -197,8 +205,8 @@ export function createFunction(
 
   const id = generateId();
   db.prepare(
-    `INSERT INTO _functions (id, name, code, enabled, timeout_ms, triggers, schedule, http_allow, timezone) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(id, def.name, def.code, def.enabled === false ? 0 : 1, timeoutMs, JSON.stringify(triggers), schedule, JSON.stringify(httpAllow), timezone);
+    `INSERT INTO _functions (id, name, code, enabled, timeout_ms, triggers, schedule, http_allow, timezone, db_access) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(id, def.name, def.code, def.enabled === false ? 0 : 1, timeoutMs, JSON.stringify(triggers), schedule, JSON.stringify(httpAllow), timezone, def.dbAccess === true ? 1 : 0);
 
   return getFunctionByName(db, def.name)!;
 }
@@ -243,7 +251,7 @@ export function getFunctionByName(db: DatabaseSync, name: string): StoredFunctio
 export function updateFunction(
   db: DatabaseSync,
   name: string,
-  updates: { code?: string; enabled?: boolean; timeoutMs?: number; triggers?: FunctionTrigger[]; schedule?: string | null; httpAllow?: string[]; timezone?: string }
+  updates: { code?: string; enabled?: boolean; timeoutMs?: number; triggers?: FunctionTrigger[]; schedule?: string | null; httpAllow?: string[]; timezone?: string; dbAccess?: boolean }
 ): StoredFunction | undefined {
   const existing = getFunctionByName(db, name);
   if (!existing) return undefined;
@@ -294,6 +302,7 @@ export function updateFunction(
        schedule = ?,
        http_allow = COALESCE(?, http_allow),
        timezone = COALESCE(?, timezone),
+       db_access = COALESCE(?, db_access),
        updated = strftime('%Y-%m-%dT%H:%M:%fZ','now')
      WHERE name = ?`
   ).run(
@@ -304,6 +313,7 @@ export function updateFunction(
     scheduleValue !== undefined ? scheduleValue : existing.schedule, // undefined = tidak disentuh
     httpAllowJson,
     timezoneValue ?? null,
+    updates.dbAccess === undefined ? null : updates.dbAccess ? 1 : 0,
     name
   );
 

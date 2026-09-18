@@ -41,7 +41,8 @@ export function fireTriggers(
   collection: string,
   action: 'create' | 'update' | 'delete',
   record: Record<string, unknown>,
-  previous?: Record<string, unknown> | null
+  previous?: Record<string, unknown> | null,
+  depth = 0 // M41: kedalaman pemanggil (0 = dari HTTP/cron langsung)
 ): TriggerOutcome[] {
   let functions: StoredFunction[];
   try {
@@ -63,6 +64,11 @@ export function fireTriggers(
     void runFunctionCode(fn.code, {
       timeoutMs: fn.timeoutMs,
       httpAllow: fn.httpAllow, // M25
+      // M41: $db in-process. depth+1 = tulisan $db TIDAK memicu trigger lagi
+      // (anti-rekursi: trigger → function → tulis → trigger → ... tak hingga).
+      projectDb: db,
+      dbAccess: fn.dbAccess,
+      depth: depth + 1,
       triggerContext: {
         action,
         collection,
@@ -102,10 +108,11 @@ export function fireTriggersSafe(
   collection: string,
   action: 'create' | 'update' | 'delete',
   record: Record<string, unknown>,
-  previous?: Record<string, unknown> | null
+  previous?: Record<string, unknown> | null,
+  depth = 0 // M41
 ): void {
   try {
-    fireTriggers(db, collection, action, record, previous);
+    fireTriggers(db, collection, action, record, previous, depth);
   } catch (err) {
     console.error(`[trigger] unexpected error firing ${collection}.${action}:`, err);
   }

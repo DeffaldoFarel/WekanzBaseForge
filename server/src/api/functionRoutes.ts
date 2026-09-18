@@ -28,6 +28,7 @@ import {
   deleteFunction,
 } from '../core/functionsStore.js';
 import { runFunctionCode } from '../core/functionRunner.js';
+import { fireTriggersSafe } from '../core/triggerExecutor.js';
 import type { RequestContext } from '../core/query/sqlBuilder.js';
 import { verifyToken } from '../auth/jwt.js';
 import { validateToken } from '../platform/adminAuth.js';
@@ -64,6 +65,7 @@ export function createFunctionRouter(): Router {
         schedule?: string | null;
         httpAllow?: string[];
         timezone?: string;
+        dbAccess?: boolean;
       };
       if (!body.name || !body.code) {
         res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'name and code are required' } });
@@ -95,6 +97,7 @@ export function createFunctionRouter(): Router {
         schedule: body.schedule,
         httpAllow: body.httpAllow, // M25
         timezone: body.timezone, // M39
+        dbAccess: body.dbAccess, // M41
       });
       res.status(201).json({ function: fn });
     } catch (err) {
@@ -140,6 +143,7 @@ export function createFunctionRouter(): Router {
         schedule?: string | null;
         httpAllow?: string[];
         timezone?: string;
+        dbAccess?: boolean;
       };
       // Validasi trigger collection terhadap skema project
       let triggers;
@@ -166,6 +170,7 @@ export function createFunctionRouter(): Router {
         schedule: body.schedule,
         httpAllow: body.httpAllow, // M25: undefined = tidak disentuh
         timezone: body.timezone, // M39: undefined = tidak disentuh
+        dbAccess: body.dbAccess, // M41: undefined = tidak disentuh
       });
       if (!fn) {
         res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Function not found' } });
@@ -213,6 +218,13 @@ export function createFunctionRouter(): Router {
         auth: null,
         timeoutMs: fn.timeoutMs,
         httpAllow: fn.httpAllow, // M25: allowlist $http per function
+        // M41: $db in-process. depth 0 = invoke langsung → tulisan $db
+        // boleh memicu trigger; onDbWrite disuntik agar reaksi tetap jalan.
+        projectDb: db,
+        dbAccess: fn.dbAccess,
+        depth: 0,
+        onDbWrite: (action, collection, record, previous) =>
+          fireTriggersSafe(db, collection, action, record, previous, 1),
       });
       res.json(result);
     } catch (err) {
@@ -245,6 +257,14 @@ export function createFunctionRouter(): Router {
         auth: await resolveUserAuth(req),
         timeoutMs: fn.timeoutMs,
         httpAllow: fn.httpAllow, // M25: allowlist $http per function
+        // M41: $db in-process (lihat catatan IDENTITAS di dbSandbox.ts —
+        // $db berjalan sebagai admin, TIDAK dibatasi API rules, walaupun
+        // pemanggilnya end user; itulah gunanya opt-in db_access).
+        projectDb: db,
+        dbAccess: fn.dbAccess,
+        depth: 0,
+        onDbWrite: (action, collection, record, previous) =>
+          fireTriggersSafe(db, collection, action, record, previous, 1),
       });
 
       if (!result.ok) {

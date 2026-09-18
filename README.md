@@ -103,8 +103,8 @@ Untuk panduan mendalam tentang penggunaan BaseForge sebagai BaaS (Backend-as-a-S
 * ⚡ [**Serverless Functions, Database Triggers, & Scheduler Cron**](docs/functions.md)
 * 📡 [**Realtime Subscriptions (Server-Sent Events)**](docs/realtime.md)
 * 🖥️ [**Panduan Deployment Produksi (Linux Systemd, Caddy HTTPS, & Redis)**](docs/deployment.md)
-* 🧠 [**Jurnal Belajar Arsitektur (Milestone M00 – M39)**](docs/learnings/README.md)
-* 🥊 [**Perbandingan BaaS + Roadmap M40–M57 (vs PocketBase, Supabase, Appwrite)**](COMPARISON.md)
+* 🧠 [**Jurnal Belajar Arsitektur (Milestone M00 – M41)**](docs/learnings/README.md)
+* 🥊 [**Perbandingan BaaS + Roadmap M40–M58 (vs PocketBase, Supabase, Appwrite)**](COMPARISON.md)
 
 ## 🗺️ Roadmap (per milestone)
 
@@ -266,11 +266,22 @@ Untuk panduan mendalam tentang penggunaan BaseForge sebagai BaaS (Backend-as-a-S
       kredensial admin ter-hash scrypt OWASP di `_platform_admins` (`platform.db`)
       dengan fallback transparan ke env var, UI adaptif `/signup` & `/login`
 
-### 🗺️ Rencana ke depan (M40–M57)
+### 🗄️ Functions in-process — prasyarat migrasi WekanzDashboard
+
+- [x] M41 — `$db` binding in-process ✅ — function memanggil database langsung
+      lewat `$db.collection(name).list/get/create/update/delete` tanpa HTTP,
+      tanpa kredensial, tanpa latensi jaringan (keunggulan satu-proses yang
+      tidak bisa ditiru Supabase Edge Function / Appwrite Function). Opt-in
+      per function (`dbAccess`, default OFF), 4 gerbang: opt-in, anti-rekursi
+      (tulis pada depth ≥ 1 tidak memicu trigger), budget 200 panggilan,
+      collection sistem (`_*`) ditolak. `$db` berjalan sebagai admin —
+      API rules TIDAK berlaku (disengaja & terdokumentasi)
+
+### 🗺️ Rencana ke depan (M40–M58)
 
 > 18 milestone berikutnya (quick wins auth → paritas inti → ops & DX → proyek
 > besar) kini punya **satu rumah saja: [COMPARISON.md](COMPARISON.md) §Roadmap
-> M40–M57** — dikelola di sana agar tidak ada dua sumber roadmap yang saling
+> M40–M58** — dikelola di sana agar tidak ada dua sumber roadmap yang saling
 > bohong. Selesainya Tahap 1 (M40–M44) → cakupan kompetitif 47/60; semua
 > tuntas → 60/60. Nomor bergeser dari rencana lama karena **M34–M39 telah
 > terpakai (dan tuntas) untuk gelombang audit kesiapan WekanzDashboard**

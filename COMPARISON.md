@@ -215,9 +215,11 @@
 | 41 | SDK TypeScript + Docs viewer in-product | M00/M24 |
 | 42 | Query lintas collection — join dinamis + N+1 solver | M12 |
 
-### ❌ 18 gap → 🗺️ Roadmap M40–M57 (milestone ke depan)
+### ❌ 18 gap → 🗺️ Roadmap M40–M58 (milestone ke depan)
 
 > 18 gap yang tersisa dipetakan menjadi milestone lanjutan dengan konvensi repo (satu milestone per pass, dikerjakan dengan `lanjut M##`). Urutan di bawah adalah **usulan prioritas** — quick wins dulu (pola lama tinggal dipakai ulang), proyek besar belakangan. Tiap milestone standalone dan urutannya bebas diacak. Menutup 18/18 → cakupan peta kompetitif 60/60 (100%).
+>
+> **Catatan penomoran (2026-09-18):** nomor **M41 dipakai oleh milestone terkirim `$db` binding** (akses database in-process untuk functions — bukan bagian peta 60-gap, melainkan prasyarat migrasi WekanzDashboard). Entry roadmap "Generic OAuth2/OIDC provider" yang semula M41 **dipindah ke M58**. Milestone number adalah namespace BERSAMA antara roadmap dan gelombang terkirim; saat gelombang memakai nomor yang roadmap reserve, roadmap-lah yang direnumber di pass yang sama.
 >
 > **Catatan penomoran (2026-09-17):** nomor **M34–M39 tidak dipakai di roadmap ini** — sudah terpakai dan **tuntas** untuk gelombang audit kesiapan backend WekanzDashboard (M34 Custom Document ID, M35 Bucket Storage, M36 SSE Auto-Reconnect, M37 401 Auto-Refresh, M38 Delete Event Full Payload, M39 Cron Timezone IANA — 6 fitur kesiapan-klien di luar peta 60-gap yang membuat BaseForge siap drop-in untuk aplikasi Appwrite-style). Roadmap kompetitif dilanjutkan dari M40. Ke-18 gap di bawah masih terbuka — tidak ada yang tertutup oleh gelombang audit tersebut.
 
@@ -226,8 +228,8 @@
 | Milestone | Judul | Dimiliki oleh | Prioritas | Effort | Reuse pola |
 |---|---|---|---|---|---|
 | **M40** | Magic link / passwordless login | PB, SB, AW | 🔴 Tinggi | Kecil | Token aksi sekali-pakai (M23) + mailer/Dev Outbox |
-| **M41** | Generic OAuth2/OIDC provider (Keycloak, Authentik — URL custom) | PB, SB | 🔴 Tinggi | Kecil | Satu entry `OAUTH_PROVIDER_DEFS` (pola M31) |
-| **M42** | Apple Sign-In penuh (ES256 JWT client secret dari private key) | PB, SB, AW | 🔴 Tinggi | Menengah | Entry generic M41 + signing ES256 via `node:crypto` |
+| **M58** | Generic OAuth2/OIDC provider (Keycloak, Authentik — URL custom) | PB, SB | 🔴 Tinggi | Kecil | Satu entry `OAUTH_PROVIDER_DEFS` (pola M31) |
+| **M42** | Apple Sign-In penuh (ES256 JWT client secret dari private key) | PB, SB, AW | 🔴 Tinggi | Menengah | Entry generic M58 + signing ES256 via `node:crypto` |
 | **M43** | Anonymous auth (record guest → merge saat signup) | PB, SB, AW | 🟡 Menengah | Kecil | Auth collection + JWT (M09) |
 | **M44** | Impersonate user + daftar sesi per-user (revoke individual) | PB, AW | 🟡 Menengah | Kecil | Tabel `_auth_tokens` (M09) + user-admin routes |
 
@@ -259,7 +261,7 @@
 | **M56** | Multi-node / replikasi HA (ala LiteFS) | PB, SB | 🟡 Menengah | Besar | Baru — layer replikasi SQLite |
 | **M57** | GraphQL API | SB, AW | 🟡 Menengah | Besar | Query AST (M04) sebagai fondasi resolver |
 
-> **Catatan urutan:** M41 → M42 berurutan paling efisien — setelah entry generic OIDC ada, Apple tinggal generator ES256. M40 berdiri sendiri. M45 menggabungkan dua fondasi yang sudah ada (SigV4 M30 + expiring token M23).
+> **Catatan urutan:** M58 → M42 berurutan paling efisien — setelah entry generic OIDC ada, Apple tinggal generator ES256. M40 berdiri sendiri. M45 menggabungkan dua fondasi yang sudah ada (SigV4 M30 + expiring token M23).
 
 ---
 
