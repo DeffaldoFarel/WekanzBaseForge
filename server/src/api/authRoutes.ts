@@ -21,6 +21,7 @@ import {
   createAuthUser,
   verifyAuthCredentials,
   findAuthUserById,
+  updateAuthUserProfile,
 } from '../auth/users.js';
 import {
   initAuthTokensTable,
@@ -295,6 +296,100 @@ export function createProjectAuthRouter(): Router {
 
     // Ambil user dari DB (data terbaru — bukan hanya dari payload JWT)
     const user = findAuthUserById(db, result.payload.sub);
+    if (!user) {
+      res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'User not found' } });
+      return;
+    }
+
+    res.json({
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        avatarUrl: user.avatarUrl,
+        verified: user.verified,
+        mfaEnabled: isMfaEnabled(db, user.id),
+        created: user.created,
+      },
+    });
+  });
+
+  // ─── UPDATE PROFIL SENDIRI (Ops-9) ───────────────────────────────────────
+  // PATCH /api/p/:pid/auth/me { name?, avatarUrl? }
+  //
+  // Paritas dengan auth collection (surface B): di sana profil bisa di-update
+  // lewat PATCH record biasa. Tanpa ini, konsolidasi ke surface A akan memaksa
+  // aplikasi klien kehilangan kemampuan — melanggar aturan "kekurangan
+  // BaseForge diperbaiki di backend, bukan frontend yang menyesuaikan".
+  router.patch('/api/p/:pid/auth/me', async (req, res) => {
+    const db = getAuthDb(req.params.pid);
+    if (!db) {
+      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Project not found' } });
+      return;
+    }
+
+    const authHeader = req.headers.authorization;
+    const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+    if (!token) {
+      res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'Missing Bearer token' } });
+      return;
+    }
+
+    const result = await verifyToken(token);
+    if (!result.valid || !result.payload) {
+      const reason = result.reason === 'expired' ? 'Token kedaluwarsa' : 'Invalid token';
+      res.status(401).json({ error: { code: 'UNAUTHORIZED', message: reason } });
+      return;
+    }
+
+    const body = req.body as { name?: unknown; avatarUrl?: unknown } | undefined;
+    if (!body || typeof body !== 'object') {
+      res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'Body must be an object' } });
+      return;
+    }
+
+    // Tolak field yang punya jalur terverifikasi sendiri — jangan diam-diam diabaikan.
+    for (const forbidden of ['email', 'password', 'verified', 'disabled', 'id']) {
+      if (forbidden in body) {
+        res.status(400).json({
+          error: {
+            code: 'BAD_REQUEST',
+            message: `Field '${forbidden}' cannot be changed here`,
+          },
+        });
+        return;
+      }
+    }
+
+    const updates: { name?: string | null; avatarUrl?: string | null } = {};
+
+    if ('name' in body) {
+      const n = body.name;
+      if (n !== null && typeof n !== 'string') {
+        res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'name must be a string or null' } });
+        return;
+      }
+      if (typeof n === 'string' && n.length > 255) {
+        res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'name must be 255 characters or fewer' } });
+        return;
+      }
+      updates.name = n;
+    }
+
+    if ('avatarUrl' in body) {
+      const a = body.avatarUrl;
+      if (a !== null && typeof a !== 'string') {
+        res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'avatarUrl must be a string or null' } });
+        return;
+      }
+      if (typeof a === 'string' && a.length > 2048) {
+        res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'avatarUrl must be 2048 characters or fewer' } });
+        return;
+      }
+      updates.avatarUrl = a;
+    }
+
+    const user = updateAuthUserProfile(db, result.payload.sub, updates);
     if (!user) {
       res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'User not found' } });
       return;

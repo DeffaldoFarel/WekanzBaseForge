@@ -135,7 +135,30 @@ Mendapatkan data pengguna yang sedang login dari bearer token:
   }
   ```
 
-### E. Logout (Revoke Token)
+### E. Update Own Profile (`PATCH /me`)
+Mengubah field profil milik pengguna yang sedang login:
+
+* **Method:** `PATCH`
+* **URL:** `/api/p/:pid/auth/me`
+* **Headers:** `Authorization: Bearer <accessToken>`
+* **Body (semua field opsional):**
+  ```json
+  {
+    "name": "Budi Santoso",
+    "avatarUrl": "https://cdn.example.com/avatar.png"
+  }
+  ```
+* **Semantik partial update:**
+  * Field yang **tidak dikirim** → tidak tersentuh.
+  * Field bernilai **`null`** → dikosongkan.
+  * Body **`{}`** → no-op, tetap `200`.
+* **Field yang DITOLAK (`400 BAD_REQUEST`):** `email`, `password`, `verified`,
+  `disabled`, `id`. Masing-masing punya jalur terverifikasi sendiri dan tidak
+  boleh diubah lewat endpoint ini.
+* **Batas:** `name` maks 255 karakter, `avatarUrl` maks 2048 karakter.
+* **Response (200 OK):** bentuk sama dengan `GET /me`.
+
+### F. Logout (Revoke Token)
 Mematikan refresh token agar tidak bisa digunakan kembali:
 
 * **Method:** `POST`
@@ -148,7 +171,7 @@ Mematikan refresh token agar tidak bisa digunakan kembali:
   }
   ```
 
-### F. OAuth2 Login (Google & GitHub) — M10
+### G. OAuth2 Login (Google & GitHub) — M10
 
 Login sosial via **Authorization Code Flow**. Provider harus dikonfigurasi
 admin lebih dulu di dashboard (**Project → Auth → Settings**) atau via
@@ -221,9 +244,9 @@ if (result?.error) { /* tampilkan error */ }
 | **Token di fragment** | `#access_token` tidak dikirim ke server mana pun (tidak bocor di log akses), tidak di query string. |
 | **Rate limit** | 30 request/menit per IP per provider untuk authorize & callback. |
 
-### G. Email Verification & Password Reset (M23)
+### H. Email Verification & Password Reset (M23)
 
-### H. MFA / Two-Factor Authentication (M27 — TOTP)
+### I. MFA / Two-Factor Authentication (M27 — TOTP)
 
 Dua faktor via app authenticator (Google Authenticator, Authy, 1Password —
 format `otpauth://` standar) + 10 recovery codes sekali pakai.

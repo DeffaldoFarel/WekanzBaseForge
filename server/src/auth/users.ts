@@ -334,6 +334,50 @@ export function changeAuthUserPassword(
   return result.changes > 0;
 }
 
+// ─── UPDATE PROFIL SENDIRI (Ops-9: paritas auth collection) ──────────────────
+
+/**
+ * Update field profil milik user sendiri (name, avatarUrl).
+ *
+ * Dipakai `PATCH /api/p/:pid/auth/me` agar surface A punya paritas dengan
+ * auth collection (surface B), yang bisa di-update lewat endpoint record biasa.
+ * Hanya field yang HADIR di objek update yang ditulis (partial update);
+ * `null` bermakna "kosongkan", `undefined`/absen bermakna "jangan sentuh".
+ *
+ * Email dan password TIDAK bisa diubah lewat sini — keduanya punya jalur
+ * sendiri yang menuntut verifikasi (emailRoutes / changeAuthUserPassword).
+ */
+export function updateAuthUserProfile(
+  db: DatabaseSync,
+  id: string,
+  updates: { name?: string | null; avatarUrl?: string | null }
+): AuthUser | undefined {
+  const sets: string[] = [];
+  const values: (string | null)[] = [];
+
+  if ('name' in updates) {
+    sets.push('name = ?');
+    values.push(updates.name ?? null);
+  }
+  if ('avatarUrl' in updates) {
+    sets.push('avatar_url = ?');
+    values.push(updates.avatarUrl ?? null);
+  }
+
+  // Tidak ada field yang diubah → kembalikan state sekarang (idempotent, bukan error).
+  if (sets.length === 0) {
+    return findAuthUserById(db, id);
+  }
+
+  sets.push("updated = strftime('%Y-%m-%dT%H:%M:%fZ','now')");
+  const result = db
+    .prepare(`UPDATE _auth_users SET ${sets.join(', ')} WHERE id = ?`)
+    .run(...values, id);
+
+  if (result.changes === 0) return undefined;
+  return findAuthUserById(db, id);
+}
+
 // ─── DELETE ──────────────────────────────────────────────────────────────────
 
 export function deleteAuthUser(db: DatabaseSync, id: string): boolean {
