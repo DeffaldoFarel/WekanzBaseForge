@@ -1,7 +1,7 @@
 # Ops-13 — Bersihkan SDK dari auth surface B
 
 **Tanggal:** 2026-09-19
-**Commit:** (diisi saat commit)
+**Commit:** `fbf8ee4`
 **Konteks:** Tindak lanjut Tahap 4 konsolidasi auth (Ops-12, `d1f5709`).
 
 ## Masalah
