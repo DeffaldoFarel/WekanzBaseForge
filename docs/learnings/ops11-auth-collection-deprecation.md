@@ -1,7 +1,7 @@
 # Ops-11 (Tahap 3): deprecate auth-collection surface
 
 **Tanggal:** 2026-09-19
-**Commit:** (diisi saat commit)
+**Commit:** `cf80812`
 **Konteks:** Tahap 3 dari 4 konsolidasi dua auth surface BaseForge menjadi satu.
 
 ## Kenapa "deprecate", bukan langsung hapus
