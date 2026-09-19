@@ -33,6 +33,7 @@ import { monitorScheduler } from './core/monitor.js';
 import { startMetricsFlusher } from './core/metrics.js';
 import { flushApiKeyUsage } from './auth/apiKeys.js';
 import { scheduler } from './core/scheduler.js';
+import { getProjectDb } from './core/projectDbManager.js';
 import { Router, type Middleware } from './core/router.js';
 
 const PORT = parseInt(process.env.PORT ?? '5100', 10);
@@ -110,7 +111,8 @@ async function main(): Promise<void> {
     console.log(`   → http://localhost:${PORT}`);
     console.log(`   → Health: http://localhost:${PORT}/api/health`);
     console.log('');
-    scheduler.start(getProjectDbProviders());
+    // Ops-8: scheduler cek semua project secara dinamis di setiap tick
+    scheduler.start();
 
     // M24: flush metrics buffer ke platform.db tiap 30 detik
     // M26: flush API key usage counter ke DB project masing-masing
@@ -135,16 +137,6 @@ async function main(): Promise<void> {
     // M33: monitor scheduler — cek threshold tiap 30 detik, alert via webhook
     monitorScheduler.start();
   });
-}
-
-// M15c: scheduler butuh akses ke SEMUA project DB (function milik project)
-import { listProjects } from './core/platformDb.js';
-import { getProjectDb } from './core/projectDbManager.js';
-import type { DatabaseSync } from 'node:sqlite';
-
-function getProjectDbProviders(): (() => DatabaseSync)[] {
-  const projects = listProjects();
-  return projects.map((p) => () => getProjectDb(p.id));
 }
 
 main().catch((err) => {

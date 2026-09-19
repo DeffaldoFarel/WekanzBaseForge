@@ -17,6 +17,8 @@ import { listFunctions, StoredFunction } from './functionsStore.js';
 import { getSecretsForFunction } from './secretsStore.js';
 import { cronMatches, cronMatchesInTimezone } from './cronParser.js';
 import { runFunctionCode, FunctionRunResult } from './functionRunner.js';
+import { listProjects } from './platformDb.js';
+import { getProjectDb } from './projectDbManager.js';
 import type { DatabaseSync } from 'node:sqlite';
 
 const CHECK_INTERVAL_MS = 30_000;
@@ -24,14 +26,14 @@ const CHECK_INTERVAL_MS = 30_000;
 class Scheduler {
   private timer: NodeJS.Timeout | null = null;
   private lastRunMinute = new Map<string, string>(); // `${dbName}:${minuteKey}` -> run marker per function+menit
-  private dbProviders: (() => DatabaseSync)[] = [];
+  private customProviders: (() => DatabaseSync)[] | null = null;
   // Log run terakhir per function (observability + test)
   public lastRuns = new Map<string, { time: string; ok: boolean; error?: string; durationMs: number }>();
 
-  // Dipanggil dari index.ts: provider untuk SETIAP project DB aktif
-  start(dbProviders: (() => DatabaseSync)[]): void {
+  // Dipanggil dari index.ts (tanpa argumen) atau test (dengan custom providers)
+  start(dbProviders?: (() => DatabaseSync)[]): void {
     if (this.timer) return; // sudah jalan
-    this.dbProviders = dbProviders;
+    this.customProviders = dbProviders && dbProviders.length > 0 ? dbProviders : null;
     this.timer = setInterval(() => {
       try {
         this.tick();
@@ -49,6 +51,7 @@ class Scheduler {
       this.timer = null;
       console.log('[scheduler] stopped');
     }
+    this.customProviders = null;
   }
 
   private minuteKey(d: Date): string {
@@ -60,11 +63,34 @@ class Scheduler {
     const now = new Date();
     const minuteKey = this.minuteKey(now);
 
-    for (const provider of this.dbProviders) {
-      let functions: StoredFunction[];
-      let providerDb: DatabaseSync;
+    const dbs: DatabaseSync[] = [];
+    if (this.customProviders) {
+      for (const provider of this.customProviders) {
+        try {
+          dbs.push(provider());
+        } catch {
+          // DB belum siap
+        }
+      }
+    } else {
+      let projects;
       try {
-        providerDb = provider();
+        projects = listProjects();
+      } catch {
+        return; // Platform DB belum siap / belum ada tabel projects
+      }
+      for (const project of projects) {
+        try {
+          dbs.push(getProjectDb(project.id));
+        } catch {
+          // DB project belum siap atau file belum ada
+        }
+      }
+    }
+
+    for (const providerDb of dbs) {
+      let functions: StoredFunction[];
+      try {
         functions = listFunctions(providerDb);
       } catch {
         continue; // DB project belum siap — coba menit depan
