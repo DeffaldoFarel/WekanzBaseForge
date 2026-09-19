@@ -21,6 +21,14 @@ import {
   setAuthUserVerified,
   setAuthUserDisabled,
 } from '../auth/users.js';
+import { initAuthTokensTable, revokeAllUserTokens } from '../auth/tokens.js';
+import {
+  initAuthFieldsTable,
+  listAuthFields,
+  defineAuthField,
+  deleteAuthField,
+  AuthFieldError,
+} from '../auth/authFields.js';
 import { initMfaTable, isMfaEnabled } from '../auth/mfa.js';
 
 export function createUserAdminRouter(): Router {
@@ -158,7 +166,88 @@ export function createUserAdminRouter(): Router {
         res.status(404).json({ error: { code: 'NOT_FOUND', message: 'User not found' } });
         return;
       }
-      res.json({ success: true, disabled });
+      // Ops-15: menonaktifkan akun HARUS memutus sesi yang berjalan, bukan hanya
+      // memblokir login berikutnya. Tabel _auth_tokens dibuat lazily oleh route
+      // auth pada login pertama — user yang dibuat admin & belum pernah login
+      // belum punya tabel itu, jadi init dulu (idempotent) agar tidak 400
+      // "no such table". Access token yang sudah terbit tetap berlaku sampai
+      // TTL habis (JWT stateless, ≤15 menit) — didokumentasikan di admin-api.md.
+      let revokedSessions = 0;
+      if (disabled) {
+        initAuthTokensTable(db);
+        revokedSessions = revokeAllUserTokens(db, req.params.uid);
+      }
+      res.json({ success: true, disabled, revokedSessions });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Internal error';
+      res.status(400).json({ error: { code: 'BAD_REQUEST', message } });
+    }
+  });
+
+  // ─── Ops-16: AUTH FIELDS (custom profile field) ──────────────────────────
+
+  // Daftar field yang terdefinisi
+  router.get('/api/admin/projects/:pid/auth-fields', requireAdmin, (req, res) => {
+    try {
+      const db = getProjectDb(req.params.pid);
+      initAuthUsersTable(db);
+      initAuthFieldsTable(db);
+      res.json({ fields: listAuthFields(db) });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Internal error';
+      res.status(400).json({ error: { code: 'BAD_REQUEST', message } });
+    }
+  });
+
+  // Tambah field baru
+  router.post('/api/admin/projects/:pid/auth-fields', requireAdmin, (req, res) => {
+    try {
+      const db = getProjectDb(req.params.pid);
+      initAuthUsersTable(db);
+      initAuthFieldsTable(db);
+
+      const body = (req.body ?? {}) as {
+        name?: string;
+        type?: string;
+        required?: boolean;
+        userEditable?: boolean;
+        options?: Record<string, unknown>;
+      };
+      if (!body.name || !body.type) {
+        res.status(400).json({
+          error: { code: 'BAD_REQUEST', message: 'name and type are required' },
+        });
+        return;
+      }
+
+      const field = defineAuthField(db, {
+        name: body.name,
+        type: body.type as Parameters<typeof defineAuthField>[1]['type'],
+        required: body.required,
+        userEditable: body.userEditable,
+        options: body.options as Parameters<typeof defineAuthField>[1]['options'],
+      });
+      res.status(201).json({ field });
+    } catch (err) {
+      // AuthFieldError = kesalahan input admin (nama tidak valid, duplikat,
+      // tipe tidak didukung) → 400 dengan pesannya, bukan 500 anonim.
+      const message = err instanceof Error ? err.message : 'Internal error';
+      const code = err instanceof AuthFieldError ? 'BAD_REQUEST' : 'INTERNAL';
+      res.status(400).json({ error: { code, message } });
+    }
+  });
+
+  // Hapus field
+  router.delete('/api/admin/projects/:pid/auth-fields/:name', requireAdmin, (req, res) => {
+    try {
+      const db = getProjectDb(req.params.pid);
+      initAuthFieldsTable(db);
+      const ok = deleteAuthField(db, req.params.name);
+      if (!ok) {
+        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Field not found' } });
+        return;
+      }
+      res.json({ success: true });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Internal error';
       res.status(400).json({ error: { code: 'BAD_REQUEST', message } });

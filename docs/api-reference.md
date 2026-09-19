@@ -111,6 +111,19 @@ Masuk dengan email dan kata sandi:
   }
   ```
 * **Response (200 OK):** Mengembalikan payload user dan token yang sama seperti register.
+* **Custom profile field (Ops-16):** bila admin mendefinisikan field profil
+  (lihat *Admin API → auth-fields*), objek `user` membawa kunci tambahan
+  `profile`:
+  ```jsonc
+  { "user": { "id": "…", "email": "…", "name": "…", "profile": { "bio": "halo", "tier": "free" } } }
+  ```
+  Kunci `profile` **dihilangkan sepenuhnya** bila project belum mendefinisikan
+  field apa pun — respons tetap identik dengan sebelum Ops-16, sehingga klien
+  lama tidak perlu diubah. Nilai dikirim saat register lewat body `profile`,
+  dan diubah lewat `PATCH /auth/me` (`{ "profile": { … } }`); field yang
+  ditandai admin sebagai *admin-only* membalas **403 `FIELD_NOT_EDITABLE`**.
+* **Response (401 `INVALID_CREDENTIALS`):** email tidak terdaftar **atau** password salah — pesan sengaja seragam agar endpoint ini tidak menjadi oracle keberadaan akun.
+* **Response (403 `USER_DISABLED`):** kredensial benar, tetapi akun dinonaktifkan admin (lihat *Admin API → auth-users → disable*). Dibedakan dari 401 supaya klien bisa menampilkan "akun dinonaktifkan" alih-alih "password salah". Password yang salah pada akun disabled tetap 401.
 * *Keamanan:* Dilindungi rate limiter anti-brute force (maksimum 10 percobaan per menit).
 
 ### C. Refresh Token
@@ -132,6 +145,10 @@ Mendapatkan access token baru tanpa mengharuskan pengguna login ulang:
     "expiresIn": 900
   }
   ```
+* **Response (401 `INVALID_REFRESH`):** token tidak dikenal, sudah dipakai/di-revoke (termasuk setelah admin menonaktifkan akun — semua refresh token user itu di-revoke), atau expired.
+* **Response (403 `USER_DISABLED`):** akun dinonaktifkan tetapi refresh token-nya masih tercatat aktif (jalur yang melewati Admin API, mis. flag diubah lewat SQL langsung). Lapis kedua; jalur normal sudah tertangkap 401 di atas.
+
+> **Jendela yang diakui:** access token adalah JWT stateless (TTL 15 menit). Setelah admin menonaktifkan akun, access token yang **sudah terbit** tetap diterima sampai expired — yang dipastikan tertutup adalah *perpanjangan* sesi (refresh) dan login baru. Perilaku ini sama dengan Supabase; kalau aplikasi Kakak butuh pemutusan seketika, pendekkan TTL atau cek `disabled` di sisi aplikasi.
 
 ### D. Get Current User Profile (`/me`)
 Mendapatkan data pengguna yang sedang login dari bearer token:

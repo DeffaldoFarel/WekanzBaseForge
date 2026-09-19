@@ -1,5 +1,12 @@
 import { BaseService } from './baseService.js';
-import type { AuthResponse, AuthUser, MfaRequired, OAuthCallbackResult, OAuthProvider } from '../types.js';
+import type {
+  AuthResponse,
+  AuthUser,
+  MfaRequired,
+  OAuthCallbackResult,
+  OAuthProvider,
+  UpdateProfilePayload,
+} from '../types.js';
 
 export class AuthService extends BaseService {
   /** Pengguna yang sedang aktif login */
@@ -20,12 +27,25 @@ export class AuthService extends BaseService {
   /**
    * Mendaftar akun baru (otomatis menyimpan token & login)
    */
-  async register(email: string, password: string, name?: string): Promise<AuthResponse> {
+  async register(
+    email: string,
+    password: string,
+    name?: string,
+    /**
+     * Ops-16: nilai untuk custom profile field yang didefinisikan admin.
+     * Field yang ditandai `required` WAJIB diisi di sini — server menolak
+     * register (400) bila kosong. Parameter opsional, jadi pemanggil lama
+     * tidak perlu diubah.
+     */
+    profile?: Record<string, unknown>
+  ): Promise<AuthResponse> {
     const res = await this.request<AuthResponse>(
       `api/p/${this.client.projectId}/auth/register`,
       {
         method: 'POST',
-        body: { email, password, name },
+        // `profile` dihilangkan bila undefined agar body tetap identik
+        // dengan sebelum Ops-16 untuk pemanggil lama.
+        body: { email, password, name, ...(profile !== undefined ? { profile } : {}) },
       }
     );
 
@@ -90,6 +110,43 @@ export class AuthService extends BaseService {
       }
     );
 
+    if (res.user && this.client.authStore.token) {
+      this.client.authStore.save(
+        this.client.authStore.token,
+        this.client.authStore.refreshToken,
+        res.user
+      );
+    }
+    return res;
+  }
+
+  /**
+   * Memperbarui profil user yang sedang login.
+   *
+   * Endpoint `PATCH /auth/me` ada sejak Ops-9 tetapi tidak pernah punya
+   * pembungkus di SDK — konsumen harus menulis `fetch` manual. Ops-16
+   * menutup celah itu sekaligus mengekspos custom profile field.
+   *
+   * Partial update: field yang tidak disertakan TIDAK disentuh; `null`
+   * mengosongkan. `email`, `password`, `verified`, `disabled`, dan `id`
+   * ditolak server (400) karena punya jalur terverifikasi sendiri; custom
+   * field yang ditandai admin sebagai tidak-boleh-diubah-user → 403.
+   *
+   * ```ts
+   * await bf.auth.updateProfile({ name: 'Budi', profile: { bio: 'halo' } });
+   * ```
+   */
+  async updateProfile(payload: UpdateProfilePayload): Promise<{ user: AuthUser }> {
+    const res = await this.request<{ user: AuthUser }>(
+      `api/p/${this.client.projectId}/auth/me`,
+      {
+        method: 'PATCH',
+        body: payload as Record<string, unknown>,
+      }
+    );
+
+    // authStore disegarkan agar `bf.auth.user` langsung mencerminkan
+    // perubahan tanpa perlu memanggil me() lagi.
     if (res.user && this.client.authStore.token) {
       this.client.authStore.save(
         this.client.authStore.token,

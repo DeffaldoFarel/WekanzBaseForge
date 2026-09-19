@@ -15,6 +15,7 @@
 // ============================================================================
 
 import { Router } from '../core/router.js';
+import type { ForgeResponse } from '../core/router.js';
 import { getProjectDb } from '../core/projectDbManager.js';
 import {
   initAuthUsersTable,
@@ -28,11 +29,13 @@ import {
   issueTokens,
   refreshAccessToken,
   revokeRefreshToken,
+  AuthUserDisabledError,
 } from '../auth/tokens.js';
 import { verifyToken } from '../auth/jwt.js';
 import { checkRateLimit, secondsUntilReset } from '../auth/rateLimiter.js';
 import { createEmailToken, initEmailTokensTable } from '../auth/emailTokens.js';
 import { isMfaEnabled, initMfaTable } from '../auth/mfa.js';
+import { listAuthFields, validateProfileValues, type ProfileValues } from '../auth/authFields.js';
 import { sendMail } from '../auth/mailer.js';
 import { verificationEmail } from '../auth/emails.js';
 import { getProject } from '../core/platformDb.js';
@@ -102,18 +105,41 @@ function sendAuthSuccess(
   statusCode = 200
 ): void {
   res.status(statusCode).json({
-    user: {
-      id: user.id,
-      email: user.email,
-      name: user.name,
-      avatarUrl: user.avatarUrl,
-      verified: user.verified,
-      mfaEnabled: isMfaEnabled(db, user.id),
-      created: user.created,
-    },
+    user: userPayload(db, user),
     accessToken: tokens.accessToken,
     refreshToken: tokens.refreshToken,
     expiresIn: tokens.expiresIn,
+  });
+}
+
+/**
+ * Ops-16: bentuk objek `user` untuk SEMUA respons auth (login, register,
+ * refresh, GET /me, PATCH /me). Satu tempat — kalau field baru ditambahkan,
+ * tidak ada respons yang ketinggalan (sebelumnya blok ini disalin 4x).
+ */
+function userPayload(db: DatabaseSync, user: AuthUser): Record<string, unknown> {
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    avatarUrl: user.avatarUrl,
+    verified: user.verified,
+    mfaEnabled: isMfaEnabled(db, user.id),
+    created: user.created,
+    // Kunci `profile` HILANG bila tidak ada custom field terdefinisi →
+    // respons byte-identical dengan sebelum Ops-16.
+    ...(user.profile !== undefined ? { profile: user.profile } : {}),
+  };
+}
+
+/**
+ * Ops-15: respons seragam untuk akun yang dinonaktifkan admin.
+ * 403 (bukan 401): kredensial/token-nya sah, yang ditolak adalah AKUN-nya —
+ * klien bisa menampilkan "akun dinonaktifkan" alih-alih "password salah".
+ */
+export function respondUserDisabled(res: ForgeResponse): void {
+  res.status(403).json({
+    error: { code: 'USER_DISABLED', message: 'This account has been disabled' },
   });
 }
 
@@ -141,7 +167,9 @@ export function createProjectAuthRouter(): Router {
       return;
     }
 
-    const body = req.body as { email?: string; password?: string; name?: string } | undefined;
+    const body = req.body as
+      | { email?: string; password?: string; name?: string; profile?: unknown }
+      | undefined;
     if (!body?.email || !body?.password) {
       res.status(400).json({
         error: { code: 'BAD_REQUEST', message: 'email and password are required' },
@@ -149,11 +177,34 @@ export function createProjectAuthRouter(): Router {
       return;
     }
 
+    // Ops-16: validasi custom profile field SEBELUM user dibuat — kalau
+    // divalidasi setelahnya, user gagal-validasi tetap tercipta.
+    // Mode 'register' menegakkan `required`; mode 'update' tidak (lihat authFields.ts).
+    let profile: ProfileValues | undefined;
+    if (body.profile !== undefined) {
+      if (typeof body.profile !== 'object' || body.profile === null || Array.isArray(body.profile)) {
+        res.status(400).json({
+          error: { code: 'BAD_REQUEST', message: 'profile must be an object' },
+        });
+        return;
+      }
+      profile = body.profile as ProfileValues;
+    }
+    const authFields = listAuthFields(db);
+    if (authFields.length > 0 || profile !== undefined) {
+      const perr = validateProfileValues(authFields, profile ?? {}, 'register');
+      if (perr) {
+        res.status(400).json({ error: { code: 'BAD_REQUEST', message: perr } });
+        return;
+      }
+    }
+
     try {
       const user = createAuthUser(db, {
         email: body.email,
         password: body.password,
         name: body.name,
+        profile,
       });
 
       const tokens = await issueTokens(db, user);
@@ -217,6 +268,13 @@ export function createProjectAuthRouter(): Router {
       return;
     }
 
+    // Ops-15: dicek SEBELUM MFA — akun disabled tidak boleh menerima mfaToken
+    // sekalipun (itu setengah sesi). Kredensial benar → 403, bukan 401.
+    if (user.disabled) {
+      respondUserDisabled(res);
+      return;
+    }
+
     // M27: MFA aktif → JANGAN terbitkan token. Login "setengah berhasil":
     // password benar (bukti faktor-1), beri mfaToken pendek umur untuk
     // challenge. Token penuh hanya setelah kode TOTP/recovery benar.
@@ -251,7 +309,16 @@ export function createProjectAuthRouter(): Router {
       return;
     }
 
-    const tokens = await refreshAccessToken(db, body.refreshToken);
+    let tokens;
+    try {
+      tokens = await refreshAccessToken(db, body.refreshToken);
+    } catch (err) {
+      if (err instanceof AuthUserDisabledError) {
+        respondUserDisabled(res); // Ops-15
+        return;
+      }
+      throw err;
+    }
     if (!tokens) {
       res.status(401).json({
         error: { code: 'INVALID_REFRESH', message: 'Refresh token is invalid or expired' },
@@ -271,19 +338,7 @@ export function createProjectAuthRouter(): Router {
       accessToken: tokens.accessToken,
       refreshToken: tokens.refreshToken,
       expiresIn: tokens.expiresIn,
-      ...(user
-        ? {
-            user: {
-              id: user.id,
-              email: user.email,
-              name: user.name,
-              avatarUrl: user.avatarUrl,
-              verified: user.verified,
-              mfaEnabled: isMfaEnabled(db, user.id),
-              created: user.created,
-            },
-          }
-        : {}),
+      ...(user ? { user: userPayload(db, user) } : {}),
     });
   });
 
@@ -322,17 +377,7 @@ export function createProjectAuthRouter(): Router {
       return;
     }
 
-    res.json({
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        avatarUrl: user.avatarUrl,
-        verified: user.verified,
-        mfaEnabled: isMfaEnabled(db, user.id),
-        created: user.created,
-      },
-    });
+    res.json({ user: userPayload(db, user) });
   });
 
   // ─── UPDATE PROFIL SENDIRI (Ops-9) ───────────────────────────────────────
@@ -363,7 +408,9 @@ export function createProjectAuthRouter(): Router {
       return;
     }
 
-    const body = req.body as { name?: unknown; avatarUrl?: unknown } | undefined;
+    const body = req.body as
+      | { name?: unknown; avatarUrl?: unknown; profile?: unknown }
+      | undefined;
     if (!body || typeof body !== 'object') {
       res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'Body must be an object' } });
       return;
@@ -382,7 +429,7 @@ export function createProjectAuthRouter(): Router {
       }
     }
 
-    const updates: { name?: string | null; avatarUrl?: string | null } = {};
+    const updates: { name?: string | null; avatarUrl?: string | null; profile?: ProfileValues } = {};
 
     if ('name' in body) {
       const n = body.name;
@@ -410,23 +457,51 @@ export function createProjectAuthRouter(): Router {
       updates.avatarUrl = a;
     }
 
+    // ─── Ops-16: custom profile field ────────────────────────────────────────
+    if ('profile' in body && body.profile !== undefined) {
+      if (typeof body.profile !== 'object' || body.profile === null || Array.isArray(body.profile)) {
+        res.status(400).json({
+          error: { code: 'BAD_REQUEST', message: 'profile must be an object' },
+        });
+        return;
+      }
+      const incoming = body.profile as ProfileValues;
+      const fields = listAuthFields(db);
+
+      // Field ber-userEditable=false adalah padanan `app_metadata` Supabase:
+      // hanya Admin API yang boleh mengubahnya. Ditolak KERAS (403), bukan
+      // diabaikan diam-diam — mengabaikan membuat klien mengira perubahannya
+      // tersimpan (pelajaran Ops-9: penolakan senyap = 200 yang berbohong).
+      for (const key of Object.keys(incoming)) {
+        const f = fields.find((x) => x.name === key);
+        if (f && !f.userEditable) {
+          res.status(403).json({
+            error: {
+              code: 'FIELD_NOT_EDITABLE',
+              message: `Field '${key}' can only be changed by an administrator`,
+            },
+          });
+          return;
+        }
+      }
+
+      // Mode 'update': `required` TIDAK ditegakkan — user lama yang belum
+      // pernah mengisi field baru tetap bisa mengubah namanya sendiri.
+      const perr = validateProfileValues(fields, incoming, 'update');
+      if (perr) {
+        res.status(400).json({ error: { code: 'BAD_REQUEST', message: perr } });
+        return;
+      }
+      updates.profile = incoming;
+    }
+
     const user = updateAuthUserProfile(db, result.payload.sub, updates);
     if (!user) {
       res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'User not found' } });
       return;
     }
 
-    res.json({
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        avatarUrl: user.avatarUrl,
-        verified: user.verified,
-        mfaEnabled: isMfaEnabled(db, user.id),
-        created: user.created,
-      },
-    });
+    res.json({ user: userPayload(db, user) });
   });
 
   // ─── LOGOUT ──────────────────────────────────────────────────────────────

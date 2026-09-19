@@ -10,6 +10,23 @@ export interface AuthUser {
   verified: boolean;
   mfaEnabled?: boolean;
   created: string;
+  /**
+   * Ops-16: custom profile field yang didefinisikan admin untuk project ini.
+   * TIDAK ADA (undefined) bila project belum mendefinisikan field apa pun —
+   * jadi kode lama yang tidak mengenalnya tetap berjalan apa adanya.
+   */
+  profile?: Record<string, unknown>;
+}
+
+/**
+ * Ops-16: payload untuk memperbarui profil sendiri via `updateProfile()`.
+ * Field yang TIDAK disertakan tidak akan disentuh (partial update);
+ * `null` berarti mengosongkan.
+ */
+export interface UpdateProfilePayload {
+  name?: string | null;
+  avatarUrl?: string | null;
+  profile?: Record<string, unknown>;
 }
 
 /** M27: respons login saat MFA aktif — password benar, kode TOTP diminta. */

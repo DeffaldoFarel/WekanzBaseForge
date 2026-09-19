@@ -18,7 +18,8 @@ import { Router, type ForgeResponse } from '../core/router.js';
 import { requireAdmin } from '../platform/adminAuth.js';
 import { getProjectDb } from '../core/projectDbManager.js';
 import { checkRateLimit } from '../auth/rateLimiter.js';
-import { issueTokens, initAuthTokensTable } from '../auth/tokens.js';
+import { issueTokens, initAuthTokensTable, AuthUserDisabledError } from '../auth/tokens.js';
+import { respondUserDisabled } from './authRoutes.js';
 import { initAuthUsersTable } from '../auth/users.js';
 import { findOrCreateOAuthUser, initAuthIdentitiesTable } from '../auth/identities.js';
 import {
@@ -202,7 +203,18 @@ export function createOAuthRouter(): Router {
       const { user } = findOrCreateOAuthUser(db, profile);
 
       // 4. Issue token pair BaseForge (JWT M09 — kontrak sama dengan login biasa)
-      const tokens = await issueTokens(db, user);
+      // Ops-15: akun yang di-disable admin tetap ditolak walau provider OAuth
+      // memvalidasinya — gerbangnya di issueTokens, di sini hanya bentuk responsnya.
+      let tokens;
+      try {
+        tokens = await issueTokens(db, user);
+      } catch (err) {
+        if (err instanceof AuthUserDisabledError) {
+          respondUserDisabled(res);
+          return;
+        }
+        throw err;
+      }
 
       // 5. Kirim tokens: redirect (browser SPA) atau JSON (non-browser/test)
       if (stateInfo.redirectTo) {

@@ -174,7 +174,10 @@ describe('M47: Auth Users admin endpoints', () => {
     assert.equal(row.verified, 1);
   });
 
-  test('POST /:uid/disable → user disabled, login ditolak', async () => {
+  // Ops-15: nama test ini dulu menjanjikan "login ditolak" padahal isinya hanya
+  // memeriksa kolom — lubangnya baru ketahuan saat audit auth. Penegakan login
+  // sekarang diuji sungguhan di tests/ops15-disabled-enforcement.test.ts.
+  test('POST /:uid/disable → kolom disabled ter-set + sesi di-revoke', async () => {
     // Disable user
     const res = await http(
       'POST',
@@ -190,10 +193,10 @@ describe('M47: Auth Users admin endpoints', () => {
     const row = db.prepare('SELECT disabled FROM _auth_users WHERE id = ?').get(testUserId) as { disabled: number };
     assert.equal(row.disabled, 1);
 
-    // Login harus ditolak (verifyAuthCredentials tidak cek disabled — tapi
-    // endpoint login harus menolak; kita cek kolom disabled ada)
-    // Catatan: verifyAuthCredentials sendiri tidak memeriksa disabled;
-    // itu tugas endpoint login. Untuk M47, cukup buktikan kolom bisa di-set.
+    // Ops-15: respons kini melaporkan berapa sesi yang diputus. User ini dibuat
+    // lewat admin dan belum pernah login, jadi 0 — yang penting endpoint tidak
+    // gagal saat tabel _auth_tokens belum pernah dibuat (dulu → 400).
+    assert.equal(res.data.revokedSessions, 0);
   });
 
   test('POST /:uid/disable dengan disabled=false → user enabled kembali', async () => {

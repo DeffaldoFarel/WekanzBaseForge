@@ -15,6 +15,12 @@
 import { DatabaseSync } from 'node:sqlite';
 import { generateId } from '../core/router.js';
 import { hashPassword, verifyPassword, validatePasswordStrength } from './password.js';
+import {
+  listAuthFields,
+  extractProfile,
+  toStorageValue,
+  type ProfileValues,
+} from './authFields.js';
 
 // ─── Tabel _auth_users (dibuat otomatis per project) ────────────────────────
 
@@ -110,6 +116,12 @@ export interface AuthUser {
   disabled: boolean;
   created: string;
   updated: string;
+  /**
+   * Ops-16: custom profile field. HILANG (undefined) bila project belum
+   * mendefinisikan satu pun field — menjaga bentuk respons API tetap
+   * byte-identical dengan sebelum Ops-16.
+   */
+  profile?: Record<string, unknown>;
 }
 
 interface AuthUserRow {
@@ -122,10 +134,21 @@ interface AuthUserRow {
   disabled: number;
   created: string;
   updated: string;
+  /**
+   * Ops-16: `SELECT *` membawa kolom custom juga. Index signature ini membuat
+   * fakta itu eksplisit di tipe — TANPA memberi izin menyebar row ke respons.
+   * Hanya kolom yang terdaftar di `_auth_fields` yang boleh keluar (extractProfile).
+   */
+  [key: string]: unknown;
 }
 
-function rowToUser(row: AuthUserRow): AuthUser {
-  return {
+/**
+ * Ops-16: `db` diperlukan untuk membaca definisi `_auth_fields`. Field sistem
+ * tetap dipetakan SATU PER SATU (bukan spread) — inilah yang mencegah
+ * `password_hash` dan kolom tak terdaftar ikut keluar lewat `SELECT *`.
+ */
+function rowToUser(db: DatabaseSync, row: AuthUserRow): AuthUser {
+  const user: AuthUser = {
     id: row.id,
     email: row.email,
     name: row.name,
@@ -135,13 +158,16 @@ function rowToUser(row: AuthUserRow): AuthUser {
     created: row.created,
     updated: row.updated,
   };
+  const profile = extractProfile(listAuthFields(db), row as Record<string, unknown>);
+  if (profile !== undefined) user.profile = profile;
+  return user;
 }
 
 // ─── CREATE ──────────────────────────────────────────────────────────────────
 
 export function createAuthUser(
   db: DatabaseSync,
-  data: { email: string; password: string; name?: string }
+  data: { email: string; password: string; name?: string; profile?: ProfileValues }
 ): AuthUser {
   // Validasi email format
   if (typeof data.email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)) {
@@ -157,10 +183,28 @@ export function createAuthUser(
   const id = generateId();
   const passwordHash = hashPassword(data.password);
 
+  // Ops-16: custom profile field ikut di-INSERT pada statement yang SAMA.
+  // Dua statement terpisah berarti user bisa tercipta tanpa profilnya bila
+  // statement kedua gagal — register harus atomik.
+  const fields = listAuthFields(db);
+  const profileCols: string[] = [];
+  const profileVals: (string | number | null)[] = [];
+  if (data.profile) {
+    for (const f of fields) {
+      if (f.name in data.profile) {
+        profileCols.push(`"${f.name}"`);
+        profileVals.push(toStorageValue(f, data.profile[f.name]));
+      }
+    }
+  }
+
+  const cols = ['id', 'email', 'password_hash', 'name', ...profileCols];
+  const placeholders = cols.map(() => '?').join(', ');
+
   try {
     db.prepare(
-      `INSERT INTO _auth_users (id, email, password_hash, name) VALUES (?, ?, ?, ?)`
-    ).run(id, data.email.toLowerCase(), passwordHash, data.name ?? null);
+      `INSERT INTO _auth_users (${cols.join(', ')}) VALUES (${placeholders})`
+    ).run(id, data.email.toLowerCase(), passwordHash, data.name ?? null, ...profileVals);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     // D1-style: UNIQUE constraint → pesan ramah
@@ -209,14 +253,14 @@ export function findAuthUserById(db: DatabaseSync, id: string): AuthUser | undef
   const row = db
     .prepare('SELECT * FROM _auth_users WHERE id = ?')
     .get(id) as unknown as AuthUserRow | undefined;
-  return row ? rowToUser(row) : undefined;
+  return row ? rowToUser(db, row) : undefined;
 }
 
 export function findAuthUserByEmail(db: DatabaseSync, email: string): AuthUser | undefined {
   const row = db
     .prepare('SELECT * FROM _auth_users WHERE email = ?')
     .get(email.toLowerCase()) as unknown as AuthUserRow | undefined;
-  return row ? rowToUser(row) : undefined;
+  return row ? rowToUser(db, row) : undefined;
 }
 
 // Diperlukan oleh verify (M09): ambil row TERMASUK password_hash
@@ -252,7 +296,11 @@ export function verifyAuthCredentials(
   if (!verifyPassword(password, row.password_hash)) {
     return null;
   }
-  return rowToUser(row);
+  // Ops-15: kredensial BENAR tapi akun dinonaktifkan admin. Dikembalikan sebagai
+  // user dengan disabled=true (bukan null) supaya route bisa menjawab 403
+  // USER_DISABLED alih-alih 401 "kredensial salah" yang menyesatkan.
+  // Gerbang sesungguhnya ada di issueTokens(); ini lapis kedua + pesan yang jujur.
+  return rowToUser(db, row);
 }
 
 // ─── LIST (untuk dashboard — tanpa hash!) ────────────────────────────────────
@@ -287,7 +335,7 @@ export function listAuthUsers(
     .all(...params, perPage, offset) as unknown as AuthUserRow[];
 
   return {
-    items: rows.map(rowToUser),
+    items: rows.map((r) => rowToUser(db, r)),
     totalItems,
     totalPages,
     page,
@@ -309,6 +357,11 @@ export function setAuthUserDisabled(db: DatabaseSync, id: string, disabled: bool
   const result = db
     .prepare("UPDATE _auth_users SET disabled = ?, updated = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?")
     .run(disabled ? 1 : 0, id);
+
+  // Ops-15: pemutusan sesi (revoke refresh token) dilakukan oleh PEMANGGIL di
+  // lapisan route (userAdminRoutes) via revokeAllUserTokens dari tokens.ts —
+  // bukan di sini, karena tokens.ts sudah mengimpor modul ini (siklus) dan
+  // fungsi ini tidak boleh mengulang DDL _auth_tokens. Fungsi ini murni flag.
   return result.changes > 0;
 }
 
@@ -350,10 +403,10 @@ export function changeAuthUserPassword(
 export function updateAuthUserProfile(
   db: DatabaseSync,
   id: string,
-  updates: { name?: string | null; avatarUrl?: string | null }
+  updates: { name?: string | null; avatarUrl?: string | null; profile?: ProfileValues }
 ): AuthUser | undefined {
   const sets: string[] = [];
-  const values: (string | null)[] = [];
+  const values: (string | number | null)[] = [];
 
   if ('name' in updates) {
     sets.push('name = ?');
@@ -362,6 +415,18 @@ export function updateAuthUserProfile(
   if ('avatarUrl' in updates) {
     sets.push('avatar_url = ?');
     values.push(updates.avatarUrl ?? null);
+  }
+
+  // Ops-16: hanya field yang BENAR-BENAR dikirim yang disentuh (partial update,
+  // semantik `'x' in obj` dari Ops-9 — field absen ≠ set null).
+  if (updates.profile) {
+    const fields = listAuthFields(db);
+    for (const f of fields) {
+      if (f.name in updates.profile) {
+        sets.push(`"${f.name}" = ?`);
+        values.push(toStorageValue(f, updates.profile[f.name]));
+      }
+    }
   }
 
   // Tidak ada field yang diubah → kembalikan state sekarang (idempotent, bukan error).

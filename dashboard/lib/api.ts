@@ -475,6 +475,48 @@ export async function deleteAuthUser(projectId: string, userId: string): Promise
   });
 }
 
+// ─── Ops-16: custom profile field ──────────────────────────────────────────
+
+export interface AuthFieldDefinition {
+  name: string;
+  type: string;
+  required: boolean;
+  /** false = hanya admin yang boleh mengubah (padanan app_metadata Supabase) */
+  userEditable: boolean;
+  options?: Record<string, unknown>;
+  created: string;
+}
+
+export async function listAuthFields(projectId: string): Promise<AuthFieldDefinition[]> {
+  const res = await request<{ fields: AuthFieldDefinition[] }>(
+    `/api/admin/projects/${projectId}/auth-fields`
+  );
+  return res.fields;
+}
+
+export async function createAuthField(
+  projectId: string,
+  def: {
+    name: string;
+    type: string;
+    required?: boolean;
+    userEditable?: boolean;
+    options?: Record<string, unknown>;
+  }
+): Promise<AuthFieldDefinition> {
+  const res = await request<{ field: AuthFieldDefinition }>(
+    `/api/admin/projects/${projectId}/auth-fields`,
+    { method: 'POST', body: JSON.stringify(def) }
+  );
+  return res.field;
+}
+
+export async function deleteAuthField(projectId: string, name: string): Promise<void> {
+  await request(`/api/admin/projects/${projectId}/auth-fields/${encodeURIComponent(name)}`, {
+    method: 'DELETE',
+  });
+}
+
 // M47: verify / disable auth user
 export async function setAuthUserVerified(
   projectId: string,

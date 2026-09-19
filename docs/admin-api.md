@@ -123,8 +123,43 @@ Balasan `{ "collections": [ { name, type, viewQuery, fields, indexes, rules, rec
 | `GET` | `/api/admin/projects/:pid/**auth-users**?page=1&perPage=50` |
 | `GET` | `/api/admin/projects/:pid/auth-users/:uid` |
 | `DELETE` | `/api/admin/projects/:pid/auth-users/:uid` |
+| `POST` | `/api/admin/projects/:pid/auth-users/:uid/verify` |
+| `POST` | `/api/admin/projects/:pid/auth-users/:uid/disable` — body `{ "disabled": true \| false }` (default `true`) |
+| `POST` | `/api/admin/projects/:pid/auth-users/:uid/mfa-reset` |
 
 > Perhatikan **tanda hubung**: `auth-users`. Bentuk `auth/users` membalas `404`.
+
+### Custom profile field (Ops-16)
+
+| Method | Path |
+|---|---|
+| `GET` | `/api/admin/projects/:pid/auth-fields` |
+| `POST` | `/api/admin/projects/:pid/auth-fields` — body `{ name, type, required?, userEditable?, options? }` |
+| `DELETE` | `/api/admin/projects/:pid/auth-fields/:name` |
+
+Menambahkan field membuat **kolom SQL asli** di `_auth_users` (bukan blob JSON),
+sehingga bisa di-index dan dipakai di API rules. Tipe yang didukung: `text`,
+`number`, `bool`, `email`, `url`, `date`, `select`, `json` — divalidasi oleh
+engine `fieldTypes` yang sama dengan collection biasa.
+
+- **`required`** ditegakkan **hanya saat register**, tidak saat `PATCH /auth/me`.
+  Menambahkan field required ke project yang sudah punya user tidak mengunci
+  mereka dari profilnya sendiri (nilai lama `NULL`).
+- **`userEditable: false`** = padanan `app_metadata` Supabase: user mendapat
+  **403 `FIELD_NOT_EDITABLE`** bila mencoba mengubahnya lewat `PATCH /auth/me`;
+  hanya Admin API yang boleh. Pakai untuk `role`, `tier`, `quota`.
+- Nama yang bentrok dengan kolom sistem (`id`, `email`, `password_hash`, `name`,
+  `avatar_url`, `verified`, `disabled`, `created`, `updated`) ditolak
+  **case-insensitive** — SQLite menganggap `Email` dan `email` kolom yang sama.
+- `DELETE` menghapus definisi **dan** kolom fisiknya, sehingga nilai lama tidak
+  tertinggal di disk tanpa bisa dijangkau API.
+
+**Menonaktifkan akun (`/disable`, Ops-15)** bersifat *menegakkan*, bukan sekadar
+menandai: (1) semua refresh token user itu **di-revoke seketika**, (2) login
+password, OAuth, dan penyelesaian MFA menjawab **403 `USER_DISABLED`**,
+(3) refresh ditolak. Access token yang sudah terbit tetap berlaku sampai TTL-nya
+habis (≤ 15 menit) — JWT stateless. `{ "disabled": false }` memulihkan login
+tanpa perlu langkah lain; token lama tidak dihidupkan kembali.
 
 Balasan list: **`{ "items": [...], "page", "perPage", "totalItems", "totalPages" }`**
 — kuncinya **`items`**, BUKAN `users`. Salah kunci membuat skrip pembersihan

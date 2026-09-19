@@ -24,7 +24,8 @@ import { requireAdmin } from '../platform/adminAuth.js';
 import { getProjectDb } from '../core/projectDbManager.js';
 import { checkRateLimit } from '../auth/rateLimiter.js';
 import { verifyToken } from '../auth/jwt.js';
-import { issueTokens } from '../auth/tokens.js';
+import { issueTokens, AuthUserDisabledError } from '../auth/tokens.js';
+import { respondUserDisabled } from './authRoutes.js';
 import { initAuthUsersTable, findAuthUserById } from '../auth/users.js';
 import { initAuthTokensTable } from '../auth/tokens.js';
 import { createEmailToken, consumeEmailToken, peekEmailToken } from '../auth/emailTokens.js';
@@ -199,7 +200,17 @@ export function createMfaRouter(): Router {
       res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'User not found' } });
       return;
     }
-    const tokens = await issueTokens(db, user);
+    // Ops-15: akun disabled tidak boleh menuntaskan MFA menjadi sesi penuh.
+    let tokens;
+    try {
+      tokens = await issueTokens(db, user);
+    } catch (err) {
+      if (err instanceof AuthUserDisabledError) {
+        respondUserDisabled(res);
+        return;
+      }
+      throw err;
+    }
     res.json({
       user: {
         id: user.id,

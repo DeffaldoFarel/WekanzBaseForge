@@ -18,6 +18,7 @@ import {
 } from "@/lib/api";
 import { Navbar } from "@/components/Navbar";
 import { ProjectSidebar } from "@/components/ProjectSidebar";
+import { AuthFieldsEditor } from "@/components/AuthFieldsEditor";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -483,6 +484,11 @@ export default function AuthSettingsPage() {
                 </Card>
               );
             })}
+          </div>
+
+          {/* Ops-16: custom profile field — didefinisikan admin, tervalidasi server */}
+          <div className="mt-8">
+            <AuthFieldsEditor projectId={projectId} />
           </div>
 
           {/* M47: Auth Users */}

@@ -59,7 +59,34 @@ export interface TokenPair {
   expiresIn: number;        // detik sampai access token expired
 }
 
+/**
+ * Ops-15: dilempar oleh issueTokens() bila akun dinonaktifkan admin.
+ * Satu gerbang untuk SEMUA jalur penerbitan token (login, register, OAuth, MFA)
+ * — route menangkapnya dan menjawab 403 USER_DISABLED.
+ */
+export class AuthUserDisabledError extends Error {
+  readonly code = 'USER_DISABLED' as const;
+  constructor(public readonly userId: string) {
+    super('This account has been disabled');
+    this.name = 'AuthUserDisabledError';
+  }
+}
+
+/** Ops-15: baca flag disabled langsung dari DB — jangan percaya objek user dari pemanggil. */
+function isUserDisabled(db: DatabaseSync, userId: string): boolean {
+  const row = db
+    .prepare('SELECT disabled FROM _auth_users WHERE id = ?')
+    .get(userId) as { disabled: number } | undefined;
+  return row?.disabled === 1;
+}
+
 export async function issueTokens(db: DatabaseSync, user: AuthUser): Promise<TokenPair> {
+  // Ops-15: gerbang tunggal — akun disabled tidak pernah mendapat token,
+  // dari jalur mana pun (password, OAuth, MFA challenge, register).
+  if (isUserDisabled(db, user.id)) {
+    throw new AuthUserDisabledError(user.id);
+  }
+
   // Access token: JWT stateless (payload berisi identitas user)
   // M18b: signToken ASYNC (jose)
   const accessToken = await signToken(
@@ -100,18 +127,21 @@ export async function refreshAccessToken(
   const row = db
     .prepare(
       `SELECT t.id, t.user_id, t.expires_at, t.revoked,
-              u.email, u.name, u.avatar_url
+              u.email, u.name, u.avatar_url, u.disabled
        FROM _auth_tokens t
        JOIN _auth_users u ON u.id = t.user_id
        WHERE t.token_hash = ?`
     )
     .get(tokenHash) as
-    | { id: string; user_id: string; expires_at: string; revoked: number; email: string; name: string | null; avatar_url: string | null }
+    | { id: string; user_id: string; expires_at: string; revoked: number; email: string; name: string | null; avatar_url: string | null; disabled: number }
     | undefined;
 
   if (!row) return null;                    // token tidak dikenal
   if (row.revoked === 1) return null;       // sudah di-revoke (logout)
   if (new Date(row.expires_at) < new Date()) return null; // expired
+  // Ops-15: akun disabled tidak boleh memperpanjang sesi. Dilempar (bukan null)
+  // agar route bisa membedakan "token tidak valid" (401) dari "akun dinonaktifkan" (403).
+  if (row.disabled === 1) throw new AuthUserDisabledError(row.user_id);
 
   // Ambil user untuk payload access token
   const user: AuthUser = {
@@ -120,7 +150,7 @@ export async function refreshAccessToken(
     name: row.name,
     avatarUrl: row.avatar_url,
     verified: true,
-    disabled: false,
+    disabled: false, // sudah dipastikan 0 oleh guard di atas
     created: '',
     updated: '',
   };
