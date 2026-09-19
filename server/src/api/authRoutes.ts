@@ -259,10 +259,31 @@ export function createProjectAuthRouter(): Router {
       return;
     }
 
+    // Ops-10: sertakan `user` agar klien bisa merekonstruksi sesi penuh dari
+    // SATU panggilan refresh — paritas dengan auth-collection `auth-refresh`
+    // yang mengembalikan `record`. Tambahan field, jadi backward-compatible.
+    const refreshed = await verifyToken(tokens.accessToken);
+    const user = refreshed.valid && refreshed.payload
+      ? findAuthUserById(db, refreshed.payload.sub)
+      : undefined;
+
     res.status(200).json({
       accessToken: tokens.accessToken,
       refreshToken: tokens.refreshToken,
       expiresIn: tokens.expiresIn,
+      ...(user
+        ? {
+            user: {
+              id: user.id,
+              email: user.email,
+              name: user.name,
+              avatarUrl: user.avatarUrl,
+              verified: user.verified,
+              mfaEnabled: isMfaEnabled(db, user.id),
+              created: user.created,
+            },
+          }
+        : {}),
     });
   });
 
