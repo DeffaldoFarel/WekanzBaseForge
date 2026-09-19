@@ -1,7 +1,7 @@
 # Ops-16 — Custom profile field pada `_auth_users` (paritas Supabase, versi tervalidasi)
 
 **Tanggal:** 2026-09-20
-**Commit:** (lokal — belum di-commit atas permintaan user)
+**Commit:** `8da5951`
 **Status:** SELESAI — `tsc` 0 (server + dashboard + SDK) · **656/656 test** (645 → +11) ·
 diverifikasi di server lokal dan DOM dashboard
 
