@@ -1,7 +1,7 @@
 # Ops-12 (Tahap 4): hapus auth-collection surface
 
 **Tanggal:** 2026-09-19
-**Commit:** (diisi saat commit)
+**Commit:** `d1f5709`
 **Konteks:** Tahap terakhir konsolidasi dua auth surface BaseForge menjadi satu.
 
 ## Yang dihapus
@@ -90,4 +90,4 @@ Selesai. Satu surface auth: `_auth_users` via `/api/p/:pid/auth/*`.
 | 1 | paritas `PATCH /auth/me` | `c8be4c7` |
 | 2 | paritas `/auth/refresh` + migrasi ExploreMaps | `6fa92f6`, `32d8a92` |
 | 3 | deprecate surface B | `cf80812` |
-| 4 | hapus surface B | (commit ini) |
+| 4 | hapus surface B | `d1f5709` |
