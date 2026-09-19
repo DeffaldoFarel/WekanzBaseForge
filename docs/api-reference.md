@@ -37,6 +37,23 @@ end-user (`/auth/*`, `auth-with-password`, `auth-refresh`).
 
 ---
 
+> ⚠️ **Deprecated sejak 2026-09-19 (Tahap 3 konsolidasi auth).**
+> Endpoint auth-collection (`POST /api/p/:pid/collections/:name/auth-with-password`,
+> `auth-refresh`, `auth-logout`) masih berfungsi penuh selama satu rilis, tetapi
+> setiap responsnya membawa header `Deprecation: true` dan pemanggilannya dicatat
+> di log server. Gunakan platform auth sebagai gantinya:
+>
+> | Lama | Baru |
+> |---|---|
+> | `collections/:name/auth-with-password` | `POST /api/p/:pid/auth/login` |
+> | `collections/:name/auth-refresh` | `POST /api/p/:pid/auth/refresh` |
+> | `collections/:name/auth-logout` | `POST /api/p/:pid/auth/logout` |
+>
+> Token kedua surface interoperable (`issueTokens()` dan `_auth_tokens` yang sama),
+> jadi API Rules `@request.auth.id` tidak perlu diubah saat berpindah.
+
+---
+
 Setiap project di BaseForge memiliki ID unik (`:pid`). Semua endpoint untuk aplikasi klien Anda berakar pada prefiks `/api/p/:pid`:
 
 ```text

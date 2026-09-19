@@ -8,6 +8,7 @@
 // ============================================================================
 
 import { Router, generateId } from '../core/router.js';
+import type { ForgeRequest, ForgeResponse } from '../core/router.js';
 import { getProjectDb } from '../core/projectDbManager.js';
 import { requireAdmin, validateToken } from '../platform/adminAuth.js';
 import { verifyToken } from '../auth/jwt.js';
@@ -507,10 +508,50 @@ export function createPublicRouter(): Router {
 
   // ═══════════════════════════════════════════════════════════════════════
   // POCKETBASE-PARITY: AUTH COLLECTION AUTHENTICATION
+  //
+  // ⚠️ DEPRECATED (Tahap 3 konsolidasi auth, 2026-09-19)
+  //
+  // Surface ini digantikan platform auth `/api/p/:pid/auth/*` (`_auth_users`).
+  // Alasan: MFA, OAuth, verifikasi email, dan halaman admin Auth Users semuanya
+  // terikat ke `_auth_users`; mempertahankan dua surface berarti dua jalur login
+  // yang berbeda untuk hal yang sama.
+  //
+  // Route di bawah MASIH BERFUNGSI PENUH selama satu rilis supaya rollback
+  // tersedia — yang berubah hanya: setiap respons membawa header peringatan dan
+  // pemanggilan dicatat ke log server. Penghapusan dilakukan di Tahap 4.
+  //
+  // Peta migrasi:
+  //   auth-with-password → POST /api/p/:pid/auth/login
+  //   auth-refresh       → POST /api/p/:pid/auth/refresh
+  //   auth-logout        → POST /api/p/:pid/auth/logout
   // ═══════════════════════════════════════════════════════════════════════
+
+  // Menandai respons sebagai deprecated + mencatat pemanggil supaya sisa
+  // konsumen surface B ketahuan SEBELUM route-nya dihapus di Tahap 4.
+  const markDeprecated = (
+    req: ForgeRequest,
+    res: ForgeResponse,
+    replacement: string
+  ): void => {
+    try {
+      res.raw.setHeader('Deprecation', 'true');
+      res.raw.setHeader('Link', `<${replacement}>; rel="successor-version"`);
+      res.raw.setHeader(
+        'Warning',
+        `299 - "Auth collection endpoint deprecated; use ${replacement}"`
+      );
+    } catch {
+      // header sudah terkirim — jangan sampai menjatuhkan request
+    }
+    const ua = req.headers['user-agent'] ?? 'unknown';
+    console.warn(
+      `[deprecated] ${req.method} ${req.path} project=${req.params.pid} collection=${req.params.name} ua="${ua}" → gunakan ${replacement}`
+    );
+  };
 
   // POST /api/p/:pid/collections/:name/auth-with-password
   router.post('/api/p/:pid/collections/:name/auth-with-password', async (req, res) => {
+    markDeprecated(req, res, '/api/p/:pid/auth/login');
     try {
       const db = getProjectDb(req.params.pid);
       const meta = getCollectionByName(db, req.params.name);
@@ -567,6 +608,7 @@ export function createPublicRouter(): Router {
     // client yang belum kirim body refreshToken tetap bisa refresh selama
     // access token belum expired; kalau dua-duanya ada, body MENANG).
     router.post('/api/p/:pid/collections/:name/auth-refresh', async (req, res) => {
+      markDeprecated(req, res, '/api/p/:pid/auth/refresh');
       try {
         const db = getProjectDb(req.params.pid);
         const meta = getCollectionByName(db, req.params.name);
@@ -587,8 +629,14 @@ export function createPublicRouter(): Router {
 
         if (userId) {
           // Jalur 1 (M40): refresh token dari body — user dari DB collection
+          //
+          // `name` TIDAK dijamin ada: collection type=auth hanya menjamin
+          // email/password_hash/verified, sisanya milik pemilik skema. Dulu
+          // kolomnya di-SELECT langsung sehingga auth collection tanpa field
+          // `name` gagal refresh dengan "no such column: name". Ambil semua
+          // kolom lalu baca `name` secara opsional.
           const raw = db
-            .prepare(`SELECT id, email, name, verified, created, updated FROM \"${meta.name}\" WHERE id = ?`)
+            .prepare(`SELECT * FROM \"${meta.name}\" WHERE id = ?`)
             .get(userId) as Record<string, unknown> | undefined;
           if (raw) {
             userRow = {
@@ -648,6 +696,7 @@ export function createPublicRouter(): Router {
     // POST /api/p/:pid/collections/:name/auth-logout
     // M40: revoke refresh token collection-auth (paritas platform /auth/logout).
     router.post('/api/p/:pid/collections/:name/auth-logout', async (req, res) => {
+      markDeprecated(req, res, '/api/p/:pid/auth/logout');
       try {
         const db = getProjectDb(req.params.pid);
         const meta = getCollectionByName(db, req.params.name);
