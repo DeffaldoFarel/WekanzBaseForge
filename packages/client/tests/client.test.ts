@@ -219,55 +219,55 @@ describe('BaseForge Client SDK', () => {
     );
   });
 
-  test('RecordService: Auth Collection authWithPassword & authRefresh (PocketBase Parity)', async () => {
-    // 1. Buat auth collection 'staff'
-    await fetch(`${BASE_URL}/api/admin/projects/${projectId}/collections`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${adminToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        name: 'staff',
-        type: 'auth',
-        fields: [
-          { name: 'name', type: 'text' },
-          { name: 'role', type: 'select', options: { values: ['editor', 'admin'] } },
-        ],
-        rules: {
-          listRule: '',
-          viewRule: '',
-          createRule: '',
-          updateRule: '',
-          deleteRule: '',
-        },
-      }),
-    });
-
+  test('AuthService: refresh memperbarui token & mengembalikan user (surface tunggal pasca Ops-12)', async () => {
+    // Pengganti test lama 'Auth Collection authWithPassword & authRefresh'.
+    // Ops-12 menghapus route auth-collection dari server, dan Ops-13 menghapus
+    // kedua method itu dari SDK. Niat uji dipertahankan — login lalu perbarui
+    // sesi — tetapi lewat surface A (`/auth/*`) yang kini satu-satunya.
+    //
+    // `bf.auth.refresh()` sebelumnya TIDAK pernah ditutup test client mana pun,
+    // jadi penggantian ini justru menambah cakupan, bukan mengurangi.
     const bf = new BaseForge({ baseUrl: BASE_URL, projectId });
 
-    // 2. Register staff via collection create
-    const newStaff = await bf.collection('staff').create({
-      email: 'staff@wekanz.id',
-      password: 'StaffSecretPass123!',
-      name: 'Staff Wekanz',
-      role: 'editor',
-    });
-    assert.ok(newStaff.id);
-    assert.equal(newStaff.email, 'staff@wekanz.id');
-    assert.equal(newStaff.role, 'editor');
+    const email = `sdkrefresh${Date.now().toString(36)}@wekanz.id`;
+    const password = 'RefreshSecretPass123!';
 
-    // 3. Login via collection.authWithPassword
-    const authData = await bf.collection('staff').authWithPassword('staff@wekanz.id', 'StaffSecretPass123!');
-    assert.ok(authData.token);
-    assert.equal(authData.record.name, 'Staff Wekanz');
-    assert.equal(authData.record.role, 'editor');
+    // 1. Daftar (auto-login) lalu rekam token pertama
+    const reg = await bf.auth.register(email, password, 'Refresh Probe');
+    assert.ok(reg.accessToken, 'register mengembalikan accessToken');
     assert.equal(bf.auth.isValid, true);
-    assert.equal(bf.auth.token, authData.token);
+    const firstAccess = bf.auth.token;
+    const firstRefresh = bf.authStore.refreshToken;
+    assert.ok(firstRefresh, 'refreshToken tersimpan di authStore');
 
-    // 4. Refresh auth session
-    const refreshed = await bf.collection('staff').authRefresh();
-    assert.ok(refreshed.token);
-    assert.equal(refreshed.record.name, 'Staff Wekanz');
+    // 2. Refresh — inti test
+    const refreshed = await bf.auth.refresh();
+    assert.ok(refreshed.accessToken, 'refresh mengembalikan accessToken baru');
+
+    // 3. Ops-10: refresh WAJIB mengembalikan objek user, dibaca dari DB
+    assert.ok(refreshed.user, 'refresh mengembalikan user (paritas Ops-10)');
+    assert.equal(refreshed.user.email, email);
+    assert.equal(refreshed.user.name, 'Refresh Probe');
+
+    // 4. authStore ikut diperbarui, bukan cuma nilai balik
+    assert.equal(bf.auth.isValid, true);
+    assert.equal(bf.auth.token, refreshed.accessToken);
+    assert.equal(bf.auth.user?.email, email);
+
+    // 5. Token hasil refresh benar-benar dipakai server (bukan sekadar string baru)
+    const me = await bf.auth.me();
+    assert.equal(me.user.email, email);
+
+    void firstAccess;
+  });
+
+  test('RecordService: method auth-collection sudah TIDAK ada (Ops-13)', async () => {
+    // Gerbang regresi: kalau seseorang menghidupkan kembali kedua method ini
+    // tanpa menghidupkan route servernya, SDK kembali mengiklankan endpoint 404.
+    const bf = new BaseForge({ baseUrl: BASE_URL, projectId });
+    const col = bf.collection('staff') as unknown as Record<string, unknown>;
+
+    assert.equal(typeof col.authWithPassword, 'undefined', 'authWithPassword harus hilang dari SDK');
+    assert.equal(typeof col.authRefresh, 'undefined', 'authRefresh harus hilang dari SDK');
   });
 });

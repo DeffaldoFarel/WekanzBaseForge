@@ -137,36 +137,4 @@ export class RecordService extends BaseService {
     });
     return true;
   }
-
-  /**
-   * Autentikasi ke Auth Collection menggunakan identity/email & password (PocketBase Parity)
-   */
-  async authWithPassword<T = RecordModel>(
-    identity: string,
-    password: string
-  ): Promise<{ token: string; refreshToken?: string; record: T }> {
-    const res = await this.request<{ token: string; refreshToken?: string; record: T }>(
-      `api/p/${this.client.projectId}/collections/${this.collectionName}/auth-with-password`,
-      {
-        method: 'POST',
-        body: { identity, password },
-      }
-    );
-    this.client.authStore.save(res.token, res.refreshToken || '', res.record as unknown as import('../types.js').AuthUser);
-    return res;
-  }
-
-  /**
-   * Memperbarui token sesi pengguna saat ini
-   */
-  async authRefresh<T = RecordModel>(): Promise<{ token: string; refreshToken?: string; record: T }> {
-    const res = await this.request<{ token: string; refreshToken?: string; record: T }>(
-      `api/p/${this.client.projectId}/collections/${this.collectionName}/auth-refresh`,
-      {
-        method: 'POST',
-      }
-    );
-    this.client.authStore.save(res.token, res.refreshToken || '', res.record as unknown as import('../types.js').AuthUser);
-    return res;
-  }
 }
