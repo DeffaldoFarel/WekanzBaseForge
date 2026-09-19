@@ -21,12 +21,15 @@ Berbeda dengan WebSocket yang membutuhkan dependensi protokol tambahan, SSE berj
 
 ### 1. Buka Koneksi Stream
 * **Method:** `GET`
-* **URL:** `/api/p/:pid/realtime`
-* **Headers:** `Authorization: Bearer <accessToken>` (Opsional, sertakan token jika ingin menerima event data privat).
+* **URL:** `/api/p/:pid/realtime?token=<jwt>` *(opsional)*
+* **Headers:** `Authorization: Bearer <jwt> (opsional — token juga bisa dikirim via query param `?token=`, karena API `EventSource` browser tidak bisa mengirim header kustom).
+* Token **tidak valid** → respons `401` (bukan diam-diam jatuh ke anonymous). Tanpa token, koneksi bersifat anonymous — event hanya sampai untuk koleksi dengan rule publik.
+* Auth bisa juga **di-upgrade belakangan** lewat `Authorization` di request POST subscribe (lihat di bawah) — pola standar SDK.
 
-### 2. Berlangganan Topik (Subscribe)
+### 2. Berlangganan Topik (Bulk Sync)
 * **Method:** `POST`
 * **URL:** `/api/p/:pid/realtime`
+* **Headers:** `Authorization: Bearer <jwt> — jika disertakan dan valid, **auth koneksi SSE di-upgrade** ke user/token tersebut; token invalid → `401`.
 * **Body:**
   ```json
   {
@@ -37,10 +40,12 @@ Berbeda dengan WebSocket yang membutuhkan dependensi protokol tambahan, SSE berj
     ]
   }
   ```
+* **Semantik REPLACE:** seluruh set langganan klien diganti dengan set yang dikirim — idempotent, aman dipanggil ulang setelah reconnect. Array kosong = berhenti berlangganan semua.
+* Batas: maks 100 topik per request; `clientId` harus sudah connect (`404` jika belum).
 
 Format topik langganan:
-* `<koleksi>/*` : Memantau semua perubahan (create, update, delete) pada satu koleksi.
-* `<koleksi>/<id>` : Memantau hanya record spesifik tertentu.
+* `<koleksi>` atau `<koleksi>/*` : Memantau semua perubahan (create, update, delete) pada satu koleksi.
+* `<koleksi>/<id>` : Memantau hanya record spesifik tertentu (difilter di server).
 
 ---
 
@@ -51,7 +56,7 @@ Format topik langganan:
 | **`PB_CONNECT`** | Dikirim saat koneksi pertama kali tersambung. | `{ "clientId": "cl_..." }` |
 | **`PB_CREATE`** | Terjadi saat ada record baru dibuat. | Objek record lengkap yang baru dibuat. |
 | **`PB_UPDATE`** | Terjadi saat ada record yang diubah. | Objek record terbaru. |
-| **`PB_DELETE`** | Terjadi saat ada record yang dihapus. | `{ "id": "rec_id_yang_dihapus" }` |
+| **`PB_DELETE`** | Terjadi saat ada record dihapus. | Objek record lengkap (snapshot sebelum hapus) — subscriber tetap bisa memfilter berdasarkan `userId` dsb. |
 
 ---
 
@@ -63,8 +68,9 @@ Berikut contoh lengkap cara mengonsumsi realtime di aplikasi Web klien:
 const PID = 'q9tylwaruigffwr';
 const BASE_URL = 'http://localhost:5100';
 
-// 1. Buat koneksi EventSource
-const sse = new EventSource(`${BASE_URL}/api/p/${PID}/realtime`);
+// 1. Buat koneksi EventSource (token via query param — EventSource
+//    tidak bisa mengirim header Authorization)
+const sse = new EventSource(`${BASE_URL}/api/p/${PID}/realtime?token=${accessToken}`);
 
 let clientId = null;
 
@@ -74,10 +80,15 @@ sse.addEventListener('PB_CONNECT', async (e) => {
   clientId = data.clientId;
   console.log('Terhubung ke Realtime! Client ID:', clientId);
 
-  // 2. Daftarkan koleksi yang ingin dipantau
+  // 2. Daftarkan koleksi yang ingin dipantau — semantik REPLACE.
+  //    Sertakan Authorization di POST ini untuk meng-upgrade auth koneksi
+  //    (pola SDK: token user dikirim lewat POST, bukan lewat EventSource).
   await fetch(`${BASE_URL}/api/p/${PID}/realtime`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer ' + accessToken
+    },
     body: JSON.stringify({
       clientId: clientId,
       subscriptions: ['messages/*'] // Pantau semua pesan masuk
