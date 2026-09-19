@@ -85,8 +85,15 @@ export class RealtimeService extends BaseService {
       const handleEvent = (action: 'create' | 'update' | 'delete') => (e: MessageEvent) => {
         try {
           const data = JSON.parse(e.data);
-          const record = (action === 'delete' ? data : data) as RecordModel;
-          const collection = (e as unknown as { originCollection?: string }).originCollection;
+          // Ops-7: server selalu mengirim envelope { collection, action, record }
+          // (sejak M13, dipertegas M38: record = snapshot penuh, termasuk untuk
+          // delete). Parse record + collection dari envelope; fallback ke record
+          // telanjang bila payload non-envelope, agar dispatch tetap punya record.
+          const envelope = data && typeof data === 'object' && 'record' in data ? data : null;
+          const record = (envelope ? envelope.record : data) as RecordModel;
+          const collection = envelope && 'collection' in envelope
+            ? (envelope.collection as string | undefined)
+            : undefined;
           this.dispatch(action, record, collection);
         } catch (err) {
           console.error(`Error parsing ${action} realtime event:`, err);
