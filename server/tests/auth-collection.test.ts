@@ -197,100 +197,12 @@ describe('HTTP Auth Collection Endpoints', () => {
     assert.equal(userRes.record.password_hash, undefined);
   });
 
-  test('Authenticate via auth-with-password', async () => {
-    // 1. Wrong password should fail
-    const badLogin = await fetch(`${baseURL}/api/p/${pid}/collections/members/auth-with-password`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: 'member@wekanz.id', password: 'WrongPassword' }),
-    });
-    assert.equal(badLogin.status, 400);
+  // Tahap 4 (Ops-12): test untuk `auth-with-password`, `auth-refresh`, dan
+  // `auth-logout` dihapus bersama endpointnya. Autentikasi end-user kini hanya
+  // lewat platform auth `/api/p/:pid/auth/*`; lihat
+  // tests/ops12-auth-collection-removal.test.ts. Collection type=auth sendiri
+  // tetap ada — test di bawah menjaga skema dan CRUD-nya.
 
-    // 2. Correct password returns tokens + record with custom fields
-    const login = await fetch(`${baseURL}/api/p/${pid}/collections/members/auth-with-password`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ identity: 'member@wekanz.id', password: 'Password12345' }),
-    }).then((r) => r.json());
-
-    assert.ok(login.token);
-    assert.ok(login.refreshToken);
-    assert.equal(login.record.email, 'member@wekanz.id');
-    assert.equal(login.record.name, 'Member Wekanz');
-    assert.equal(login.record.tier, 'gold');
-    authUserToken = login.token;
-  });
-
-  test('Auth-refresh returns fresh token and user record', async () => {
-    const refreshRes = await fetch(`${baseURL}/api/p/${pid}/collections/members/auth-refresh`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${authUserToken}` },
-    }).then((r) => r.json());
-
-    assert.ok(refreshRes.token);
-    assert.equal(refreshRes.record.email, 'member@wekanz.id');
-    assert.equal(refreshRes.record.tier, 'gold');
-  });
-
-  // ═══════════════════════════════════════════════════════════════════════
-  // M40: auth-refresh via body refreshToken + auth-logout + EMAIL_TAKEN
-  // ═══════════════════════════════════════════════════════════════════════
-
-  let memberRefreshToken = '';
-
-  test('M40: auth-refresh via body refreshToken works after access token expired', async () => {
-    // Login ulang untuk dapat refresh token bersih
-    const login = await fetch(`${baseURL}/api/p/${pid}/collections/members/auth-with-password`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ identity: 'member@wekanz.id', password: 'Password12345' }),
-    }).then((r) => r.json());
-    memberRefreshToken = login.refreshToken;
-
-    // Refresh TANPA Authorization header — murni body refreshToken
-    const refreshRes = await fetch(`${baseURL}/api/p/${pid}/collections/members/auth-refresh`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refreshToken: memberRefreshToken }),
-    });
-    assert.equal(refreshRes.status, 200);
-
-    const body = await refreshRes.json() as { token: string; refreshToken: string; record: Record<string, unknown> };
-    assert.ok(body.token);
-    assert.ok(body.refreshToken);
-    assert.equal(body.record.email, 'member@wekanz.id');
-    assert.equal(body.record.tier, 'gold');
-    memberRefreshToken = body.refreshToken; // simpan token baru
-  });
-
-  test('M40: auth-refresh with invalid refreshToken returns 401', async () => {
-    const refreshRes = await fetch(`${baseURL}/api/p/${pid}/collections/members/auth-refresh`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refreshToken: 'deadbeef'.repeat(8) }),
-    });
-    assert.equal(refreshRes.status, 401);
-  });
-
-  test('M40: auth-logout revokes refresh token', async () => {
-    // 1. Logout — revoke refresh token yang tersimpan
-    const logout = await fetch(`${baseURL}/api/p/${pid}/collections/members/auth-logout`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refreshToken: memberRefreshToken }),
-    });
-    assert.equal(logout.status, 200);
-    const logoutBody = await logout.json() as { success: boolean };
-    assert.equal(logoutBody.success, true);
-
-    // 2. Refresh token yang sudah di-revoke harus ditolak
-    const refreshRes = await fetch(`${baseURL}/api/p/${pid}/collections/members/auth-refresh`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refreshToken: memberRefreshToken }),
-    });
-    assert.equal(refreshRes.status, 401);
-  });
 
   test('M40: register with duplicate email returns 409 EMAIL_TAKEN', async () => {
     const dupe = await fetch(`${baseURL}/api/p/${pid}/collections/members/records`, {

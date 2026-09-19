@@ -26,6 +26,7 @@ import { Router } from '../src/core/router.js';
 import { createAdminRouter } from '../src/api/adminRoutes.js';
 import { createDatabaseRouter } from '../src/api/databaseRoutes.js';
 import { createPublicRouter } from '../src/api/publicRoutes.js';
+import { createProjectAuthRouter } from '../src/api/authRoutes.js';
 import { createApiKeyRouter } from '../src/api/apiKeyRoutes.js';
 import { createStorageRouter } from '../src/api/storageRoutes.js';
 
@@ -84,6 +85,7 @@ before(async () => {
   router.merge(createAdminRouter());
   router.merge(createDatabaseRouter());
   router.merge(createPublicRouter());
+  router.merge(createProjectAuthRouter());
   router.merge(createApiKeyRouter());
   router.merge(createStorageRouter());
 
@@ -314,12 +316,15 @@ test('X-API-Key header juga berlaku (alternatif Bearer)', async () => {
 
 // ─── 6. Tidak berlaku di auth flow ────────────────────────────────────────────
 
-test('key TIDAK valid untuk auth-refresh (flow end-user) → 401', async () => {
+// Tahap 4: endpoint auth-collection dihapus; padanannya di platform auth adalah
+// GET /auth/me. Niat uji tetap sama — API key BUKAN identitas end-user, jadi
+// memakainya di flow auth harus ditolak 401, bukan diperlakukan sebagai user.
+test('key TIDAK valid untuk flow auth end-user (GET /auth/me) → 401', async () => {
   const key = await makeKey(projectIdA, 'write');
   const r = await http(
-    'POST',
-    `/api/p/${projectIdA}/collections/users/auth-refresh`,
-    {},
+    'GET',
+    `/api/p/${projectIdA}/auth/me`,
+    undefined,
     { Authorization: `Bearer ${key}` }
   );
   assert.equal(r.status, 401, JSON.stringify(r.data));

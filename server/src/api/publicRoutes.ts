@@ -8,12 +8,9 @@
 // ============================================================================
 
 import { Router, generateId } from '../core/router.js';
-import type { ForgeRequest, ForgeResponse } from '../core/router.js';
 import { getProjectDb } from '../core/projectDbManager.js';
 import { requireAdmin, validateToken } from '../platform/adminAuth.js';
 import { verifyToken } from '../auth/jwt.js';
-import { verifyPassword } from '../auth/password.js';
-import { issueTokens, initAuthTokensTable, hashToken } from '../auth/tokens.js';
 import { updateCollectionRules, getCollectionByName, createViewCollection } from '../core/schema.js';
 import { exportCollection, importCollection } from '../core/collectionJson.js';
 import {
@@ -507,215 +504,16 @@ export function createPublicRouter(): Router {
   });
 
   // ═══════════════════════════════════════════════════════════════════════
-  // POCKETBASE-PARITY: AUTH COLLECTION AUTHENTICATION
+  // AUTH COLLECTION AUTHENTICATION — DIHAPUS (Tahap 4, 2026-09-19)
   //
-  // ⚠️ DEPRECATED (Tahap 3 konsolidasi auth, 2026-09-19)
+  // Endpoint `auth-with-password`, `auth-refresh`, dan `auth-logout` dihapus
+  // setelah masa deprecation Ops-11 berlalu tanpa pemanggil tersisa.
+  // Autentikasi end-user kini HANYA lewat platform auth `/api/p/:pid/auth/*`
+  // (`_auth_users`) di `api/authRoutes.ts`.
   //
-  // Surface ini digantikan platform auth `/api/p/:pid/auth/*` (`_auth_users`).
-  // Alasan: MFA, OAuth, verifikasi email, dan halaman admin Auth Users semuanya
-  // terikat ke `_auth_users`; mempertahankan dua surface berarti dua jalur login
-  // yang berbeda untuk hal yang sama.
-  //
-  // Route di bawah MASIH BERFUNGSI PENUH selama satu rilis supaya rollback
-  // tersedia — yang berubah hanya: setiap respons membawa header peringatan dan
-  // pemanggilan dicatat ke log server. Penghapusan dilakukan di Tahap 4.
-  //
-  // Peta migrasi:
-  //   auth-with-password → POST /api/p/:pid/auth/login
-  //   auth-refresh       → POST /api/p/:pid/auth/refresh
-  //   auth-logout        → POST /api/p/:pid/auth/logout
+  // Collection `type='auth'` sendiri TIDAK dihapus: CRUD record-nya tetap
+  // berjalan normal. Yang hilang hanya jalur login lewat collection.
   // ═══════════════════════════════════════════════════════════════════════
-
-  // Menandai respons sebagai deprecated + mencatat pemanggil supaya sisa
-  // konsumen surface B ketahuan SEBELUM route-nya dihapus di Tahap 4.
-  const markDeprecated = (
-    req: ForgeRequest,
-    res: ForgeResponse,
-    replacement: string
-  ): void => {
-    try {
-      res.raw.setHeader('Deprecation', 'true');
-      res.raw.setHeader('Link', `<${replacement}>; rel="successor-version"`);
-      res.raw.setHeader(
-        'Warning',
-        `299 - "Auth collection endpoint deprecated; use ${replacement}"`
-      );
-    } catch {
-      // header sudah terkirim — jangan sampai menjatuhkan request
-    }
-    const ua = req.headers['user-agent'] ?? 'unknown';
-    console.warn(
-      `[deprecated] ${req.method} ${req.path} project=${req.params.pid} collection=${req.params.name} ua="${ua}" → gunakan ${replacement}`
-    );
-  };
-
-  // POST /api/p/:pid/collections/:name/auth-with-password
-  router.post('/api/p/:pid/collections/:name/auth-with-password', async (req, res) => {
-    markDeprecated(req, res, '/api/p/:pid/auth/login');
-    try {
-      const db = getProjectDb(req.params.pid);
-      const meta = getCollectionByName(db, req.params.name);
-      if (!meta) {
-        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Collection not found' } });
-        return;
-      }
-      if (meta.type !== 'auth') {
-        res.status(400).json({ error: { code: 'NOT_AUTH_COLLECTION', message: `Collection '${meta.name}' bukan bertipe auth` } });
-        return;
-      }
-
-      const body = (req.body ?? {}) as { identity?: string; email?: string; password?: string };
-      const identity = (body.identity || body.email || '').trim().toLowerCase();
-      const password = body.password || '';
-
-      if (!identity || !password) {
-        res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'Identity/email and password are required' } });
-        return;
-      }
-
-      const row = db.prepare(`SELECT * FROM "${meta.name}" WHERE email = ?`).get(identity) as Record<string, unknown> | undefined;
-      if (!row || typeof row.password_hash !== 'string' || !verifyPassword(password, row.password_hash)) {
-        res.status(400).json({ error: { code: 'INVALID_CREDENTIALS', message: 'Invalid email or password.' } });
-        return;
-      }
-
-      initAuthTokensTable(db);
-      const tokens = await issueTokens(db, {
-        id: String(row.id),
-        email: String(row.email),
-        name: typeof row.name === 'string' ? row.name : null,
-        avatarUrl: null,
-        verified: row.verified === true || row.verified === 1,
-        disabled: false,
-        created: typeof row.created === 'string' ? row.created : '',
-        updated: typeof row.updated === 'string' ? row.updated : '',
-      });
-
-      const record = getRecord(db, meta.name, String(row.id));
-      res.json({
-        token: tokens.accessToken,
-        refreshToken: tokens.refreshToken,
-        record,
-      });
-    } catch (err) {
-      handleErrorPublic(res, err);
-    }
-  });
-
-  // POST /api/p/:pid/collections/:name/auth-refresh
-    // M40: refreshToken dari BODY (paritas platform /auth/refresh). Bearer access
-    // token masih-valid tetap diterima sebagai fallback (kompatibilitas lama —
-    // client yang belum kirim body refreshToken tetap bisa refresh selama
-    // access token belum expired; kalau dua-duanya ada, body MENANG).
-    router.post('/api/p/:pid/collections/:name/auth-refresh', async (req, res) => {
-      markDeprecated(req, res, '/api/p/:pid/auth/refresh');
-      try {
-        const db = getProjectDb(req.params.pid);
-        const meta = getCollectionByName(db, req.params.name);
-        if (!meta || meta.type !== 'auth') {
-          res.status(400).json({ error: { code: 'NOT_AUTH_COLLECTION', message: 'Not an auth collection' } });
-          return;
-        }
-
-        initAuthTokensTable(db);
-
-        const body = (req.body ?? {}) as { refreshToken?: string };
-        const userId = await refreshCollectionUserId(db, body.refreshToken);
-
-        let userRow: {
-          id: string; email: string; name: string | null;
-          verified: number | 1 | boolean; created: string; updated: string;
-        } | null = null;
-
-        if (userId) {
-          // Jalur 1 (M40): refresh token dari body — user dari DB collection
-          //
-          // `name` TIDAK dijamin ada: collection type=auth hanya menjamin
-          // email/password_hash/verified, sisanya milik pemilik skema. Dulu
-          // kolomnya di-SELECT langsung sehingga auth collection tanpa field
-          // `name` gagal refresh dengan "no such column: name". Ambil semua
-          // kolom lalu baca `name` secara opsional.
-          const raw = db
-            .prepare(`SELECT * FROM \"${meta.name}\" WHERE id = ?`)
-            .get(userId) as Record<string, unknown> | undefined;
-          if (raw) {
-            userRow = {
-              id: String(raw.id),
-              email: String(raw.email ?? ''),
-              name: typeof raw.name === 'string' ? raw.name : null,
-              verified: raw.verified === true || raw.verified === 1,
-              created: typeof raw.created === 'string' ? raw.created : '',
-              updated: typeof raw.updated === 'string' ? raw.updated : '',
-            };
-          }
-        } else if (req.headers.authorization?.startsWith('Bearer ')) {
-        // Jalur 2 (fallback lama): access token masih valid
-        const result = await verifyToken(req.headers.authorization.slice(7));
-        if (result.valid && result.payload) {
-          // ctx admin view — refresh adalah operasi auth, bukan akses data
-          const record = getRecord(db, meta.name, String(result.payload.sub));
-          if (record) {
-              userRow = {
-                id: String(record.id),
-                email: String(record.email ?? ''),
-                name: typeof record.name === 'string' ? record.name : null,
-                verified: record.verified === true || record.verified === 1,
-                created: typeof record.created === 'string' ? record.created : '',
-                updated: typeof record.updated === 'string' ? record.updated : '',
-              };
-            }
-          }
-        }
-
-        if (!userRow) {
-          res.status(401).json({ error: { code: 'INVALID_REFRESH', message: 'Refresh token is invalid or expired' } });
-          return;
-        }
-
-        const tokens = await issueTokens(db, {
-          id: userRow.id,
-          email: userRow.email,
-          name: userRow.name,
-          avatarUrl: null,
-          verified: userRow.verified === true || userRow.verified === 1,
-          disabled: false,
-          created: userRow.created,
-          updated: userRow.updated,
-        });
-
-        res.json({
-          token: tokens.accessToken,
-          refreshToken: tokens.refreshToken,
-          record: getRecord(db, meta.name, userRow.id),
-        });
-      } catch (err) {
-        handleErrorPublic(res, err);
-      }
-    });
-
-    // POST /api/p/:pid/collections/:name/auth-logout
-    // M40: revoke refresh token collection-auth (paritas platform /auth/logout).
-    router.post('/api/p/:pid/collections/:name/auth-logout', async (req, res) => {
-      markDeprecated(req, res, '/api/p/:pid/auth/logout');
-      try {
-        const db = getProjectDb(req.params.pid);
-        const meta = getCollectionByName(db, req.params.name);
-        if (!meta || meta.type !== 'auth') {
-          res.status(400).json({ error: { code: 'NOT_AUTH_COLLECTION', message: 'Not an auth collection' } });
-          return;
-        }
-        const body = (req.body ?? {}) as { refreshToken?: string };
-        if (!body?.refreshToken) {
-          res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'refreshToken is required' } });
-          return;
-        }
-        initAuthTokensTable(db);
-        revokeRefreshTokenByHash(db, body.refreshToken);
-        res.json({ success: true });
-      } catch (err) {
-        handleErrorPublic(res, err);
-      }
-    });
 
     return router;
   }
@@ -770,34 +568,3 @@ async function resolveEndUserCtx(
 }
 
 // ─── M40: helper auth-collection (refresh/logout via refresh token) ─────────
-
-/**
- * Cari user_id milik refresh token collection-auth di _auth_tokens.
- * Mengembalikan null kalau token tidak ada / revoked / expired / user sudah
- * dihapus. Berbeda dari platform refreshAccessToken, di sini kita JOIN ke
- * tabel collection (bukan _auth_users) karena user hidup di situ.
- */
-async function refreshCollectionUserId(
-  db: DatabaseSync,
-  refreshToken: string | undefined
-): Promise<string | null> {
-  if (!refreshToken) return null;
-  const row = db
-    .prepare(
-      'SELECT user_id, expires_at, revoked FROM _auth_tokens WHERE token_hash = ?'
-    )
-    .get(hashToken(refreshToken)) as
-    | { user_id: string; expires_at: string; revoked: number }
-    | undefined;
-  if (!row || row.revoked === 1) return null;
-  if (new Date(row.expires_at).getTime() < Date.now()) return null;
-  return row.user_id;
-}
-
-/** M40: revoke refresh token by nilai mentahnya (hash internal). */
-function revokeRefreshTokenByHash(db: DatabaseSync, refreshToken: string): boolean {
-  const result = db
-    .prepare('UPDATE _auth_tokens SET revoked = 1 WHERE token_hash = ?')
-    .run(hashToken(refreshToken));
-  return result.changes > 0;
-}

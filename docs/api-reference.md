@@ -33,24 +33,24 @@ curl -H "Authorization: Bearer bf_xxx..." \
 
 Admin endpoints: `GET .../api-keys` (list masked + usage),
 `DELETE .../api-keys/:id` (revoke). Key **tidak berlaku** untuk flow
-end-user (`/auth/*`, `auth-with-password`, `auth-refresh`).
+end-user (`/auth/*`).
 
 ---
 
-> ⚠️ **Deprecated sejak 2026-09-19 (Tahap 3 konsolidasi auth).**
+> 🚫 **Dihapus pada 2026-09-19 (Tahap 4 konsolidasi auth).**
 > Endpoint auth-collection (`POST /api/p/:pid/collections/:name/auth-with-password`,
-> `auth-refresh`, `auth-logout`) masih berfungsi penuh selama satu rilis, tetapi
-> setiap responsnya membawa header `Deprecation: true` dan pemanggilannya dicatat
-> di log server. Gunakan platform auth sebagai gantinya:
+> `auth-refresh`, `auth-logout`) **sudah tidak ada** dan kini mengembalikan 404.
+> Autentikasi end-user hanya lewat platform auth:
 >
-> | Lama | Baru |
+> | Lama (hilang) | Sekarang |
 > |---|---|
 > | `collections/:name/auth-with-password` | `POST /api/p/:pid/auth/login` |
 > | `collections/:name/auth-refresh` | `POST /api/p/:pid/auth/refresh` |
 > | `collections/:name/auth-logout` | `POST /api/p/:pid/auth/logout` |
 >
-> Token kedua surface interoperable (`issueTokens()` dan `_auth_tokens` yang sama),
-> jadi API Rules `@request.auth.id` tidak perlu diubah saat berpindah.
+> Collection bertipe `auth` **tetap didukung** — CRUD record-nya normal dan
+> `password_hash` tetap disaring dari respons. Yang hilang hanya jalur login
+> lewat collection.
 
 ---
 
