@@ -25,14 +25,11 @@ import { IndexesEditor } from "@/components/IndexesEditor";
 import {
   Box,
   Eye,
-  Users,
   Shield,
   Lock,
   Globe,
   AlertTriangle,
   Lightbulb,
-  Mail,
-  Check,
   Calendar,
   Plus,
   X,
@@ -72,7 +69,7 @@ export function CreateCollectionModal({
   onCreated,
 }: CreateCollectionModalProps) {
   const [name, setName] = useState("");
-  const [colType, setColType] = useState<"base" | "view" | "auth">("base");
+  const [colType, setColType] = useState<"base" | "view">("base");
   const [activeTab, setActiveTab] = useState<"fields" | "rules">("fields");
 
   // Base & Auth Collection State
@@ -160,8 +157,6 @@ export function CreateCollectionModal({
           <DialogTitle className="flex items-center gap-2">
             {colType === "base" ? (
               <Box className="w-5 h-5 text-foreground" />
-            ) : colType === "auth" ? (
-              <Users className="w-5 h-5 text-emerald-400" />
             ) : (
               <Eye className="w-5 h-5 text-purple-400" />
             )}
@@ -198,22 +193,13 @@ export function CreateCollectionModal({
 
             <div className="space-y-2">
               <Label>Type</Label>
-              <Select value={colType} onValueChange={(v: string) => {
-                setColType(v as "base" | "view" | "auth");
-                if (v === "auth" && fields.length === 1 && fields[0].name === "title") {
-                  setFields([
-                    { name: "name", type: "text" },
-                    { name: "avatar", type: "file" },
-                  ]);
-                }
-              }}>
+              <Select value={colType} onValueChange={(v: string) => setColType(v as "base" | "view")}>
                 <SelectTrigger className="w-[140px]">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="base">Base</SelectItem>
                   <SelectItem value="view">View</SelectItem>
-                  <SelectItem value="auth">Auth</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -246,7 +232,7 @@ export function CreateCollectionModal({
             </button>
           </div>
 
-          {/* TAB 1: FIELDS (BASE / AUTH) or SQL QUERY (VIEW) */}
+          {/* TAB 1: FIELDS (BASE) or SQL QUERY (VIEW) */}
           {activeTab === "fields" && (
             <div>
               {colType !== "view" ? (
@@ -255,19 +241,6 @@ export function CreateCollectionModal({
                   <div className="flex items-center gap-2 px-3 py-2 bg-muted rounded-lg border border-dashed border-border text-xs text-muted-foreground mb-3 flex-wrap">
                     <span className="font-semibold">System Fields:</span>
                     <Badge variant="outline" className="text-xs font-mono">id (PK)</Badge>
-                    {colType === "auth" && (
-                      <>
-                        <Badge variant="secondary" className="text-xs font-mono gap-1">
-                          <Mail className="w-3 h-3" /> email
-                        </Badge>
-                        <Badge variant="secondary" className="text-xs font-mono gap-1">
-                          <Lock className="w-3 h-3" /> password
-                        </Badge>
-                        <Badge variant="outline" className="text-xs font-mono gap-1">
-                          <Check className="w-3 h-3" /> verified
-                        </Badge>
-                      </>
-                    )}
                     <Badge variant="outline" className="text-xs font-mono gap-1">
                       <Calendar className="w-3 h-3" /> created
                     </Badge>
