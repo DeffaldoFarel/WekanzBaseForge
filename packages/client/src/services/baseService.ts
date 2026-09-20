@@ -70,7 +70,7 @@ export abstract class BaseService {
     options: RequestOptions,
     isRetry = false
   ): Promise<T> {
-    const { params, headers: customHeaders, body, ...fetchOpts } = options;
+    const { params, headers: customHeaders, body, allowAutoRefresh, ...fetchOpts } = options;
 
     // 1. Susun URL dengan query parameters jika ada
     let url = `${this.client.baseUrl.replace(/\/$/, '')}/${path.replace(/^\//, '')}`;
@@ -124,7 +124,14 @@ export abstract class BaseService {
     }
 
     // 4. M37: Auto-refresh on 401 → retry ONCE
-    if (res.status === 401 && !isRetry) {
+    //
+    // Ops-17: HANYA untuk request yang boleh membawa sesi (allowAutoRefresh
+    // !== false). Pada endpoint anonim (login/register/reset/verify/MFA
+    // challenge), 401 berarti kredensialnya ditolak: meneruskannya sebagai
+    // SESSION_EXPIRED menyembunyikan INVALID_CREDENTIALS dari layar login,
+    // dan — bila authStore masih menyimpan sesi LAMA — diam-diam menembak
+    // /auth/refresh milik user lain saat login gagal.
+    if (res.status === 401 && !isRetry && allowAutoRefresh !== false) {
       // Skip auto-refresh kalau request INI adalah refresh endpoint
       // (biarkan error asli dari server diteruskan — bukan SESSION_EXPIRED)
       const isRefreshEndpoint = path.includes('/auth/refresh');

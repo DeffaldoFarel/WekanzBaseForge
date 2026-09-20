@@ -46,6 +46,7 @@ export class AuthService extends BaseService {
         // `profile` dihilangkan bila undefined agar body tetap identik
         // dengan sebelum Ops-16 untuk pemanggil lama.
         body: { email, password, name, ...(profile !== undefined ? { profile } : {}) },
+        allowAutoRefresh: false, // Ops-17: endpoint anonim
       }
     );
 
@@ -64,6 +65,9 @@ export class AuthService extends BaseService {
       {
         method: 'POST',
         body: { email, password },
+        // Ops-17: 401 di sini = kredensial salah → teruskan INVALID_CREDENTIALS
+        // apa adanya; jangan me-refresh sesi lama yang kebetulan tersimpan.
+        allowAutoRefresh: false,
       }
     );
 
@@ -91,6 +95,7 @@ export class AuthService extends BaseService {
       {
         method: 'POST',
         body: { refreshToken },
+        allowAutoRefresh: false, // Ops-17: mencegah rekursi refresh (defense in depth)
       }
     );
 
@@ -256,7 +261,7 @@ export class AuthService extends BaseService {
   async requestVerification(email?: string): Promise<{ message: string }> {
     return this.request<{ message: string }>(
       `api/p/${this.client.projectId}/auth/request-verification`,
-      { method: 'POST', body: { email } }
+      { method: 'POST', body: { email }, allowAutoRefresh: false }
     );
   }
 
@@ -264,7 +269,7 @@ export class AuthService extends BaseService {
   async verifyEmail(token: string): Promise<{ ok: boolean }> {
     return this.request<{ ok: boolean }>(
       `api/p/${this.client.projectId}/auth/verify-email`,
-      { method: 'POST', body: { token } }
+      { method: 'POST', body: { token }, allowAutoRefresh: false }
     );
   }
 
@@ -275,7 +280,7 @@ export class AuthService extends BaseService {
   async requestPasswordReset(email: string): Promise<{ message: string }> {
     return this.request<{ message: string }>(
       `api/p/${this.client.projectId}/auth/request-password-reset`,
-      { method: 'POST', body: { email } }
+      { method: 'POST', body: { email }, allowAutoRefresh: false }
     );
   }
 
@@ -289,7 +294,7 @@ export class AuthService extends BaseService {
   ): Promise<{ ok: boolean; message: string; revokedSessions: number }> {
     return this.request<{ ok: boolean; message: string; revokedSessions: number }>(
       `api/p/${this.client.projectId}/auth/confirm-password-reset`,
-      { method: 'POST', body: { token, password: newPassword } }
+      { method: 'POST', body: { token, password: newPassword }, allowAutoRefresh: false }
     );
   }
 
@@ -333,6 +338,8 @@ export class AuthService extends BaseService {
         body: recoveryCode
           ? { mfaToken, recoveryCode }
           : { mfaToken, token: code },
+        // Ops-17: mfaToken yang salah/kedaluwarsa ≠ sesi kedaluwarsa.
+        allowAutoRefresh: false,
       }
     );
     this.client.authStore.save(res.accessToken, res.refreshToken, res.user);

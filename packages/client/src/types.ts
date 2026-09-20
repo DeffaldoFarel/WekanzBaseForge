@@ -61,6 +61,18 @@ export interface TokenPair {
 export interface RequestOptions extends Omit<RequestInit, 'body'> {
   body?: BodyInit | Record<string, unknown> | null;
   params?: Record<string, unknown>;
+  /**
+   * Ops-17: setel `false` untuk endpoint ANONIM (login, register, reset
+   * password, verifikasi email, MFA challenge). Pada endpoint itu, 401
+   * berarti kredensialnya ditolak — BUKAN sesi kedaluwarsa — sehingga kode
+   * error asli server (mis. `INVALID_CREDENTIALS`) harus sampai ke pemanggil
+   * apa adanya, dan SDK tidak boleh diam-diam me-refresh sesi lama yang
+   * kebetulan masih ada di authStore.
+   *
+   * Default `true`: request terautentikasi yang 401 tetap auto-refresh +
+   * retry sekali (M37).
+   */
+  allowAutoRefresh?: boolean;
 }
 
 export interface RecordModel {
