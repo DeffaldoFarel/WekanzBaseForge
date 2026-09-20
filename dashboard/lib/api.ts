@@ -830,6 +830,64 @@ export async function clearExecutionLogs(projectId: string, functionName: string
   );
 }
 
+// ─── M30: STORAGE BACKEND — local disk atau S3-compatible (platform-wide) ───
+
+export interface S3ConfigInfo {
+  endpoint?: string;
+  region?: string;
+  bucket?: string;
+  prefix?: string;
+  hasCredentials: boolean;
+}
+
+export interface StorageBackendInfo {
+  backend: 'local' | 's3';
+  s3?: S3ConfigInfo;
+}
+
+export interface StorageTestResult {
+  ok: boolean;
+  backend: string;
+  message: string;
+}
+
+export async function getStorageBackend(): Promise<StorageBackendInfo> {
+  return request<StorageBackendInfo>('/api/admin/settings/storage');
+}
+
+export async function setStorageBackendS3(s3: {
+  endpoint: string;
+  region?: string;
+  bucket: string;
+  accessKeyId: string;
+  secretAccessKey: string;
+  prefix?: string;
+}): Promise<{ backend: string; message: string }> {
+  return request('/api/admin/settings/storage', {
+    method: 'PUT',
+    body: JSON.stringify({ backend: 's3', s3 }),
+  });
+}
+
+export async function setStorageBackendLocal(): Promise<{ backend: string; message: string }> {
+  return request('/api/admin/settings/storage', {
+    method: 'PUT',
+    body: JSON.stringify({ backend: 'local' }),
+  });
+}
+
+/** Health check backend aktif. Untuk S3 = HEAD bucket; server balas 502 saat gagal. */
+export async function testStorageBackend(): Promise<StorageTestResult> {
+  return request<StorageTestResult>('/api/admin/settings/storage/test', {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
+}
+
+export async function resetStorageBackend(): Promise<{ backend: string; message: string }> {
+  return request('/api/admin/settings/storage', { method: 'DELETE' });
+}
+
 // ─── M33: MONITORING + ALERTS — platform-level health (bukan per-project) ───
 
 export type AlertRuleName =

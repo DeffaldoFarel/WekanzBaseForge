@@ -16,6 +16,7 @@ import {
   type OutboxMessage,
 } from "@/lib/api";
 import { Navbar } from "@/components/Navbar";
+import { StorageBackendSection } from "@/components/StorageBackendSection";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -212,6 +213,9 @@ export default function SettingsPage() {
             <span>{error}</span>
           </Card>
         )}
+
+        {/* ─── STORAGE BACKEND (M30: local disk / S3) ─── */}
+        <StorageBackendSection onSuccess={setNotice} onError={setError} />
 
         {/* ─── MONITORING shortcut (M33: platform alerts) ─── */}
         <Link href="/monitoring" className="block group">
