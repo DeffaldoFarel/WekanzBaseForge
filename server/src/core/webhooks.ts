@@ -227,12 +227,39 @@ export function deleteWebhook(db: DatabaseSync, id: string): boolean {
 
 export function listDeliveries(db: DatabaseSync, webhookId: string, limit = 20): WebhookDelivery[] {
   initWebhooksTable(db);
-  return db
+  const rows = db
     .prepare(
       `SELECT * FROM _webhook_deliveries WHERE webhook_id = ?
        ORDER BY delivered_at DESC, rowid DESC LIMIT ?`
     )
-    .all(webhookId, limit) as unknown as WebhookDelivery[];
+    .all(webhookId, limit) as unknown as DeliveryRow[];
+  return rows.map(rowToDelivery);
+}
+
+interface DeliveryRow {
+  id: string;
+  webhook_id: string;
+  event: string;
+  status_code: number | null;
+  ok: number;
+  attempt: number;
+  error: string | null;
+  duration_ms: number;
+  delivered_at: string;
+}
+
+function rowToDelivery(row: DeliveryRow): WebhookDelivery {
+  return {
+    id: row.id,
+    webhookId: row.webhook_id,
+    event: row.event,
+    statusCode: row.status_code,
+    ok: row.ok === 1,
+    attempt: row.attempt,
+    error: row.error,
+    durationMs: row.duration_ms,
+    deliveredAt: row.delivered_at,
+  };
 }
 
 function recordDelivery(db: DatabaseSync, d: Omit<WebhookDelivery, 'id'>): void {

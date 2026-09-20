@@ -830,6 +830,93 @@ export async function clearExecutionLogs(projectId: string, functionName: string
   );
 }
 
+// ─── M28: WEBHOOKS — notifikasi HTTP saat record berubah ────────────────────
+
+export interface WebhookDef {
+  id: string;
+  name: string;
+  url: string;
+  events: string[]; // ['posts.create', 'posts.*', '*']
+  enabled: boolean;
+  created: string;
+  updated: string;
+  /** Hanya di list/detail (masked): 12 karakter pertama + '…' */
+  secretHint?: string;
+  /** Hanya di respons create & GET by ID — sekali lihat, simpan baik-baik */
+  secret?: string;
+}
+
+export interface WebhookDelivery {
+  id: string;
+  webhookId: string;
+  event: string;
+  statusCode: number | null;
+  ok: boolean;
+  attempt: number;
+  error: string | null;
+  durationMs: number;
+  deliveredAt: string;
+}
+
+export async function listWebhooks(projectId: string): Promise<WebhookDef[]> {
+  const res = await request<{ webhooks: WebhookDef[] }>(
+    `/api/admin/projects/${projectId}/webhooks`
+  );
+  return res.webhooks;
+}
+
+export async function getWebhook(projectId: string, id: string): Promise<WebhookDef> {
+  const res = await request<{ webhook: WebhookDef }>(
+    `/api/admin/projects/${projectId}/webhooks/${id}`
+  );
+  return res.webhook;
+}
+
+export async function createWebhook(
+  projectId: string,
+  def: { name: string; url: string; events: string[]; enabled?: boolean }
+): Promise<WebhookDef> {
+  const res = await request<{ webhook: WebhookDef }>(
+    `/api/admin/projects/${projectId}/webhooks`,
+    { method: 'POST', body: JSON.stringify(def) }
+  );
+  return res.webhook;
+}
+
+export async function updateWebhook(
+  projectId: string,
+  id: string,
+  updates: { name?: string; url?: string; events?: string[]; enabled?: boolean }
+): Promise<WebhookDef> {
+  const res = await request<{ webhook: WebhookDef }>(
+    `/api/admin/projects/${projectId}/webhooks/${id}`,
+    { method: 'PATCH', body: JSON.stringify(updates) }
+  );
+  return res.webhook;
+}
+
+export async function deleteWebhook(projectId: string, id: string): Promise<void> {
+  await request(`/api/admin/projects/${projectId}/webhooks/${id}`, { method: 'DELETE' });
+}
+
+export async function testWebhook(projectId: string, id: string): Promise<{ ok: boolean; message: string }> {
+  return request<{ ok: boolean; message: string }>(
+    `/api/admin/projects/${projectId}/webhooks/${id}/test`,
+    { method: 'POST', body: JSON.stringify({}) }
+  );
+}
+
+export async function listWebhookDeliveries(
+  projectId: string,
+  id: string,
+  limit = 20
+): Promise<WebhookDelivery[]> {
+  const res = await request<{ deliveries: WebhookDelivery[] }>(
+    `/api/admin/projects/${projectId}/webhooks/${id}/deliveries?limit=${limit}`
+  );
+  return res.deliveries;
+}
+
 export interface FunctionExecResult {
   ok: boolean;
   result?: unknown;

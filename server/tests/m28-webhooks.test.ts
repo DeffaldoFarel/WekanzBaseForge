@@ -288,6 +288,18 @@ test('flaky endpoint (500×2) → retry → sukses di attempt ke-3', async () =>
   assert.equal(logs[0].ok, true, 'attempt terakhir ok');
   assert.equal(logs[0].attempt, 3);
   assert.equal(logs[1].ok, false, 'attempt 2 gagal');
+
+  // Regresi (fix dashboard webhooks page): respons HARUS camelCase sesuai
+  // WebhookDelivery — dulu row DB snake_case bocor mentah (status_code,
+  // delivered_at, ok: 0/1) dan dashboard menampilkan '—' + 'Invalid Date'.
+  const d0 = logs[0];
+  assert.ok(typeof d0.deliveredAt === 'string' && !Number.isNaN(Date.parse(d0.deliveredAt)),
+    'deliveredAt camelCase + ISO valid');
+  assert.ok('statusCode' in d0, 'statusCode camelCase ada');
+  assert.ok(typeof d0.durationMs === 'number', 'durationMs camelCase number');
+  assert.ok(typeof d0.ok === 'boolean', 'ok boolean (bukan 0/1)');
+  assert.ok(!('status_code' in d0) && !('delivered_at' in d0) && !('webhook_id' in d0),
+    'tidak ada field snake_case bocor');
 });
 
 // ─── 5. Disabled webhook tidak terpicu ────────────────────────────────────────

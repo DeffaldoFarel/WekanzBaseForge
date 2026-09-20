@@ -10,6 +10,7 @@ import {
   Code2,
   KeyRound,
   ChevronLeft,
+  Webhook,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getCachedProjectName, fetchProjectName } from "@/lib/api";
@@ -49,6 +50,12 @@ const NAV_ITEMS = [
     title: "Functions",
     icon: Code2,
     href: (id: string) => `/projects/${id}/functions`,
+  },
+  {
+    key: "webhooks",
+    title: "Webhooks",
+    icon: Webhook,
+    href: (id: string) => `/projects/${id}/webhooks`,
   },
 ];
 
