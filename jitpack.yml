@@ -18,5 +18,6 @@ jdk:
 # Build HANYA modul Kotlin SDK, dari direktorinya sendiri (tempat wrapper berada).
 # -x test: lewati test saat build JitPack (LiveAuthTest/LiveRecordsTest/LiveFilesTest
 # butuh server BaseForge berjalan, yang tidak ada di lingkungan JitPack).
+# gradlew di-chmod +x dulu untuk mengatasi Windows yang tidak menyimpan bit executable.
 install:
-  - cd packages/kotlin-client && ./gradlew clean publishToMavenLocal -x test --no-daemon
+  - cd packages/kotlin-client && chmod +x gradlew && ./gradlew clean publishToMavenLocal -x test --no-daemon
