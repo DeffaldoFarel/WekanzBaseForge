@@ -9,6 +9,7 @@ import {
   deleteOAuthProvider,
   oauthAuthorizeUrl,
   getToken,
+  PUBLIC_API_URL,
   type OAuthProviderInfo,
   listAuthUsers,
   setAuthUserVerified,
@@ -98,7 +99,7 @@ const PROVIDER_META: Record<
     label: "Apple",
     icon: Apple,
     docsUrl: "https://developer.apple.com/account/resources/identifiers/list/serviceId",
-    note: "Requires ES256-signed client secret JWT (coming soon)",
+    note: "Not yet supported by the server (requires ES256-signed client secret JWT)",
   },
 };
 
@@ -116,6 +117,8 @@ export default function AuthSettingsPage() {
   // M47: Auth Users state
   const [authUsers, setAuthUsers] = useState<AuthUser[]>([]);
   const [authUsersTotal, setAuthUsersTotal] = useState(0);
+  const [authUsersTotalPages, setAuthUsersTotalPages] = useState(1);
+  const [authUsersPage, setAuthUsersPage] = useState(1);
   const [authUsersLoading, setAuthUsersLoading] = useState(false);
   const [authUsersSearch, setAuthUsersSearch] = useState("");
   const [authUsersError, setAuthUsersError] = useState("");
@@ -150,13 +153,15 @@ export default function AuthSettingsPage() {
   }, [projectId]);
 
   // M47: load auth users
-  const loadAuthUsers = useCallback(async (search?: string) => {
+  const loadAuthUsers = useCallback(async (search?: string, page: number = 1) => {
     setAuthUsersLoading(true);
     setAuthUsersError("");
     try {
-      const result = await listAuthUsers(projectId, 1, search);
+      const result = await listAuthUsers(projectId, page, search);
       setAuthUsers(result.items);
       setAuthUsersTotal(result.totalItems);
+      setAuthUsersTotalPages(result.totalPages ?? 1);
+      setAuthUsersPage(result.page ?? page);
     } catch (e) {
       setAuthUsersError(e instanceof Error ? e.message : "Failed to load users");
     } finally {
@@ -173,7 +178,7 @@ export default function AuthSettingsPage() {
     setActionLoading(userId + "-verify");
     try {
       await setAuthUserVerified(projectId, userId, verified);
-      await loadAuthUsers(authUsersSearch || undefined);
+      await loadAuthUsers(authUsersSearch || undefined, authUsersPage);
     } catch (e) {
       setAuthUsersError(e instanceof Error ? e.message : "Failed to update user");
     } finally {
@@ -185,7 +190,7 @@ export default function AuthSettingsPage() {
     setActionLoading(userId + "-disable");
     try {
       await setAuthUserDisabled(projectId, userId, disabled);
-      await loadAuthUsers(authUsersSearch || undefined);
+      await loadAuthUsers(authUsersSearch || undefined, authUsersPage);
     } catch (e) {
       setAuthUsersError(e instanceof Error ? e.message : "Failed to update user");
     } finally {
@@ -198,7 +203,7 @@ export default function AuthSettingsPage() {
     try {
       await deleteAuthUser(projectId, userId);
       setConfirmDeleteUser(null);
-      await loadAuthUsers(authUsersSearch || undefined);
+      await loadAuthUsers(authUsersSearch || undefined, authUsersPage);
     } catch (e) {
       setAuthUsersError(e instanceof Error ? e.message : "Failed to delete user");
     } finally {
@@ -207,7 +212,9 @@ export default function AuthSettingsPage() {
   }
 
   const registerCallbackUrl = (provider: string): string => {
-    return `${window.location.protocol}//${window.location.hostname}:5100/api/p/${projectId}/auth/oauth/${provider}/callback`;
+    // Pakai base URL API publik (env), BUKAN hostname browser + :5100 — yang
+    // salah total di production (port 5100 tidak ter-expose ke publik).
+    return `${PUBLIC_API_URL}/api/p/${projectId}/auth/oauth/${provider}/callback`;
   };
 
   const updateForm = useCallback((provider: string, patch: Partial<ProviderFormState>) => {
@@ -339,7 +346,9 @@ export default function AuthSettingsPage() {
                       <div>
                         <div className="flex items-center gap-2">
                           <h3 className="text-base font-semibold">{meta.label} OAuth</h3>
-                          {configured ? (
+                          {isApple ? (
+                            <Badge variant="secondary" className="text-[11px]">Coming soon</Badge>
+                          ) : configured ? (
                             form.enabled ? (
                               <Badge variant="green" className="gap-1 text-[11px]">
                                 <Check className="w-3 h-3" />
@@ -415,6 +424,7 @@ export default function AuthSettingsPage() {
                           onChange={(e) => updateForm(provider, { clientId: e.target.value })}
                           placeholder={configured ? "Current client ID" : "e.g. 123456789-abc.apps.googleusercontent.com"}
                           className="font-mono text-sm"
+                          disabled={isApple}
                         />
                       </div>
                       <div className="space-y-1.5">
@@ -428,6 +438,7 @@ export default function AuthSettingsPage() {
                           onChange={(e) => updateForm(provider, { clientSecret: e.target.value })}
                           placeholder={configured ? "Keep existing (blank = unchanged)" : "Secret from provider console"}
                           className="font-mono text-sm"
+                          disabled={isApple}
                         />
                       </div>
                     </div>
@@ -449,6 +460,7 @@ export default function AuthSettingsPage() {
                           onChange={(e) => updateForm(provider, { allowedOrigins: e.target.value })}
                           placeholder="e.g. https://app.mydomain.com"
                           className="text-xs font-mono"
+                          disabled={isApple}
                         />
                       </div>
                     </div>
@@ -458,14 +470,16 @@ export default function AuthSettingsPage() {
                         <Checkbox
                           checked={form.enabled}
                           onCheckedChange={(c: boolean | 'indeterminate') => updateForm(provider, { enabled: !!c })}
+                          disabled={isApple}
                         />
                         <span className="text-muted-foreground">Enable {meta.label} sign-in</span>
                       </label>
 
                       <Button
                         onClick={() => handleSave(provider)}
-                        disabled={loading || !form.clientId.trim()}
+                        disabled={loading || !form.clientId.trim() || isApple}
                         className="gap-1.5"
+                        title={isApple ? "Apple sign-in is not yet supported by the server" : undefined}
                       >
                         {loading ? (
                           <>
@@ -509,13 +523,13 @@ export default function AuthSettingsPage() {
                   placeholder="Search by email…"
                   value={authUsersSearch}
                   onChange={(e) => setAuthUsersSearch(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') loadAuthUsers(authUsersSearch || undefined); }}
+                  onKeyDown={(e) => { if (e.key === 'Enter') loadAuthUsers(authUsersSearch || undefined, 1); }}
                   className="w-56 text-sm"
                 />
                 <Button
                   variant="secondary"
                   size="sm"
-                  onClick={() => loadAuthUsers(authUsersSearch || undefined)}
+                  onClick={() => loadAuthUsers(authUsersSearch || undefined, 1)}
                   disabled={authUsersLoading}
                 >
                   {authUsersLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
@@ -628,6 +642,30 @@ export default function AuthSettingsPage() {
                     ))}
                   </tbody>
                 </table>
+                {/* Pagination — tampil bila user lebih dari satu halaman */}
+                {authUsersTotalPages > 1 && (
+                  <div className="flex items-center justify-between px-4 py-3 border-t border-border">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      disabled={authUsersPage <= 1 || authUsersLoading}
+                      onClick={() => loadAuthUsers(authUsersSearch || undefined, authUsersPage - 1)}
+                    >
+                      ← Previous
+                    </Button>
+                    <span className="text-xs text-muted-foreground">
+                      Page {authUsersPage} of {authUsersTotalPages} ({authUsersTotal} users)
+                    </span>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      disabled={authUsersPage >= authUsersTotalPages || authUsersLoading}
+                      onClick={() => loadAuthUsers(authUsersSearch || undefined, authUsersPage + 1)}
+                    >
+                      Next →
+                    </Button>
+                  </div>
+                )}
               </Card>
             )}
           </div>
@@ -642,7 +680,7 @@ export default function AuthSettingsPage() {
               Send users to the authorize URL — after consent, BaseForge redirects them back with tokens in the URL fragment (<code className="bg-secondary px-1.5 py-0.5 rounded font-mono">#access_token=…&refresh_token=…</code>).
             </p>
             <div className="bg-secondary border border-border rounded-md p-3 font-mono text-xs text-foreground overflow-x-auto whitespace-nowrap">
-              GET {typeof window !== "undefined" ? window.location.protocol : "http:"}//api-host:5100/api/p/{projectId}/auth/oauth/{"{google|github}"}/authorize?redirect_to=https://your-app.com/callback
+              GET {PUBLIC_API_URL}/api/p/{projectId}/auth/oauth/{"{google|github}"}/authorize?redirect_to=https://your-app.com/callback
             </div>
           </Card>
         </div>
