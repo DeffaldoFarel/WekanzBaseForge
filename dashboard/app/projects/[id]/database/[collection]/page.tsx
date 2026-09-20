@@ -44,6 +44,8 @@ import { RecordFormModal } from "@/components/studio/RecordFormModal";
 import { RenderTableCell } from "@/components/studio/RenderTableCell";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { ConfirmDelete } from "@/components/ui/confirm-delete";
+import { useToasts, ToastHost } from "@/components/ui/toast";
 import AggregatePanel from "@/components/AggregatePanel";
 import {
   Database,
@@ -144,6 +146,13 @@ export default function AdvancedDatabaseStudioPage() {
   const [importing, setImporting] = useState(false);
   const [ioMessage, setIoMessage] = useState("");
 
+  // Notifikasi non-blokir (pengganti alert()) + konfirmasi delete (pengganti confirm())
+  const toasts = useToasts();
+  const [confirmDeleteRecord, setConfirmDeleteRecord] = useState<string | null>(null);
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
+  const [confirmDeleteCol, setConfirmDeleteCol] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
   // ─── Data Loaders ──────────────────────────────────────────────────────────
 
   const loadAllCollections = useCallback(async () => {
@@ -228,33 +237,50 @@ export default function AdvancedDatabaseStudioPage() {
   }
 
   async function handleDeleteRecord(id: string) {
-    if (!confirm("Delete this record?")) return;
+    setDeleting(true);
     try {
       await deleteRecord(projectId, collectionName, id);
+      setConfirmDeleteRecord(null);
+      toasts.success("Record deleted.");
       await loadRecords();
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Failed to delete record");
+      toasts.error(e instanceof Error ? e.message : "Failed to delete record");
+    } finally {
+      setDeleting(false);
     }
   }
 
   async function handleBulkDelete() {
     if (selectedIds.size === 0) return;
-    if (!confirm(`Delete ${selectedIds.size} selected records?`)) return;
-    try {
-      for (const id of Array.from(selectedIds)) {
+    setDeleting(true);
+    // Laporkan hasil per-record — jangan berhenti di kegagalan pertama lalu
+    // menyembunyikan bahwa sebagian berhasil & sebagian tidak.
+    const ids = Array.from(selectedIds);
+    const failed: string[] = [];
+    for (const id of ids) {
+      try {
         await deleteRecord(projectId, collectionName, id);
+      } catch {
+        failed.push(id);
       }
-      setSelectedIds(new Set());
-      await loadRecords();
-    } catch (e) {
-      alert(e instanceof Error ? e.message : "Failed to delete records");
     }
+    const succeeded = ids.length - failed.length;
+    setSelectedIds(new Set());
+    setConfirmBulkDelete(false);
+    setDeleting(false);
+    if (failed.length === 0) {
+      toasts.success(`Deleted ${succeeded} records.`);
+    } else {
+      toasts.error(`Deleted ${succeeded} of ${ids.length} records — ${failed.length} failed (still in the table).`);
+    }
+    await loadRecords();
   }
 
   async function handleDeleteCollection() {
-    if (!confirm(`PERMANENTLY DELETE COLLECTION "${collectionName}" AND ALL ITS DATA & FILES?`)) return;
+    setDeleting(true);
     try {
       await deleteCollection(projectId, collectionName);
+      toasts.success(`Collection "${collectionName}" deleted.`);
       const remaining = collections.filter((c) => c.name !== collectionName);
       if (remaining.length > 0) {
         router.push(`/projects/${projectId}/database/${encodeURIComponent(remaining[0].name)}`);
@@ -262,7 +288,8 @@ export default function AdvancedDatabaseStudioPage() {
         router.push(`/projects/${projectId}/database`);
       }
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Failed to delete collection");
+      toasts.error(e instanceof Error ? e.message : "Failed to delete collection");
+      setDeleting(false);
     }
   }
 
@@ -272,10 +299,11 @@ export default function AdvancedDatabaseStudioPage() {
       await duplicateCollection(projectId, collectionName, duplicateName.trim(), duplicateWithData);
       setShowDuplicateCol(false);
       setDuplicateName("");
+      toasts.success("Collection duplicated.");
       const updated = await loadAllCollections();
       router.push(`/projects/${projectId}/database/${encodeURIComponent(duplicateName.trim())}`);
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Failed to duplicate collection");
+      toasts.error(e instanceof Error ? e.message : "Failed to duplicate collection");
     }
   }
 
@@ -289,8 +317,9 @@ export default function AdvancedDatabaseStudioPage() {
       a.download = `${collectionName}-export.json`;
       a.click();
       URL.revokeObjectURL(url);
+      toasts.success(`Exported ${collectionName} as JSON.`);
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Failed to export data");
+      toasts.error(e instanceof Error ? e.message : "Failed to export data");
     }
   }
 
@@ -319,7 +348,7 @@ export default function AdvancedDatabaseStudioPage() {
     try {
       const saved = await updateRules(projectId, collectionName, rulesDraft);
       setRules(saved);
-      alert("API Rules updated successfully!");
+      toasts.success("API Rules updated successfully!");
     } catch (e) {
       setRulesError(e instanceof Error ? e.message : "Failed to save rules");
     } finally {
@@ -340,7 +369,7 @@ export default function AdvancedDatabaseStudioPage() {
       setCollection(updated);
       setFieldsDraft(JSON.parse(JSON.stringify(updated.fields)));
       setIndexesDraft(JSON.parse(JSON.stringify(updated.indexes || [])));
-      alert("Schema & indexes updated successfully via Table Rebuild!");
+      toasts.success("Schema & indexes updated successfully via Table Rebuild!");
       await loadAllCollections();
       await loadRecords();
     } catch (e) {
@@ -436,13 +465,50 @@ export default function AdvancedDatabaseStudioPage() {
             <Button
               variant="destructive"
               size="sm"
-              onClick={handleDeleteCollection}
+              onClick={() => setConfirmDeleteCol(true)}
             >
               <Trash2 className="w-3.5 h-3.5 mr-1.5" />
               Delete
             </Button>
           </div>
         </div>
+
+        {/* Konfirmasi delete collection — sabuk ketik nama (aksi paling berbahaya) */}
+        {confirmDeleteCol && (
+          <ConfirmDelete
+            title={`Delete collection "${collectionName}" permanently?`}
+            description={`All ${collection?.recordCount ?? 0} records and their files will be lost. This cannot be undone.`}
+            requireTyped={collectionName}
+            confirmLabel="Delete Collection"
+            busy={deleting}
+            onConfirm={handleDeleteCollection}
+            onCancel={() => setConfirmDeleteCol(false)}
+          />
+        )}
+
+        {/* Konfirmasi delete satu record */}
+        {confirmDeleteRecord && (
+          <ConfirmDelete
+            title="Delete this record?"
+            description="This record will be permanently removed and cannot be recovered."
+            confirmLabel="Delete Record"
+            busy={deleting}
+            onConfirm={() => handleDeleteRecord(confirmDeleteRecord)}
+            onCancel={() => setConfirmDeleteRecord(null)}
+          />
+        )}
+
+        {/* Konfirmasi bulk delete */}
+        {confirmBulkDelete && (
+          <ConfirmDelete
+            title={`Delete ${selectedIds.size} selected records?`}
+            description="Selected records will be permanently removed. Records that fail to delete remain in the table and are reported."
+            confirmLabel={`Delete ${selectedIds.size} Records`}
+            busy={deleting}
+            onConfirm={handleBulkDelete}
+            onCancel={() => setConfirmBulkDelete(false)}
+          />
+        )}
 
         {/* Studio Sub-Tabs */}
         <StudioTabs
@@ -498,8 +564,8 @@ export default function AdvancedDatabaseStudioPage() {
               setEditingRecord(clone);
               setShowNewRecord(true);
             }}
-            onDeleteRecord={handleDeleteRecord}
-            onBulkDelete={handleBulkDelete}
+            onDeleteRecord={(id) => setConfirmDeleteRecord(id)}
+            onBulkDelete={() => setConfirmBulkDelete(true)}
             onViewJson={setRawJsonView}
             renderCell={(props) => <RenderTableCell {...props} />}
           />
@@ -605,6 +671,9 @@ export default function AdvancedDatabaseStudioPage() {
           }}
         />
       )}
+
+      {/* Toast notifications (pengganti alert()) */}
+      <ToastHost toasts={toasts.toasts} onDismiss={toasts.dismiss} />
     </div>
     </>
   );
