@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { listProjects, createProject, getToken, getProjectStats, type Project, type ProjectStats } from "@/lib/api";
@@ -55,7 +55,6 @@ function ProjectCard({ project }: { project: Project }) {
       .catch(() => { if (!cancelled) setStatsFailed(true); });
     return () => { cancelled = true; };
   }, [project.id]);
-
   return (
     <Link href={`/projects/${project.id}`} className="group">
       <Card className="p-5 hover:border-foreground/20 transition-colors flex flex-col justify-between h-full">
@@ -133,18 +132,82 @@ function ProjectCard({ project }: { project: Project }) {
   );
 }
 
+// memo: parent re-render (ketikan di form create / search / sort) tidak boleh
+// me-render ulang 400+ kartu yang props-nya tidak berubah.
+const MemoProjectCard = memo(ProjectCard);
+
+// Form create dipisah ke komponen sendiri supaya state ketikan `name` TIDAK
+// me-render ulang seluruh halaman (akar penyebab lag: 400+ kartu ikut re-render
+// di setiap keystroke).
+function CreateProjectForm({
+  onCreate,
+  creating,
+  error,
+}: {
+  onCreate: (name: string) => void;
+  creating: boolean;
+  error: string;
+}) {
+  const [name, setName] = useState("");
+  return (
+    <Card className="p-4 sm:p-5 mb-6">
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          onCreate(name);
+          setName("");
+        }}
+        className="flex flex-col sm:flex-row gap-3 items-center"
+      >
+        <div className="relative flex-1 w-full">
+          <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground">
+            <Sparkles className="w-4 h-4" />
+          </span>
+          <Input
+            className="pl-10 h-10"
+            placeholder="Enter new project name (e.g. ecommerce-api)..."
+            value={name}
+            maxLength={MAX_PROJECT_NAME}
+            onChange={(e) => setName(e.target.value)}
+          />
+        </div>
+        <Button type="submit" className="h-10 px-5 w-full sm:w-auto shrink-0" disabled={creating || !name.trim()}>
+          {creating ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" />
+              <span>Creating...</span>
+            </>
+          ) : (
+            <>
+              <Plus className="w-4 h-4" />
+              <span>New Project</span>
+            </>
+          )}
+        </Button>
+      </form>
+      {error && <p className="text-destructive text-xs font-medium mt-3">{error}</p>}
+    </Card>
+  );
+}
+
 export default function ProjectsPage() {
   const router = useRouter();
   const [projects, setProjects] = useState<Project[]>([]);
-  const [name, setName] = useState("");
   const [firstProjectName, setFirstProjectName] = useState("");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
   const [loaded, setLoaded] = useState(false);
   const [search, setSearch] = useState("");
+  // Debounce: jangan filter 400+ kartu di setiap keystroke
+  const [searchDebounced, setSearchDebounced] = useState("");
   const [sort, setSort] = useState<SortKey>("newest");
 
   const { toasts, success: toastSuccess, error: toastError, dismiss } = useToasts();
+
+  useEffect(() => {
+    const t = setTimeout(() => setSearchDebounced(search), 200);
+    return () => clearTimeout(t);
+  }, [search]);
 
   useEffect(() => {
     if (!getToken()) {
@@ -159,7 +222,7 @@ export default function ProjectsPage() {
 
   // ─── Search + sort (client-side — daftar project selalu kecil) ───
   const visibleProjects = useMemo(() => {
-    const q = search.trim().toLowerCase();
+    const q = searchDebounced.trim().toLowerCase();
     let list = projects;
     if (q) {
       list = list.filter(
@@ -171,7 +234,7 @@ export default function ProjectsPage() {
     else if (sort === "oldest") sorted.sort((a, b) => a.created.localeCompare(b.created));
     else sorted.sort((b, a) => a.created.localeCompare(b.created)); // newest
     return sorted;
-  }, [projects, search, sort]);
+  }, [projects, searchDebounced, sort]);
 
   async function handleCreate(projectName: string) {
     const trimmed = projectName.trim();
@@ -190,7 +253,6 @@ export default function ProjectsPage() {
         return;
       }
       setProjects([p, ...projects]);
-      setName("");
       toastSuccess(`Project "${p.name}" created.`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to create project";
@@ -390,42 +452,9 @@ export default function ProjectsPage() {
               </div>
             </div>
 
-            {/* Create Project Card Form */}
-            <Card className="p-4 sm:p-5 mb-6">
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  handleCreate(name);
-                }}
-                className="flex flex-col sm:flex-row gap-3 items-center"
-              >
-                <div className="relative flex-1 w-full">
-                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground">
-                    <Sparkles className="w-4 h-4" />
-                  </span>
-                  <Input
-                    className="pl-10 h-10"
-                    placeholder="Enter new project name (e.g. ecommerce-api)..."
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                  />
-                </div>
-                <Button type="submit" className="h-10 px-5 w-full sm:w-auto shrink-0" disabled={creating || !name.trim()}>
-                  {creating ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>Creating...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Plus className="w-4 h-4" />
-                      <span>New Project</span>
-                    </>
-                  )}
-                </Button>
-              </form>
-              {error && <p className="text-destructive text-xs font-medium mt-3">{error}</p>}
-            </Card>
+            {/* Create Project Card Form — komponen terpisah: ketikan di sini
+                tidak me-render ulang 400+ kartu project */}
+            <CreateProjectForm onCreate={handleCreate} creating={creating} error={error} />
 
             {/* Project Grid */}
             {visibleProjects.length === 0 ? (
@@ -437,7 +466,7 @@ export default function ProjectsPage() {
             ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {visibleProjects.map((p) => (
-                <ProjectCard key={p.id} project={p} />
+                <MemoProjectCard key={p.id} project={p} />
               ))}
             </div>
             )}
