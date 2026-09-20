@@ -197,13 +197,75 @@ Mematikan refresh token agar tidak bisa digunakan kembali:
 
 * **Method:** `POST`
 * **URL:** `/api/p/:pid/auth/logout`
-* **Headers:** `Authorization: Bearer <accessToken>`
+* **Headers:** `Authorization: Bearer ***
 * **Body:**
   ```json
   {
     "refreshToken": "7a8b9c..."
   }
   ```
+
+### F2. Custom Profile Fields (Ops-16)
+
+Admin dapat mendefinisikan **kolom profil tambahan** per project (di luar `name`/`avatarUrl`)
+— mis. `bio`, `company`, `tier`. Berbeda dari `user_metadata` JSON bebas di platform lain,
+field di sini adalah **kolom SQL asli yang tervalidasi** di tabel `_auth_users`, sehingga
+bisa dipakai di API rules dan ter-index.
+
+Dikelola admin lewat dashboard (**Project → Auth → Custom Fields**) atau Admin API:
+
+```
+GET    /api/admin/projects/:pid/auth-fields          → daftar definisi
+POST   /api/admin/projects/:pid/auth-fields          → tambah field
+DELETE /api/admin/projects/:pid/auth-fields/:name    → hapus field
+```
+
+Definisi field:
+
+```json
+{ "name": "bio", "type": "text", "required": false, "userEditable": true }
+```
+
+| Properti | Arti |
+|---|---|
+| `type` | `text`, `number`, `bool`, `date`, `email`, `url`, `select` |
+| `required` | **ditegakkan hanya saat register** (bukan saat update — user lama tidak terkunci) |
+| `userEditable` | `false` = hanya admin yang bisa mengubah (padanan `app_metadata` Supabase) |
+
+Nilai field muncul di objek `profile` pada respons register/login/`/me`:
+
+```json
+{ "user": { "id": "…", "email": "…", "profile": { "bio": "halo", "tier": "free" } } }
+```
+
+Mengisi saat register atau update:
+
+```json
+// POST /auth/register  atau  PATCH /auth/me
+{ "email": "…", "password": "…", "profile": { "bio": "halo dunia" } }
+```
+
+* Field dengan `userEditable: false` yang dikirim user via `PATCH /me` →
+  **403 `FIELD_NOT_EDITABLE`** (hanya bisa diubah admin).
+* Bila project belum mendefinisikan field apa pun, kunci `profile` **tidak dikirim** —
+  respons identik dengan sebelum fitur ini ada (opt-in penuh).
+
+### F3. Menonaktifkan User (Ops-15)
+
+Admin dapat menonaktifkan akun user (mis. pelanggaran, berhenti berlangganan) tanpa
+menghapusnya:
+
+```
+POST /api/admin/projects/:pid/auth-users/:uid/disable
+```
+
+* **Akibatnya:** semua sesi user itu **dicabut seketika** (`revokedSessions` dihitung dan
+  dikembalikan), dan percobaan login berikutnya ditolak **403 `USER_DISABLED`** dengan pesan
+  generik yang tidak membocorkan apakah akunnya ada.
+* Access token yang sudah terbit tetap valid sampai kedaluwarsa alaminya (≤15 menit) karena
+  verifikasi token bersifat stateless — batas yang disengaja dan terdokumentasi.
+* **Mengaktifkan kembali:** panggil endpoint yang sama dengan body
+  `{ "disabled": false }` (tidak ada route `/enable` terpisah).
 
 ### G. OAuth2 Login (Google & GitHub) — M10
 

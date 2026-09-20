@@ -45,6 +45,9 @@ const MAIN_GUIDES: Array<{ file: string; title: string }> = [
   { file: "api-rules.md", title: "API Rules & Security" },
   { file: "realtime.md", title: "Realtime (SSE)" },
   { file: "functions.md", title: "Serverless Functions" },
+  { file: "storage.md", title: "Storage & Files" },
+  { file: "admin-api.md", title: "Admin API" },
+  { file: "backup-restore.md", title: "Backup & Restore" },
   { file: "deployment.md", title: "Deployment Produksi" },
 ];
 
