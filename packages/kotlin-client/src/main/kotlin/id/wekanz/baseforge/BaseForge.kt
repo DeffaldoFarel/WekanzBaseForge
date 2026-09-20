@@ -3,6 +3,7 @@ package id.wekanz.baseforge
 import id.wekanz.baseforge.auth.AuthResponse
 import id.wekanz.baseforge.auth.AuthService
 import id.wekanz.baseforge.internal.HttpCore
+import id.wekanz.baseforge.records.RecordService
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 
@@ -34,12 +35,15 @@ public class BaseForge(
     httpClient: OkHttpClient = defaultHttpClient(),
 ) {
     private val http: HttpCore
+    private val projectId: String
 
     public val auth: AuthService
 
     init {
         require(baseUrl.isNotBlank()) { "baseUrl must not be blank" }
         require(projectId.isNotBlank()) { "projectId must not be blank" }
+
+        this.projectId = projectId
 
         // Simpul lingkaran: HttpCore perlu cara me-refresh, AuthService perlu HttpCore.
         // Diselesaikan dengan lateinit lokal + lambda yang baru dievaluasi saat dipakai.
@@ -56,6 +60,19 @@ public class BaseForge(
         authRef = AuthService(http, authStore, projectId)
         auth = authRef
     }
+
+    /**
+     * Akses operasi CRUD untuk satu koleksi (v0.2.0).
+     *
+     * ```kotlin
+     * val fog = bf.collection("explore_fog")
+     * val rec = fog.getFirstListItem("userId = \"${session.id}\"")
+     * ```
+     *
+     * Instance ringan dan stateless — aman dibuat berulang; token tetap dibaca dari
+     * [authStore] yang sama (auto-refresh M37 berlaku juga di sini).
+     */
+    public fun collection(name: String): RecordService = RecordService(http, projectId, name)
 
     public companion object {
         /** OkHttp dengan timeout yang masuk akal untuk jaringan seluler. */
