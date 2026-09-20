@@ -28,6 +28,7 @@ import { Navbar } from "@/components/Navbar";
 import { ProjectSidebar } from "@/components/ProjectSidebar";
 import { FunctionEditor } from "@/components/studio/FunctionEditor";
 import { FunctionLogs } from "@/components/studio/FunctionLogs";
+import { ModuleManager } from "@/components/studio/ModuleManager";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -385,6 +386,15 @@ export default function FunctionsPage() {
           ))
         )}
       </Card>
+
+      {/* M43: Shared modules ($lib) — create/edit/delete, bukan cuma pilih */}
+      <ModuleManager
+        projectId={projectId}
+        functions={functions}
+        onChanged={load}
+        onSuccess={toastSuccess}
+        onError={toastError}
+      />
 
       {/* Editor modal */}
       {(creating || editing) && (

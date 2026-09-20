@@ -791,6 +791,41 @@ export async function listModules(projectId: string): Promise<ModuleMeta[]> {
   return res.modules;
 }
 
+/** Satu modul beserta kodenya (untuk editor). */
+export interface StoredModule {
+  name: string;
+  code: string;
+  created: string;
+  updated: string;
+}
+
+export async function getModule(projectId: string, name: string): Promise<StoredModule> {
+  const res = await request<{ module: StoredModule }>(
+    `/api/admin/projects/${projectId}/modules/${name}`
+  );
+  return res.module;
+}
+
+/**
+ * Create atau update modul. Server mengkompilasi TS → CJS dan menolak
+ * dengan 400 bila ada error sintaks, jadi pesan error layak ditampilkan apa adanya.
+ * Nama wajib cocok /^[a-z][a-z0-9_]{0,63}$/ dan kode maksimal 256 KB.
+ */
+export async function setModule(projectId: string, name: string, code: string): Promise<void> {
+  await request(`/api/admin/projects/${projectId}/modules/${name}`, {
+    method: 'PUT',
+    body: JSON.stringify({ code }),
+  });
+}
+
+export async function deleteModule(projectId: string, name: string): Promise<void> {
+  await request(`/api/admin/projects/${projectId}/modules/${name}`, { method: 'DELETE' });
+}
+
+/** Batas yang ditegakkan server (moduleRegistry.ts) — dipakai untuk validasi klien. */
+export const MODULE_NAME_PATTERN = /^[a-z][a-z0-9_]{0,63}$/;
+export const MAX_MODULE_CODE_BYTES = 256 * 1024;
+
 // ─── M46: EXECUTION LOGS — riwayat eksekusi (callable/public/trigger/schedule)
 
 export interface ExecutionLogEntry {
