@@ -22,10 +22,15 @@ export default function SignupPage() {
     let active = true;
     getAdminSetupState()
       .then((state) => {
-        if (active) {
-          setSetupState(state);
-          setCheckingSetup(false);
+        if (!active) return;
+        // Jika admin sudah terdaftar, signup page tidak boleh diakses —
+        // langsung redirect ke login (bukan menampilkan halaman perantara).
+        if (!state.needsSetup) {
+          router.replace("/login");
+          return;
         }
+        setSetupState(state);
+        setCheckingSetup(false);
       })
       .catch(() => {
         if (active) {
@@ -37,7 +42,7 @@ export default function SignupPage() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [router]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();

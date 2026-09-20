@@ -143,15 +143,17 @@ export default function LoginPage() {
         )}
       </form>
 
-      <p className="text-center text-sm text-muted-foreground mt-6">
-        Don&apos;t have an account?{" "}
-        <Link
-          href="/signup"
-          className="underline underline-offset-4 text-foreground font-medium hover:text-foreground/80 transition-colors"
-        >
-          Sign up
-        </Link>
-      </p>
+      {needsSetup && (
+        <p className="text-center text-sm text-muted-foreground mt-6">
+          Don&apos;t have an account?{" "}
+          <Link
+            href="/signup"
+            className="underline underline-offset-4 text-foreground font-medium hover:text-foreground/80 transition-colors"
+          >
+            Sign up
+          </Link>
+        </p>
+      )}
     </AuthSplitLayout>
   );
 }
