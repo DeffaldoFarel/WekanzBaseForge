@@ -1,0 +1,22 @@
+# ============================================================================
+# JitPack build configuration — WekanzBaseForge
+#
+# Repo ini MULTI-MODUL (Node monorepo + satu paket Gradle di packages/kotlin-client).
+# JitPack default-nya menjalankan build dari ROOT dengan JDK 8, yang gagal karena:
+#   1. SDK Kotlin butuh JDK 17 (jvmToolchain(17))
+#   2. Gradle wrapper hanya ada di packages/kotlin-client, bukan di root
+#
+# Karena itu kita beri tahu JitPack secara eksplisit: pakai JDK 17, masuk ke
+# packages/kotlin-client, dan jalankan publishToMavenLocal di sana. Setelah itu
+# artifact bisa ditarik sebagai:
+#   implementation("com.github.DeffaldoFarel.WekanzBaseForge:kotlin-client:TAG")
+# ============================================================================
+
+jdk:
+  - openjdk17
+
+# Build HANYA modul Kotlin SDK, dari direktorinya sendiri (tempat wrapper berada).
+# -x test: lewati test saat build JitPack (LiveAuthTest/LiveRecordsTest/LiveFilesTest
+# butuh server BaseForge berjalan, yang tidak ada di lingkungan JitPack).
+install:
+  - cd packages/kotlin-client && ./gradlew clean publishToMavenLocal -x test --no-daemon
