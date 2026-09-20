@@ -8,6 +8,7 @@ import os from 'node:os';
 import { initSchemaTable, defineCollection } from '../src/core/schema.js';
 import { createRecord } from '../src/core/records.js';
 import { saveFile, listProjectStorageFiles, cleanOrphanedFiles, deleteFile } from '../src/core/storage.js';
+import { bucketUpload } from '../src/core/bucketStorage.js';
 
 const TEST_DIR = path.join(os.tmpdir(), 'baseforge-storage-explorer-tests');
 process.env.STORAGE_DIR = path.join(TEST_DIR, 'storage');
@@ -60,12 +61,42 @@ describe('Storage Explorer Functions', () => {
     assert.equal(remaining[0].name, 'beach.jpg');
   });
 
-  test('deleteFile: removes specific file from storage', async () => {
+  test('bucket file (M35) BUKAN orphaned — clean orphans tidak boleh menghapusnya', async () => {
+    // Regresi bug data-loss: bucket file disimpan di namespace fileId, bukan
+    // id record koleksi. Dulu listProjectStorageFiles salah menandainya orphaned
+    // → "Clean Orphaned Files" menghapus lampiran sah (mis. hasil migrasi).
+    const up = await bucketUpload(db, pid, {
+      filename: 'lampiran.png',
+      data: Buffer.from('bucket file content'),
+      fileId: 'migratedfile123',
+    });
+    assert.equal(up.fileId, 'migratedfile123');
+
     const files = await listProjectStorageFiles(pid, db);
-    assert.equal(files.length, 1);
-    await deleteFile(pid, files[0].recordId, files[0].name);
+    const lampiran = files.find((f) => f.name === 'lampiran.png');
+    assert.ok(lampiran, 'bucket file harus terlihat di storage explorer');
+    assert.equal(lampiran.isBucket, true);
+    assert.equal(lampiran.isOrphaned, false);
+
+    // Clean orphans → file bucket HARUS tetap utuh
+    const cleaned = await cleanOrphanedFiles(pid, db);
+    assert.equal(cleaned, 0);
+
+    const after = await listProjectStorageFiles(pid, db);
+    const stillThere = after.find((f) => f.name === 'lampiran.png');
+    assert.ok(stillThere, 'file bucket harus selamat dari clean orphans');
+    assert.equal(stillThere.isBucket, true);
+    assert.equal(stillThere.isOrphaned, false);
+  });
+
+  test('deleteFile: removes specific file from storage', async () => {
+    // Target-spesifik (bukan files[0]) agar urutan test tidak mengubah makna.
+    const files = await listProjectStorageFiles(pid, db);
+    const beach = files.find((f) => f.name === 'beach.jpg');
+    assert.ok(beach);
+    await deleteFile(pid, beach.recordId, beach.name);
 
     const afterDelete = await listProjectStorageFiles(pid, db);
-    assert.equal(afterDelete.length, 0);
+    assert.ok(!afterDelete.find((f) => f.name === 'beach.jpg'), 'beach.jpg harus terhapus');
   });
 });

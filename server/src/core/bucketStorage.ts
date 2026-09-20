@@ -144,17 +144,14 @@ export async function bucketUpload(
 
   const storedName = `${fileId}_${filename}`;
 
-  // Simpan file via storage adapter (local disk atau S3)
+  // Simpan file via storage adapter (local disk atau S3).
+  // recordId = fileId → nama fisik <fileId>_<filename>; bucketRead/bucketDelete
+  // bekerja di namespace ini.
+  // FIX (storage explorer): dulu ada double-save ke namespace '_bucket' — salinan
+  // yang TIDAK PERNAH dibaca (disk terpakai 2x) dan memicu false-positive orphaned
+  // di listProjectStorageFiles. Simpan SEKALI saja, di namespace fileId.
   const adapter = getStorageAdapter();
-  // Bucket uses recordId = '_bucket' namespace
-  await adapter.save(projectId, '_bucket', filename, opts.data, contentType);
-  // NOTE: adapter.save uses recordId_filename naming — we need to control the name
-  // For bucket, we want fileId_filename. The adapter's save() generates its own
-  // suffix on conflict. We need to bypass this for bucket files.
-
-  // Workaround: save directly via adapter with recordId = fileId
-  // This gives us fileId_filename on disk
-  const adapterSaveResult = await adapter.save(projectId, fileId, filename, opts.data, contentType);
+  await adapter.save(projectId, fileId, filename, opts.data, contentType);
 
   // Simpan metadata
   db.prepare(

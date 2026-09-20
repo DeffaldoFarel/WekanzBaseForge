@@ -6,8 +6,10 @@ import Link from "next/link";
 import {
   listStorageFiles,
   deleteStorageFile,
+  deleteBucketFile,
   cleanOrphanedStorageFiles,
   fileUrl,
+  bucketFileUrl,
   type StoredFileInfo,
   type StorageStats,
 } from "@/lib/api";
@@ -23,6 +25,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { ConfirmDelete } from "@/components/ui/confirm-delete";
+import { useToasts, ToastHost } from "@/components/ui/toast";
 import {
   HardDrive,
   FileText,
@@ -42,6 +46,7 @@ import {
   Eye,
   Check,
   FolderOpen,
+  Box,
 } from "lucide-react";
 
 function formatBytes(bytes: number): string {
@@ -52,6 +57,47 @@ function formatBytes(bytes: number): string {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
 }
 
+/** Render media di modal preview — image/audio/video untuk record & bucket file. */
+function MediaPreview({ projectId, file }: { projectId: string; file: StoredFileInfo }) {
+  const url = file.isBucket
+    ? bucketFileUrl(projectId, file.recordId)
+    : file.collectionName
+      ? fileUrl(projectId, file.collectionName, file.recordId, file.name)
+      : null;
+
+  if (!url) {
+    return (
+      <div className="text-center py-6">
+        <FileText className="w-16 h-16 mx-auto text-muted-foreground mb-2" />
+        <p className="text-xs text-muted-foreground font-medium">No URL available (orphaned, unlinked file)</p>
+      </div>
+    );
+  }
+
+  if (file.isImage) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={url}
+        alt={file.name}
+        className="max-h-[340px] max-w-full rounded-lg object-contain shadow-sm"
+      />
+    );
+  }
+  if (file.mime.includes("audio")) {
+    return <audio controls src={url} className="w-full" />;
+  }
+  if (file.mime.includes("video")) {
+    return <video controls src={url} className="max-h-[300px] max-w-full rounded-lg" />;
+  }
+  return (
+    <div className="text-center py-6">
+      <FileText className="w-16 h-16 mx-auto text-muted-foreground mb-2" />
+      <p className="text-xs text-muted-foreground font-medium">Visual preview not available for this file type</p>
+    </div>
+  );
+}
+
 export default function StorageExplorerPage() {
   const params = useParams();
   const projectId = params.id as string;
@@ -60,16 +106,40 @@ export default function StorageExplorerPage() {
   const [stats, setStats] = useState<StorageStats>({ totalFiles: 0, totalSize: 0, orphanedCount: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
 
   // Filter & Search State
   const [search, setSearch] = useState("");
-  const [typeFilter, setTypeFilter] = useState<"all" | "images" | "documents" | "media" | "orphaned">("all");
+  const [typeFilter, setTypeFilter] = useState<
+    "all" | "images" | "documents" | "media" | "bucket" | "orphaned"
+  >("all");
   const [viewMode, setViewMode] = useState<"grid" | "table">("grid");
 
   // Modal Preview
   const [previewFile, setPreviewFile] = useState<StoredFileInfo | null>(null);
   const [cleaning, setCleaning] = useState(false);
+
+  // Konfirmasi inline (menggantikan confirm() native)
+  const [confirmDeleteFile, setConfirmDeleteFile] = useState<StoredFileInfo | null>(null);
+  const [confirmClean, setConfirmClean] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [actionError, setActionError] = useState("");
+
+  // Toast (menggantikan alert() native)
+  const { toasts, success: toastSuccess, error: toastError, dismiss: dismissToast } = useToasts();
+
+  // URL file untuk semua aksi UI — dispatcher bucket vs record.
+  // File bucket (M35) dilayani lewat /api/files/:pid/bucket/:fileId; file record
+  // lewat /api/files/:pid/:collection/:recordId/:filename. Dulu halaman ini
+  // hanya tahu jalur record → bucket file tidak bisa di-preview/copy URL.
+  const uiFileUrl = useCallback(
+    (file: StoredFileInfo): string | null =>
+      file.isBucket
+        ? bucketFileUrl(projectId, file.recordId)
+        : file.collectionName
+          ? fileUrl(projectId, file.collectionName, file.recordId, file.name)
+          : null,
+    [projectId]
+  );
 
   const loadFiles = useCallback(async () => {
     setLoading(true);
@@ -90,40 +160,52 @@ export default function StorageExplorerPage() {
   }, [loadFiles]);
 
   async function handleDelete(file: StoredFileInfo) {
-    if (!confirm(`Permanently delete file "${file.name}" from disk?`)) return;
+    setActionError("");
+    setDeleting(true);
     try {
-      await deleteStorageFile(projectId, file.recordId, file.name);
-      setNotice(`File "${file.name}" was deleted successfully.`);
-      setTimeout(() => setNotice(""), 4000);
+      if (file.isBucket) {
+        // File bucket: hapus via endpoint bucket (membersihkan metadata + disk)
+        await deleteBucketFile(projectId, file.recordId);
+      } else {
+        await deleteStorageFile(projectId, file.recordId, file.name);
+      }
+      toastSuccess(`File "${file.name}" deleted from disk.`);
+      setConfirmDeleteFile(null);
       loadFiles();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to delete file");
+      const msg = err instanceof Error ? err.message : "Failed to delete file";
+      setActionError(msg);
+      toastError(msg);
+    } finally {
+      setDeleting(false);
     }
   }
 
   async function handleCleanOrphans() {
-    if (!confirm(`Clean all ${stats.orphanedCount} orphaned files whose records no longer exist in the database?`)) return;
+    setConfirmClean(false);
+    setActionError("");
     setCleaning(true);
     try {
       const res = await cleanOrphanedStorageFiles(projectId);
-      alert(`Successfully cleaned ${res.cleaned} orphaned files from disk!`);
+      toastSuccess(`Cleaned ${res.cleaned} orphaned file${res.cleaned === 1 ? "" : "s"} from disk.`);
       loadFiles();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to clean orphaned files");
+      const msg = err instanceof Error ? err.message : "Failed to clean orphaned files";
+      setActionError(msg);
+      toastError(msg);
     } finally {
       setCleaning(false);
     }
   }
 
   function copyFileUrl(file: StoredFileInfo) {
-    if (!file.collectionName) {
-      alert("This file is not linked to any active collection.");
+    const url = uiFileUrl(file);
+    if (!url) {
+      toastError("This file is not linked to any active collection.");
       return;
     }
-    const url = fileUrl(projectId, file.collectionName, file.recordId, file.name);
     navigator.clipboard.writeText(url);
-    setNotice("File URL copied to clipboard!");
-    setTimeout(() => setNotice(""), 3000);
+    toastSuccess("File URL copied to clipboard!");
   }
 
   // Filtered files memo
@@ -143,6 +225,7 @@ export default function StorageExplorerPage() {
       if (typeFilter === "media") {
         return f.mime.includes("audio") || f.mime.includes("video");
       }
+      if (typeFilter === "bucket") return !!f.isBucket;
       if (typeFilter === "orphaned") return f.isOrphaned;
 
       return true;
@@ -150,6 +233,7 @@ export default function StorageExplorerPage() {
   }, [files, search, typeFilter]);
 
   const imageCount = useMemo(() => files.filter((f) => f.isImage).length, [files]);
+  const bucketCount = useMemo(() => files.filter((f) => f.isBucket).length, [files]);
 
   return (
     <>
@@ -178,7 +262,7 @@ export default function StorageExplorerPage() {
               <Button
                 variant="destructive"
                 size="sm"
-                onClick={handleCleanOrphans}
+                onClick={() => setConfirmClean(true)}
                 disabled={cleaning}
                 className="gap-1.5"
               >
@@ -199,11 +283,40 @@ export default function StorageExplorerPage() {
           </div>
         </div>
 
-        {notice && (
-          <div className="p-3.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-medium mb-6 flex items-center gap-2">
-            <Check className="w-4 h-4" />
-            <span>{notice}</span>
-          </div>
+        {confirmClean && (
+          <ConfirmDelete
+            title={`Clean ${stats.orphanedCount} orphaned file${stats.orphanedCount === 1 ? "" : "s"}?`}
+            description={
+              stats.orphanedCount > 0
+                ? "Files whose parent records no longer exist in the database will be permanently deleted from disk. Bucket files are protected and will not be touched."
+                : undefined
+            }
+            confirmLabel="Clean Orphans"
+            busy={cleaning}
+            error={actionError}
+            onConfirm={handleCleanOrphans}
+            onCancel={() => { setConfirmClean(false); setActionError(""); }}
+          />
+        )}
+
+        {confirmDeleteFile && (
+          <ConfirmDelete
+            title={`Delete "${confirmDeleteFile.name}"?`}
+            description={
+              confirmDeleteFile.isBucket
+                ? "This is a bucket file (public URL /api/files/…/bucket/…). Deleting it permanently removes the file and its metadata — any app still referencing its URL will break."
+                : `The physical file will be permanently deleted from disk.${
+                    confirmDeleteFile.collectionName
+                      ? " The record that references this file stays in the database (its file field will point to a missing file)."
+                      : ""
+                  }`
+            }
+            confirmLabel="Delete File"
+            busy={deleting}
+            error={actionError}
+            onConfirm={() => handleDelete(confirmDeleteFile)}
+            onCancel={() => { setConfirmDeleteFile(null); setActionError(""); }}
+          />
         )}
 
         {error && (
@@ -247,6 +360,19 @@ export default function StorageExplorerPage() {
 
           <Card className="p-5">
             <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+              <Box className="w-4 h-4" />
+              <span>Bucket Files</span>
+            </div>
+            <div className="text-2xl font-semibold text-foreground mt-2">
+              {bucketCount}
+            </div>
+            <p className="text-[11px] text-muted-foreground mt-1">
+              Decoupled files with stable public URL
+            </p>
+          </Card>
+
+          <Card className="p-5">
+            <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground uppercase tracking-wider">
               <AlertTriangle className={`w-4 h-4 ${stats.orphanedCount > 0 ? "text-destructive" : ""}`} />
               <span>Orphaned Files</span>
             </div>
@@ -276,6 +402,7 @@ export default function StorageExplorerPage() {
                 { id: "images", label: "Images" },
                 { id: "documents", label: "Documents" },
                 { id: "media", label: "Media" },
+                ...(bucketCount > 0 ? [{ id: "bucket", label: `Bucket (${bucketCount})` }] : []),
                 ...(stats.orphanedCount > 0 ? [{ id: "orphaned", label: `Orphaned (${stats.orphanedCount})` }] : []),
               ].map((t) => {
                 const active = typeFilter === t.id;
@@ -341,10 +468,8 @@ export default function StorageExplorerPage() {
           /* Grid View */
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
             {filteredFiles.map((file) => {
-              const fileDirectUrl = file.collectionName
-                ? fileUrl(projectId, file.collectionName, file.recordId, file.name)
-                : null;
-              const thumbUrl = file.isImage && file.collectionName
+              const fileDirectUrl = uiFileUrl(file);
+              const thumbUrl = file.isImage && fileDirectUrl
                 ? `${fileDirectUrl}?thumb=200x200`
                 : null;
 
@@ -389,6 +514,12 @@ export default function StorageExplorerPage() {
                         Orphaned
                       </Badge>
                     )}
+                    {!file.isOrphaned && file.isBucket && (
+                      <Badge variant="blue" className="absolute top-2.5 left-2.5 text-[10px] py-0 px-2 gap-1">
+                        <Box className="w-3 h-3" />
+                        Bucket
+                      </Badge>
+                    )}
 
                     <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                       <span className="bg-background/90 text-foreground px-3 py-1 rounded-md text-xs font-medium border border-border flex items-center gap-1">
@@ -405,8 +536,11 @@ export default function StorageExplorerPage() {
                     </div>
                     <div className="flex justify-between items-center text-[11px] text-muted-foreground mt-1">
                       <span>{formatBytes(file.size)}</span>
-                      <Badge variant="secondary" className="text-[10px] py-0 px-2 font-mono">
-                        {file.collectionName ?? "unlinked"}
+                      <Badge
+                        variant={file.isBucket ? "blue" : "secondary"}
+                        className="text-[10px] py-0 px-2 font-mono"
+                      >
+                        {file.isBucket ? "bucket" : (file.collectionName ?? "unlinked")}
                       </Badge>
                     </div>
                   </div>
@@ -447,7 +581,7 @@ export default function StorageExplorerPage() {
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => handleDelete(file)}
+                      onClick={() => { setActionError(""); setConfirmDeleteFile(file); }}
                       className="h-8 flex-1 px-0 text-destructive hover:text-destructive hover:bg-destructive/10"
                       title="Delete file"
                     >
@@ -476,9 +610,7 @@ export default function StorageExplorerPage() {
                 </thead>
                 <tbody className="divide-y divide-border font-mono">
                   {filteredFiles.map((file) => {
-                    const fileDirectUrl = file.collectionName
-                      ? fileUrl(projectId, file.collectionName, file.recordId, file.name)
-                      : null;
+                    const fileDirectUrl = uiFileUrl(file);
 
                     return (
                       <tr key={file.storedName} className="hover:bg-accent/50 transition-colors font-sans">
@@ -495,14 +627,22 @@ export default function StorageExplorerPage() {
                         <td className="p-3.5 text-muted-foreground font-mono">{formatBytes(file.size)}</td>
                         <td className="p-3.5 text-muted-foreground">{file.mime}</td>
                         <td className="p-3.5">
-                          <Badge variant="secondary" className="text-[10px] font-mono">
-                            {file.collectionName ?? "—"}
+                          <Badge
+                            variant={file.isBucket ? "blue" : "secondary"}
+                            className="text-[10px] font-mono"
+                          >
+                            {file.isBucket ? "bucket" : (file.collectionName ?? "—")}
                           </Badge>
                         </td>
                         <td className="p-3.5 font-mono text-[11px] text-muted-foreground">{file.recordId}</td>
                         <td className="p-3.5">
                           {file.isOrphaned ? (
                             <Badge variant="destructive" className="text-[10px]">Orphaned</Badge>
+                          ) : file.isBucket ? (
+                            <Badge variant="blue" className="text-[10px] gap-1">
+                              <Box className="w-3 h-3" />
+                              Bucket
+                            </Badge>
                           ) : (
                             <Badge variant="green" className="text-[10px]">Connected</Badge>
                           )}
@@ -544,7 +684,7 @@ export default function StorageExplorerPage() {
                               variant="ghost"
                               size="icon"
                               className="h-7 w-7 text-destructive hover:bg-destructive/10"
-                              onClick={() => handleDelete(file)}
+                              onClick={() => { setActionError(""); setConfirmDeleteFile(file); }}
                               title="Delete"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
@@ -573,31 +713,7 @@ export default function StorageExplorerPage() {
               <div className="space-y-4">
                 {/* Media Render Preview */}
                 <div className="bg-secondary rounded-lg p-4 flex items-center justify-center min-h-[200px] border border-border overflow-hidden">
-                  {previewFile.isImage && previewFile.collectionName ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={fileUrl(projectId, previewFile.collectionName, previewFile.recordId, previewFile.name)}
-                      alt={previewFile.name}
-                      className="max-h-[340px] max-w-full rounded-lg object-contain shadow-sm"
-                    />
-                  ) : previewFile.mime.includes("audio") && previewFile.collectionName ? (
-                    <audio
-                      controls
-                      src={fileUrl(projectId, previewFile.collectionName, previewFile.recordId, previewFile.name)}
-                      className="w-full"
-                    />
-                  ) : previewFile.mime.includes("video") && previewFile.collectionName ? (
-                    <video
-                      controls
-                      src={fileUrl(projectId, previewFile.collectionName, previewFile.recordId, previewFile.name)}
-                      className="max-h-[300px] max-w-full rounded-lg"
-                    />
-                  ) : (
-                    <div className="text-center py-6">
-                      <FileText className="w-16 h-16 mx-auto text-muted-foreground mb-2" />
-                      <p className="text-xs text-muted-foreground font-medium">Visual preview not available for this file type</p>
-                    </div>
-                  )}
+                  <MediaPreview projectId={projectId} file={previewFile} />
                 </div>
 
                 {/* Metadata Details */}
@@ -612,7 +728,9 @@ export default function StorageExplorerPage() {
                   </div>
                   <div>
                     <span className="text-muted-foreground block text-[11px]">Parent Collection</span>
-                    <span className="font-semibold text-foreground">{previewFile.collectionName ?? "— (Orphaned)"}</span>
+                    <span className="font-semibold text-foreground">
+                      {previewFile.isBucket ? "— (Bucket file)" : (previewFile.collectionName ?? "— (Orphaned)")}
+                    </span>
                   </div>
                   <div>
                     <span className="text-muted-foreground block text-[11px]">Parent Record ID</span>
@@ -628,7 +746,8 @@ export default function StorageExplorerPage() {
                     onClick={() => {
                       const f = previewFile;
                       setPreviewFile(null);
-                      handleDelete(f);
+                      setActionError("");
+                      setConfirmDeleteFile(f);
                     }}
                     className="gap-1.5"
                   >
@@ -637,7 +756,7 @@ export default function StorageExplorerPage() {
                   </Button>
 
                   <div className="flex items-center gap-2">
-                    {previewFile.collectionName && (
+                    {uiFileUrl(previewFile) && (
                       <>
                         <Button
                           variant="secondary"
@@ -649,7 +768,7 @@ export default function StorageExplorerPage() {
                           <span>Copy URL</span>
                         </Button>
                         <a
-                          href={fileUrl(projectId, previewFile.collectionName, previewFile.recordId, previewFile.name)}
+                          href={uiFileUrl(previewFile) ?? "#"}
                           target="_blank"
                           rel="noreferrer"
                         >
@@ -668,6 +787,8 @@ export default function StorageExplorerPage() {
         </Dialog>
         </div>
       </div>
+
+      <ToastHost toasts={toasts} onDismiss={(id) => dismissToast(id)} />
     </>
   );
 }

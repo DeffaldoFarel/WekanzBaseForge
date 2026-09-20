@@ -9,4 +9,6 @@ export interface StoredFileInfo {
   isImage: boolean;
   collectionName: string | null;
   isOrphaned: boolean;
+  /** M35: true bila file bucket (decoupled) — recordId = fileId di _bucket_files. */
+  isBucket?: boolean;
 }

@@ -663,6 +663,14 @@ export function fileUrl(
   return `${API_URL}/api/files/${projectId}/${collection}/${recordId}/${encodeURIComponent(filename)}`;
 }
 
+/**
+ * M35: URL file bucket (decoupled) — GET /api/files/:pid/bucket/:fileId.
+ * File bucket dipakai saat URL publik file tidak boleh bergantung pada record.
+ */
+export function bucketFileUrl(projectId: string, fileId: string): string {
+  return `${API_URL}/api/files/${projectId}/bucket/${encodeURIComponent(fileId)}`;
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // M15u: FUNCTIONS API (CRUD + execute)
 // ════════════════════════════════════════════════════════════════════════════
@@ -758,6 +766,8 @@ export interface StoredFileInfo {
   isImage: boolean;
   collectionName: string | null;
   isOrphaned: boolean;
+  /** M35: file bucket (decoupled) — URL-nya /api/files/:pid/bucket/:recordId. */
+  isBucket?: boolean;
 }
 
 export interface StorageStats {
@@ -781,6 +791,18 @@ export async function deleteStorageFile(
 ): Promise<{ success: boolean; message: string }> {
   return request<{ success: boolean; message: string }>(
     `/api/admin/projects/${projectId}/storage/files/${encodeURIComponent(recordId)}/${encodeURIComponent(filename)}`,
+    { method: 'DELETE' }
+  );
+}
+
+/**
+ * M35: hapus file bucket (decoupled) via endpoint admin
+ * DELETE /api/admin/projects/:pid/storage/bucket/:fileId — juga membersihkan
+ * metadata _bucket_files (beda dengan deleteStorageFile yang hanya unlink file).
+ */
+export async function deleteBucketFile(projectId: string, fileId: string): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>(
+    `/api/admin/projects/${projectId}/storage/bucket/${encodeURIComponent(fileId)}`,
     { method: 'DELETE' }
   );
 }

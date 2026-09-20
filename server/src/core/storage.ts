@@ -106,11 +106,31 @@ export async function listProjectStorageFiles(
     // skip
   }
 
-  return files.map((f) => ({
-    ...f,
-    collectionName: recordMap.get(f.recordId) ?? null,
-    isOrphaned: !recordMap.has(f.recordId),
-  }));
+  // M35: file bucket (decoupled) — recordId-nya = fileId di tabel _bucket_files,
+  // BUKAN id record koleksi. Tanpa pengecekan ini SEMUA file bucket salah
+  // ditandai orphaned, dan "Clean Orphaned Files" akan menghapus file sah
+  // (data loss — termasuk lampiran hasil migrasi).
+  const bucketIds = new Set<string>();
+  try {
+    const rows = db.prepare('SELECT file_id FROM _bucket_files').all() as { file_id: string }[];
+    for (const r of rows) bucketIds.add(r.file_id);
+  } catch {
+    // tabel _bucket_files belum ada → project tanpa file bucket
+  }
+
+  return files.map((f) => {
+    const isBucket = bucketIds.has(f.recordId);
+    return {
+      ...f,
+      collectionName: recordMap.get(f.recordId) ?? null,
+      isBucket,
+      // Orphaned = record file yang parent record-nya sudah tidak ada.
+      // File bucket tidak pernah orphaned lewat jalur ini. Salinan legacy
+      // namespace '_bucket' (sisa double-save lama) tetap orphaned → aman
+      // dibersihkan karena salinan aslinya (namespace fileId) dilindungi.
+      isOrphaned: !isBucket && !recordMap.has(f.recordId),
+    };
+  });
 }
 
 export async function cleanOrphanedFiles(projectId: string, db: DatabaseSync): Promise<number> {
