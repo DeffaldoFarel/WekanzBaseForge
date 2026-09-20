@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { listProjects, createProject, getToken, type Project } from "@/lib/api";
@@ -9,6 +9,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { useToasts, ToastHost } from "@/components/ui/toast";
 import {
   FolderKanban,
   Plus,
@@ -23,22 +24,34 @@ import {
   Loader2,
   ShieldCheck,
   Zap,
+  Search,
+  ArrowUpDown,
 } from "lucide-react";
 
 const SERVICE_CAPABILITIES = [
   { key: "database", label: "Database & Auth", icon: Database },
   { key: "storage", label: "Storage", icon: HardDrive },
   { key: "functions", label: "Functions", icon: Code2 },
-];
+] as const;
+
+// Nama project bebas (server hanya menolak kosong) — tapi klien tetap
+// memberi batas masuk akal agar nama rapi & aman dipakai di URL/label.
+const MAX_PROJECT_NAME = 64;
+
+type SortKey = "newest" | "oldest" | "name";
 
 export default function ProjectsPage() {
   const router = useRouter();
   const [projects, setProjects] = useState<Project[]>([]);
   const [name, setName] = useState("");
-  const [firstProjectName, setFirstProjectName] = useState("my-first-app");
+  const [firstProjectName, setFirstProjectName] = useState("");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
   const [loaded, setLoaded] = useState(false);
+  const [search, setSearch] = useState("");
+  const [sort, setSort] = useState<SortKey>("newest");
+
+  const { toasts, success: toastSuccess, error: toastError, dismiss } = useToasts();
 
   useEffect(() => {
     if (!getToken()) {
@@ -51,27 +64,67 @@ export default function ProjectsPage() {
       .finally(() => setLoaded(true));
   }, [router]);
 
+  // ─── Search + sort (client-side — daftar project selalu kecil) ───
+  const visibleProjects = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    let list = projects;
+    if (q) {
+      list = list.filter(
+        (p) => p.name.toLowerCase().includes(q) || p.id.toLowerCase().includes(q)
+      );
+    }
+    const sorted = [...list];
+    if (sort === "name") sorted.sort((a, b) => a.name.localeCompare(b.name));
+    else if (sort === "oldest") sorted.sort((a, b) => a.created.localeCompare(b.created));
+    else sorted.sort((b, a) => a.created.localeCompare(b.created)); // newest
+    return sorted;
+  }, [projects, search, sort]);
+
   async function handleCreate(projectName: string) {
-    if (!projectName.trim()) return;
+    const trimmed = projectName.trim();
+    if (!trimmed) return;
+    if (trimmed.length > MAX_PROJECT_NAME) {
+      setError(`Project name is too long (max ${MAX_PROJECT_NAME} characters).`);
+      return;
+    }
     setCreating(true);
     setError("");
     try {
-      const p = await createProject(projectName.trim());
-      // If first project, redirect directly into the project studio!
+      const p = await createProject(trimmed);
+      // Project pertama: langsung masuk ke studio (guided onboarding)
       if (projects.length === 0) {
         router.push(`/projects/${p.id}`);
         return;
       }
       setProjects([p, ...projects]);
       setName("");
+      toastSuccess(`Project "${p.name}" created.`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create project");
+      const msg = err instanceof Error ? err.message : "Failed to create project";
+      setError(msg);
+      toastError(msg);
     } finally {
       setCreating(false);
     }
   }
 
-  if (!loaded) return null;
+  if (!loaded) {
+    // Skeleton loading — bukan blank putih (konsisten dengan halaman lain)
+    return (
+      <>
+        <Navbar />
+        <div className="max-w-[1200px] mx-auto px-6 py-6">
+          <div className="h-9 w-56 bg-secondary rounded-md animate-pulse mb-6" />
+          <div className="h-16 bg-secondary/60 rounded-lg animate-pulse mb-6" />
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="h-44 bg-secondary/40 rounded-lg animate-pulse" />
+            ))}
+          </div>
+        </div>
+      </>
+    );
+  }
 
   return (
     <>
@@ -214,6 +267,36 @@ export default function ProjectsPage() {
               </div>
             </div>
 
+            {/* Search + sort — daftar project makin panjang, wajib bisa dicari */}
+            <div className="flex flex-col sm:flex-row gap-3 mb-4">
+              <div className="relative flex-1">
+                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground">
+                  <Search className="w-4 h-4" />
+                </span>
+                <Input
+                  className="pl-10 h-10"
+                  placeholder="Search projects by name or id..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+              </div>
+              <div className="relative shrink-0">
+                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none">
+                  <ArrowUpDown className="w-3.5 h-3.5" />
+                </span>
+                <select
+                  value={sort}
+                  onChange={(e) => setSort(e.target.value as SortKey)}
+                  className="h-10 pl-9 pr-8 rounded-md bg-secondary border border-border text-sm text-foreground appearance-none cursor-pointer focus:outline-none focus:ring-1 focus:ring-ring"
+                  aria-label="Sort projects"
+                >
+                  <option value="newest">Newest first</option>
+                  <option value="oldest">Oldest first</option>
+                  <option value="name">Name (A–Z)</option>
+                </select>
+              </div>
+            </div>
+
             {/* Create Project Card Form */}
             <Card className="p-4 sm:p-5 mb-6">
               <form
@@ -252,8 +335,15 @@ export default function ProjectsPage() {
             </Card>
 
             {/* Project Grid */}
+            {visibleProjects.length === 0 ? (
+              <Card className="p-8 text-center">
+                <p className="text-sm text-muted-foreground">
+                  No projects match <code className="font-mono text-foreground">"{search.trim()}"</code>.
+                </p>
+              </Card>
+            ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {projects.map((p) => (
+              {visibleProjects.map((p) => (
                 <Link key={p.id} href={`/projects/${p.id}`} className="group">
                   <Card className="p-5 hover:border-foreground/20 transition-colors flex flex-col justify-between h-full">
                     <div>
@@ -277,9 +367,13 @@ export default function ProjectsPage() {
                       </div>
                     </div>
 
-                    {/* Service Capability Badges */}
+                    {/* Service badges — data riil dari project, bukan hardcode */}
                     <div className="flex flex-wrap gap-1.5 pt-3 border-t border-border">
-                      {SERVICE_CAPABILITIES.map((item) => {
+                      {SERVICE_CAPABILITIES.filter((item) => {
+                        // "Database & Auth" hanya tampil bila keduanya aktif
+                        if (item.key === "database") return p.services.database && p.services.auth;
+                        return p.services[item.key];
+                      }).map((item) => {
                         const Icon = item.icon;
                         return (
                           <Badge
@@ -292,14 +386,20 @@ export default function ProjectsPage() {
                           </Badge>
                         );
                       })}
+                      {!p.services.storage && !p.services.functions && !(p.services.database && p.services.auth) && (
+                        <span className="text-[11px] text-muted-foreground italic">No services enabled</span>
+                      )}
                     </div>
                   </Card>
                 </Link>
               ))}
             </div>
+            )}
           </>
         )}
       </div>
+
+      <ToastHost toasts={toasts} onDismiss={dismiss} />
     </>
   );
 }

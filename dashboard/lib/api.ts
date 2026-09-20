@@ -171,6 +171,18 @@ export async function updateServices(
   return data.project;
 }
 
+export async function updateProjectName(id: string, name: string): Promise<Project> {
+  const data = await request<{ project: Project }>(
+    `/api/admin/projects/${id}`,
+    { method: 'PATCH', body: JSON.stringify({ name }) }
+  );
+  if (data.project?.name) {
+    projectNameCache.set(id, data.project.name);
+    saveProjectNameCache();
+  }
+  return data.project;
+}
+
 export async function deleteProject(id: string): Promise<void> {
   await request(`/api/admin/projects/${id}`, { method: 'DELETE' });
   projectNameCache.delete(id);

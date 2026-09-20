@@ -8,6 +8,7 @@ import {
   getProjectStats,
   formatBytes,
   deleteProject,
+  updateProjectName,
   getToken,
   createProjectApiKey,
   listProjectApiKeys,
@@ -39,6 +40,7 @@ import {
   Copy,
   Check,
   AlertTriangle,
+  Pencil,
 } from "lucide-react";
 
 export default function ProjectDetailPage() {
@@ -55,6 +57,12 @@ export default function ProjectDetailPage() {
   const [deleteTyped, setDeleteTyped] = useState("");
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
+
+  // Rename project — menutup janji onboarding "You can change this later"
+  const [renaming, setRenaming] = useState(false);
+  const [renameValue, setRenameValue] = useState("");
+  const [renameSaving, setRenameSaving] = useState(false);
+  const [renameError, setRenameError] = useState("");
 
   // M26: API keys state
   const [apiKeys, setApiKeys] = useState<ProjectApiKey[]>([]);
@@ -139,6 +147,31 @@ export default function ProjectDetailPage() {
     }
   }
 
+  async function onRename() {
+    if (!project) return;
+    const trimmed = renameValue.trim();
+    if (!trimmed || trimmed === project.name) {
+      setRenaming(false);
+      setRenameError("");
+      return;
+    }
+    if (trimmed.length > 64) {
+      setRenameError("Project name is too long (max 64 characters).");
+      return;
+    }
+    setRenameSaving(true);
+    setRenameError("");
+    try {
+      const updated = await updateProjectName(project.id, trimmed);
+      setProject(updated);
+      setRenaming(false);
+    } catch (e) {
+      setRenameError(e instanceof Error ? e.message : "Failed to rename project");
+    } finally {
+      setRenameSaving(false);
+    }
+  }
+
   if (error) {
     return (
       <div className="max-w-[1180px] mx-auto px-6 py-6">
@@ -167,9 +200,61 @@ export default function ProjectDetailPage() {
               <ChevronRight className="w-3.5 h-3.5" />
               <span className="text-foreground font-medium">{project.name}</span>
             </div>
-            <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-foreground">
-              {project.name}
+            <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-foreground flex items-center gap-2">
+              {renaming ? (
+                <form
+                  className="flex items-center gap-2"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    onRename();
+                  }}
+                >
+                  <Input
+                    value={renameValue}
+                    onChange={(e) => setRenameValue(e.target.value)}
+                    className="h-9 text-xl font-semibold w-64"
+                    autoFocus
+                    maxLength={64}
+                    onKeyDown={(e) => {
+                      if (e.key === "Escape") {
+                        setRenaming(false);
+                        setRenameError("");
+                      }
+                    }}
+                  />
+                  <Button type="submit" size="sm" disabled={renameSaving || !renameValue.trim()}>
+                    {renameSaving ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    disabled={renameSaving}
+                    onClick={() => { setRenaming(false); setRenameError(""); }}
+                  >
+                    Cancel
+                  </Button>
+                </form>
+              ) : (
+                <>
+                  <span>{project.name}</span>
+                  <button
+                    onClick={() => { setRenaming(true); setRenameValue(project.name); setRenameError(""); }}
+                    className="text-muted-foreground hover:text-foreground transition-colors p-1"
+                    title="Rename project"
+                    aria-label="Rename project"
+                  >
+                    <Pencil className="w-4 h-4" />
+                  </button>
+                </>
+              )}
             </h1>
+            {renameError && (
+              <p className="text-xs text-destructive mt-1.5 flex items-center gap-1.5">
+                <AlertTriangle className="w-3.5 h-3.5" />
+                <span>{renameError}</span>
+              </p>
+            )}
           </div>
 
           <Button
