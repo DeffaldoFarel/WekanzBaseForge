@@ -2,6 +2,7 @@ package id.wekanz.baseforge
 
 import id.wekanz.baseforge.auth.AuthResponse
 import id.wekanz.baseforge.auth.AuthService
+import id.wekanz.baseforge.files.FilesService
 import id.wekanz.baseforge.internal.HttpCore
 import id.wekanz.baseforge.records.RecordService
 import okhttp3.OkHttpClient
@@ -36,6 +37,7 @@ public class BaseForge(
 ) {
     private val http: HttpCore
     private val projectId: String
+    private val baseUrl: String
 
     public val auth: AuthService
 
@@ -44,6 +46,7 @@ public class BaseForge(
         require(projectId.isNotBlank()) { "projectId must not be blank" }
 
         this.projectId = projectId
+        this.baseUrl = baseUrl
 
         // Simpul lingkaran: HttpCore perlu cara me-refresh, AuthService perlu HttpCore.
         // Diselesaikan dengan lateinit lokal + lambda yang baru dievaluasi saat dipakai.
@@ -73,6 +76,16 @@ public class BaseForge(
      * [authStore] yang sama (auto-refresh M37 berlaku juga di sini).
      */
     public fun collection(name: String): RecordService = RecordService(http, projectId, name)
+
+    /**
+     * Akses operasi file / bucket storage (v0.3.0).
+     *
+     * ```kotlin
+     * val res = bf.files.uploadToBucket(bytes, "foto.jpg", "image/jpeg")
+     * val url = bf.files.getBucketUrl(res.fileId) // serahkan ke Coil/Glide
+     * ```
+     */
+    public val files: FilesService by lazy { FilesService(http, baseUrl, projectId) }
 
     public companion object {
         /** OkHttp dengan timeout yang masuk akal untuk jaringan seluler. */

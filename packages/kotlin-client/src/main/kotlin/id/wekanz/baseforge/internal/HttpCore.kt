@@ -70,6 +70,19 @@ internal class HttpCore(
         allowAutoRefresh: Boolean = true,
     ): String? = requestInternal(method, path, body, bodySerializer, headers, query, allowAutoRefresh, isRetry = false)
 
+    /**
+     * Varian [request] yang menerima OkHttp [okhttp3.RequestBody] mentah —
+     * untuk multipart upload (Files) yang tidak bisa lewat JSON string.
+     * Auth + auto-refresh 401 (M37) + error envelope tetap berlaku sama.
+     */
+    internal suspend fun requestRaw(
+        method: String,
+        path: String,
+        rawBody: okhttp3.RequestBody,
+        headers: Map<String, String> = emptyMap(),
+        allowAutoRefresh: Boolean = true,
+    ): String? = requestInternal(method, path, rawBody, null, headers, emptyMap(), allowAutoRefresh, isRetry = false)
+
     private suspend fun requestInternal(
         method: String,
         path: String,
@@ -93,6 +106,7 @@ internal class HttpCore(
 
         val reqBody = when {
             body == null -> null
+            body is okhttp3.RequestBody -> body // multipart / raw (Files)
             bodySerializer != null -> bodySerializer(body).toRequestBody(JSON_MEDIA)
             body is String -> body.toRequestBody(JSON_MEDIA)
             else -> error("body needs a serializer")
