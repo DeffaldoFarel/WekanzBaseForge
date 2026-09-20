@@ -18,7 +18,7 @@ plugins {
 }
 
 group = "id.wekanz.baseforge"
-version = "0.3.0"
+version = "0.3.1"
 
 kotlin {
     jvmToolchain(17)
