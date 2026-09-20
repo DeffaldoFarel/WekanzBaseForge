@@ -10,6 +10,7 @@ import {
   listMailOutbox,
   clearMailOutbox,
   getToken,
+  changeAdminPassword,
   type MailSettingsInfo,
   type OutboxMessage,
 } from "@/lib/api";
@@ -31,6 +32,9 @@ import {
   Unplug,
   RefreshCw,
   Lock,
+  KeyRound,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 
 export default function SettingsPage() {
@@ -56,6 +60,16 @@ export default function SettingsPage() {
   // Outbox
   const [outbox, setOutbox] = useState<OutboxMessage[]>([]);
   const [openMessage, setOpenMessage] = useState<string | null>(null);
+
+  // Admin change-password form
+  const [curPw, setCurPw] = useState("");
+  const [newPw, setNewPw] = useState("");
+  const [newPw2, setNewPw2] = useState("");
+  const [showCur, setShowCur] = useState(false);
+  const [showNew, setShowNew] = useState(false);
+  const [changingPw, setChangingPw] = useState(false);
+  const [pwNotice, setPwNotice] = useState("");
+  const [pwError, setPwError] = useState("");
 
   function reload() {
     getMailSettings()
@@ -148,6 +162,26 @@ export default function SettingsPage() {
 
   const smtpActive = info?.mode === 'smtp';
 
+  async function handleChangePassword(e: React.FormEvent) {
+    e.preventDefault();
+    setPwError("");
+    setPwNotice("");
+    if (newPw !== newPw2) {
+      setPwError("New passwords do not match.");
+      return;
+    }
+    setChangingPw(true);
+    try {
+      await changeAdminPassword(curPw, newPw);
+      setPwNotice("Password changed. All other sessions have been signed out.");
+      setCurPw(""); setNewPw(""); setNewPw2("");
+    } catch (err) {
+      setPwError(err instanceof Error ? err.message : "Failed to change password");
+    } finally {
+      setChangingPw(false);
+    }
+  }
+
   return (
     <>
       <Navbar />
@@ -175,6 +209,102 @@ export default function SettingsPage() {
             <span>{error}</span>
           </Card>
         )}
+
+        {/* ─── ADMIN ACCOUNT (change password) ─── */}
+        <Card className="p-5 mb-6">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-10 h-10 rounded-md bg-secondary border border-border flex items-center justify-center">
+              <KeyRound className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-base font-semibold">Admin Account</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Change the master administrator password. All other sessions will be signed out.
+              </p>
+            </div>
+          </div>
+
+          <form onSubmit={handleChangePassword} className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="cur-pw" className="text-xs">Current Password</Label>
+              <div className="relative">
+                <Input
+                  id="cur-pw"
+                  type={showCur ? "text" : "password"}
+                  value={curPw}
+                  onChange={(e) => setCurPw(e.target.value)}
+                  required
+                  autoComplete="current-password"
+                  className="pr-11 font-mono text-sm"
+                />
+                <button type="button" onClick={() => setShowCur(!showCur)} tabIndex={-1}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 rounded text-muted-foreground hover:text-foreground transition-colors"
+                  title={showCur ? "Hide" : "Show"}>
+                  {showCur ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="new-pw" className="text-xs">New Password (min. 8 characters)</Label>
+                <div className="relative">
+                  <Input
+                    id="new-pw"
+                    type={showNew ? "text" : "password"}
+                    value={newPw}
+                    onChange={(e) => setNewPw(e.target.value)}
+                    required
+                    minLength={8}
+                    autoComplete="new-password"
+                    className="pr-11 font-mono text-sm"
+                  />
+                  <button type="button" onClick={() => setShowNew(!showNew)} tabIndex={-1}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 rounded text-muted-foreground hover:text-foreground transition-colors"
+                    title={showNew ? "Hide" : "Show"}>
+                    {showNew ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="new-pw2" className="text-xs">Confirm New Password</Label>
+                <Input
+                  id="new-pw2"
+                  type={showNew ? "text" : "password"}
+                  value={newPw2}
+                  onChange={(e) => setNewPw2(e.target.value)}
+                  required
+                  minLength={8}
+                  autoComplete="new-password"
+                  className="font-mono text-sm"
+                />
+              </div>
+            </div>
+
+            {pwError && (
+              <div className="p-3 rounded-md bg-destructive/10 border border-destructive/40 text-destructive text-xs flex items-center gap-2">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                <span>{pwError}</span>
+              </div>
+            )}
+            {pwNotice && (
+              <div className="p-3 rounded-md bg-emerald-500/10 border border-emerald-500/40 text-emerald-400 text-xs flex items-center gap-2">
+                <Check className="w-3.5 h-3.5 shrink-0" />
+                <span>{pwNotice}</span>
+              </div>
+            )}
+
+            <div className="flex justify-end">
+              <Button type="submit" disabled={changingPw || !curPw || newPw.length < 8 || newPw !== newPw2} className="gap-1.5">
+                {changingPw ? (
+                  <><Loader2 className="w-3.5 h-3.5 animate-spin" /><span>Changing…</span></>
+                ) : (
+                  <><Lock className="w-3.5 h-3.5" /><span>Change Password</span></>
+                )}
+              </Button>
+            </div>
+          </form>
+        </Card>
 
         {/* ─── SMTP CONFIG ─── */}
         <Card className="p-5 mb-6">

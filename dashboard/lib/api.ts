@@ -60,6 +60,17 @@ export async function getAdminSetupState(): Promise<{ needsSetup: boolean; hasAd
   return request<{ needsSetup: boolean; hasAdmin: boolean }>('/api/admin/setup-state');
 }
 
+/** Ganti password admin yang sedang login. Mencabut semua sesi lain (kecuali token saat ini). */
+export async function changeAdminPassword(
+  currentPassword: string,
+  newPassword: string
+): Promise<{ success: boolean }> {
+  return request<{ success: boolean }>('/api/admin/auth/change-password', {
+    method: 'POST',
+    body: JSON.stringify({ currentPassword, newPassword }),
+  });
+}
+
 export async function setupInitialAdmin(
   email: string,
   password: string

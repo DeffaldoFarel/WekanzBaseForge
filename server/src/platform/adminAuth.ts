@@ -169,6 +169,64 @@ export function logoutAdmin(token: string): void {
   sessions.delete(token);
 }
 
+// ─── Ganti password admin ────────────────────────────────────────────────────
+// Hanya untuk akun yang tersimpan di _platform_admins (M39u). Akun berbasis
+// env var (fallback test) tidak punya baris DB, jadi tidak bisa diganti lewat
+// jalur ini — ia memang bukan akun "nyata".
+//
+// Kontrak keamanan:
+// - Wajib `currentPassword` yang benar (membuktikan pemilik akun, bukan sekadar
+//   pembawa token yang tertinggal di perangkat lain).
+// - Password baru divalidasi `validatePasswordStrength` (kebijakan yang sama
+//   dengan pembuatan admin awal).
+// - Setelah berhasil, SEMUA sesi admin lain dicabut — hanya token yang dipakai
+//   untuk mengganti yang tetap hidup, supaya user tidak ter-logout paksa dari
+//   tabnya sendiri.
+
+export function changeAdminPassword(
+  email: string,
+  currentPassword: string,
+  newPassword: string,
+  keepToken?: string
+): { ok: true } {
+  const trimmedEmail = email?.trim().toLowerCase();
+  if (!trimmedEmail) {
+    throw new Error('Admin account not found');
+  }
+
+  const db = initPlatformDb();
+  const row = db
+    .prepare('SELECT * FROM _platform_admins WHERE lower(email) = ?')
+    .get(trimmedEmail) as PlatformAdminRow | undefined;
+
+  if (!row) {
+    // Pesan generik — jangan bocorkan apakah akunnya ada.
+    throw new Error('Current password is incorrect');
+  }
+  if (!verifyPassword(currentPassword, row.password_hash)) {
+    throw new Error('Current password is incorrect');
+  }
+
+  const policyError = validatePasswordStrength(newPassword);
+  if (policyError) {
+    throw new Error(policyError);
+  }
+
+  db.prepare('UPDATE _platform_admins SET password_hash = ? WHERE id = ?').run(
+    hashPassword(newPassword),
+    row.id
+  );
+
+  // Cabut semua sesi untuk email ini KECUALI token yang sedang dipakai.
+  for (const [token, session] of sessions.entries()) {
+    if (session.email === row.email && token !== keepToken) {
+      sessions.delete(token);
+    }
+  }
+
+  return { ok: true };
+}
+
 // ─── Middleware: wajib admin ─────────────────────────────────────────────────
 // Inilah middleware pertama kita! Ia berjalan SEBELUM handler route.
 // Return false = request berhenti di sini (handler tidak pernah dipanggil).

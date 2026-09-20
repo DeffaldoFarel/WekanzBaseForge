@@ -9,6 +9,7 @@ import {
   logoutAdmin,
   getAdminSetupState,
   createInitialAdmin,
+  changeAdminPassword,
 } from '../platform/adminAuth.js';
 import {
   listProjects,
@@ -97,6 +98,44 @@ export function createAdminRouter(): Router {
   // Endpoint untuk memeriksa token masih valid (dipakai dashboard saat load)
   router.get('/api/admin/auth/me', requireAdmin, (req, res) => {
     res.json({ admin: req.admin });
+  });
+
+  // Ganti password admin yang sedang login. Wajib currentPassword yang benar
+  // (membuktikan pemilik akun, bukan sekadar pembawa token), dan mencabut semua
+  // sesi lain — hanya token yang dipakai untuk mengganti yang tetap hidup.
+  router.post('/api/admin/auth/change-password', requireAdmin, (req, res) => {
+    const body = req.body as
+      | { currentPassword?: string; newPassword?: string }
+      | undefined;
+
+    if (!body?.currentPassword || !body?.newPassword) {
+      res.status(400).json({
+        error: { code: 'BAD_REQUEST', message: 'currentPassword and newPassword are required' },
+      });
+      return;
+    }
+
+    try {
+      const authHeader = req.headers.authorization!;
+      changeAdminPassword(
+        req.admin!.email,
+        body.currentPassword,
+        body.newPassword,
+        authHeader.slice(7) // token ini yang dipertahankan
+      );
+      res.json({ success: true });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Failed to change password';
+      // Kesalahan kredensial/kebijakan → 400, bukan 500.
+      const isClientError =
+        msg.includes('incorrect') ||
+        msg.includes('not found') ||
+        msg.includes('characters') ||
+        msg.includes('password');
+      res.status(isClientError ? 400 : 500).json({
+        error: { code: isClientError ? 'BAD_REQUEST' : 'INTERNAL', message: msg },
+      });
+    }
   });
 
   // ─── Projects CRUD ──────────────────────────────────────────────────────
