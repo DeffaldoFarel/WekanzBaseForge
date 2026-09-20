@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { listProjects, createProject, getToken, type Project } from "@/lib/api";
+import { listProjects, createProject, getToken, getProjectStats, type Project, type ProjectStats } from "@/lib/api";
 import { Navbar } from "@/components/Navbar";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -26,6 +26,7 @@ import {
   Zap,
   Search,
   ArrowUpDown,
+  Activity,
 } from "lucide-react";
 
 const SERVICE_CAPABILITIES = [
@@ -39,6 +40,98 @@ const SERVICE_CAPABILITIES = [
 const MAX_PROJECT_NAME = 64;
 
 type SortKey = "newest" | "oldest" | "name";
+
+// ─── Kartu project dengan statistik ringkas (lazy-load per kartu) ───────────
+// Stats diambil SETELAH daftar project tampil — 407 project dev tidak boleh
+// memblokir render awal. Endpoint stats murah (agregat harian tersimpan).
+function ProjectCard({ project }: { project: Project }) {
+  const [stats, setStats] = useState<ProjectStats | null>(null);
+  const [statsFailed, setStatsFailed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    getProjectStats(project.id)
+      .then((s) => { if (!cancelled) setStats(s); })
+      .catch(() => { if (!cancelled) setStatsFailed(true); });
+    return () => { cancelled = true; };
+  }, [project.id]);
+
+  return (
+    <Link href={`/projects/${project.id}`} className="group">
+      <Card className="p-5 hover:border-foreground/20 transition-colors flex flex-col justify-between h-full">
+        <div>
+          <div className="flex justify-between items-start mb-4">
+            <div className="w-10 h-10 rounded-md bg-secondary flex items-center justify-center border border-border">
+              <FolderKanban className="w-5 h-5 text-muted-foreground group-hover:text-foreground transition-colors" />
+            </div>
+            <span className="font-mono text-[11px] text-muted-foreground bg-secondary px-2 py-0.5 rounded border border-border">
+              {project.id}
+            </span>
+          </div>
+
+          <h3 className="text-base font-semibold text-foreground mb-1 flex items-center justify-between">
+            <span>{project.name}</span>
+            <ArrowRight className="w-4 h-4 opacity-0 group-hover:opacity-100 -translate-x-1 group-hover:translate-x-0 transition-all text-muted-foreground" />
+          </h3>
+
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-4">
+            <Calendar className="w-3.5 h-3.5" />
+            <span>Created on {new Date(project.created).toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" })}</span>
+          </div>
+
+          {/* Statistik ringkas: requests hari ini + total selama periode monitor */}
+          {!statsFailed && (
+            <div className="flex items-center gap-3 text-xs text-muted-foreground mb-4 min-h-[20px]">
+              {stats ? (
+                <>
+                  <span className="flex items-center gap-1.5" title="Requests today (all services)">
+                    <Activity className="w-3.5 h-3.5 text-brand" />
+                    <span className="font-mono text-foreground font-medium">{stats.today.requests.toLocaleString()}</span>
+                    <span>today</span>
+                  </span>
+                  <span className="text-border">·</span>
+                  <span className="flex items-center gap-1.5" title="Total requests over the monitoring window (14 days)">
+                    <span className="font-mono text-foreground font-medium">{stats.totals.requests.toLocaleString()}</span>
+                    <span>total requests</span>
+                  </span>
+                </>
+              ) : (
+                <span className="flex items-center gap-2 text-muted-foreground/70">
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                  <span className="text-[11px]">Loading stats…</span>
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Service badges — data riil dari project, bukan hardcode */}
+        <div className="flex flex-wrap gap-1.5 pt-3 border-t border-border">
+          {SERVICE_CAPABILITIES.filter((item) => {
+            // "Database & Auth" hanya tampil bila keduanya aktif
+            if (item.key === "database") return project.services.database && project.services.auth;
+            return project.services[item.key];
+          }).map((item) => {
+            const Icon = item.icon;
+            return (
+              <Badge
+                key={item.key}
+                variant="secondary"
+                className="text-[11px]"
+              >
+                <Icon className="w-3 h-3" />
+                {item.label}
+              </Badge>
+            );
+          })}
+          {!project.services.storage && !project.services.functions && !(project.services.database && project.services.auth) && (
+            <span className="text-[11px] text-muted-foreground italic">No services enabled</span>
+          )}
+        </div>
+      </Card>
+    </Link>
+  );
+}
 
 export default function ProjectsPage() {
   const router = useRouter();
@@ -344,54 +437,7 @@ export default function ProjectsPage() {
             ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {visibleProjects.map((p) => (
-                <Link key={p.id} href={`/projects/${p.id}`} className="group">
-                  <Card className="p-5 hover:border-foreground/20 transition-colors flex flex-col justify-between h-full">
-                    <div>
-                      <div className="flex justify-between items-start mb-4">
-                        <div className="w-10 h-10 rounded-md bg-secondary flex items-center justify-center border border-border">
-                          <FolderKanban className="w-5 h-5 text-muted-foreground group-hover:text-foreground transition-colors" />
-                        </div>
-                        <span className="font-mono text-[11px] text-muted-foreground bg-secondary px-2 py-0.5 rounded border border-border">
-                          {p.id}
-                        </span>
-                      </div>
-
-                      <h3 className="text-base font-semibold text-foreground mb-1 flex items-center justify-between">
-                        <span>{p.name}</span>
-                        <ArrowRight className="w-4 h-4 opacity-0 group-hover:opacity-100 -translate-x-1 group-hover:translate-x-0 transition-all text-muted-foreground" />
-                      </h3>
-
-                      <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-4">
-                        <Calendar className="w-3.5 h-3.5" />
-                        <span>Created on {new Date(p.created).toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" })}</span>
-                      </div>
-                    </div>
-
-                    {/* Service badges — data riil dari project, bukan hardcode */}
-                    <div className="flex flex-wrap gap-1.5 pt-3 border-t border-border">
-                      {SERVICE_CAPABILITIES.filter((item) => {
-                        // "Database & Auth" hanya tampil bila keduanya aktif
-                        if (item.key === "database") return p.services.database && p.services.auth;
-                        return p.services[item.key];
-                      }).map((item) => {
-                        const Icon = item.icon;
-                        return (
-                          <Badge
-                            key={item.key}
-                            variant="secondary"
-                            className="text-[11px]"
-                          >
-                            <Icon className="w-3 h-3" />
-                            {item.label}
-                          </Badge>
-                        );
-                      })}
-                      {!p.services.storage && !p.services.functions && !(p.services.database && p.services.auth) && (
-                        <span className="text-[11px] text-muted-foreground italic">No services enabled</span>
-                      )}
-                    </div>
-                  </Card>
-                </Link>
+                <ProjectCard key={p.id} project={p} />
               ))}
             </div>
             )}
