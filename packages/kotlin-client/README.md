@@ -3,26 +3,51 @@
 SDK Kotlin/JVM untuk [BaseForge](../../README.md) — paritas kontrak dengan SDK TypeScript
 di `packages/client`.
 
-**v0.1.0 — Auth saja.** Records, Files, dan Realtime menyusul di v0.2.0.
+**v0.3.1 — Auth + Records + Files.** Realtime menyusul di v0.4.0.
 
-## Instalasi
+## Instalasi (JitPack — bisa dipakai siapa saja)
 
-Belum dipublikasikan ke Maven Central. Sementara ini pakai **mavenLocal**:
+Repo BaseForge public, dan SDK didistribusikan lewat **JitPack** — tidak perlu clone atau
+build manual:
+
+```kotlin
+// settings.gradle.kts konsumen
+dependencyResolutionManagement {
+    repositories {
+        mavenCentral()
+        maven { url = uri("https://jitpack.io") }
+    }
+}
+
+// build.gradle.kts konsumen
+dependencies {
+    implementation("com.github.DeffaldoFarel:WekanzBaseForge:v0.3.1")
+}
+```
+
+> **Catatan koordinat:** JitPack menerbitkan artifact dengan **nama repo** sebagai
+> artifactId (`WekanzBaseForge`), BUKAN `kotlin-client` — meski `artifactId` di
+> `build.gradle.kts` disetel `kotlin-client`. Selalu pakai
+> `com.github.DeffaldoFarel:WekanzBaseForge:v<tag>`.
+
+Android: `minSdk 26` aman (JVM 17 + desugaring AGP 8). Tidak ada dependensi AndroidX —
+SDK ini JVM murni, jadi bisa dipakai juga dari Compose Desktop atau server Kotlin.
+
+### Alternatif: mavenLocal (dev dengan perubahan belum di-tag)
+
+Kalau sedang mengembangkan SDK dan ingin memakai perubahan yang belum di-tag di JitPack:
 
 ```bash
 cd packages/kotlin-client && ./gradlew publishToMavenLocal
 ```
 
 ```kotlin
-// settings.gradle.kts konsumen
-dependencyResolutionManagement { repositories { mavenLocal(); mavenCentral() } }
+// settings.gradle.kts konsumen — mavenLocal() di ATAS jitpack agar didahulukan
+repositories { mavenLocal(); maven { url = uri("https://jitpack.io") }; mavenCentral() }
 
-// build.gradle.kts konsumen
-dependencies { implementation("id.wekanz.baseforge:kotlin-client:0.1.0") }
+// build.gradle.kts
+implementation("id.wekanz.baseforge:kotlin-client:0.3.1")
 ```
-
-Android: `minSdk 26` aman (JVM 17 + desugaring AGP 8). Tidak ada dependensi AndroidX —
-SDK ini JVM murni, jadi bisa dipakai juga dari Compose Desktop atau server Kotlin.
 
 ## Pemakaian
 
