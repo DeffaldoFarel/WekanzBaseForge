@@ -209,11 +209,28 @@ test('acknowledge: POST /alerts/:id/acknowledge → acknowledged = true', async 
 // ─── 5. Force check ──────────────────────────────────────────────────────────
 
 test('force check: POST /monitoring/check → evaluasi rules tanpa error', async () => {
+  // Deterministik: nonaktifkan semua rule dulu. Nilai 'requests_per_minute'
+  // adalah aproksimasi total-hari-ini (lihat monitor.ts), sehingga trafik dari
+  // test sebelumnya bisa tetap di atas threshold dan meng-trigger re-alert —
+  // flake yang sempat terlihat di CI/dev.
+  await http(
+    'PUT',
+    '/api/admin/settings/monitoring',
+    {
+      rules: [
+        { name: 'requests_per_minute', enabled: false },
+        { name: 'bandwidth_per_minute_mb', enabled: false },
+        { name: 'error_rate_percent', enabled: false },
+        { name: 'disk_usage_percent', enabled: false },
+      ],
+    },
+    adminToken
+  );
   const check = await http('POST', '/api/admin/monitoring/check', {}, adminToken);
   assert.equal(check.status, 200);
   assert.ok('triggered' in check.data);
   assert.ok('resolved' in check.data);
-  // Tanpa trafik, tidak ada yang trigger
+  // Semua rule off → tidak ada yang bisa trigger
   assert.equal(check.data.triggered, 0);
 });
 
@@ -267,4 +284,29 @@ test('config: webhook URL kosong → null; cooldown di-clamp 1-1440', async () =
   assert.equal(update.status, 200);
   assert.equal(update.data.webhookUrl, null);
   assert.equal(update.data.cooldownMinutes, 1440, 'clamped ke 1440 (24 jam)');
+});
+
+// ─── 9. Manual resolve (regresi fix dashboard monitoring page) ───────────────
+// Endpoint /alerts/:id/resolve dulu HANYA memanggil acknowledgeAlert — status
+// tetap 'firing' selamanya dan tab "Resolved" di dashboard selalu kosong.
+
+test('manual resolve: POST /alerts/:id/resolve → status resolved + resolvedAt terisi', async () => {
+  const list = await http('GET', '/api/admin/alerts?status=firing&limit=10', undefined, adminToken);
+  const firing = (list.data.alerts as any[]).filter((a) => a.status === 'firing');
+  assert.ok(firing.length > 0, 'harus ada minimal 1 alert firing untuk di-resolve');
+
+  const target = firing[0];
+  const res = await http('POST', `/api/admin/alerts/${target.id}/resolve`, {}, adminToken);
+  assert.equal(res.status, 200);
+
+  // Verifikasi: alert pindah ke resolved + resolvedAt valid + acknowledged
+  const after = await http('GET', `/api/admin/alerts?limit=50`, undefined, adminToken);
+  const updated = (after.data.alerts as any[]).find((a) => a.id === target.id);
+  assert.equal(updated.status, 'resolved', 'status berubah ke resolved');
+  assert.ok(updated.resolvedAt && !Number.isNaN(Date.parse(updated.resolvedAt)), 'resolvedAt ISO valid');
+  assert.equal(updated.acknowledged, true, 'resolve manual sekaligus acknowledge');
+
+  // Resolve kedua kali → 404 (sudah tidak firing)
+  const again = await http('POST', `/api/admin/alerts/${target.id}/resolve`, {}, adminToken);
+  assert.equal(again.status, 404, 'resolve ulang → 404 (idempotent guard)');
 });

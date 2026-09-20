@@ -830,6 +830,82 @@ export async function clearExecutionLogs(projectId: string, functionName: string
   );
 }
 
+// ─── M33: MONITORING + ALERTS — platform-level health (bukan per-project) ───
+
+export type AlertRuleName =
+  | 'requests_per_minute'
+  | 'bandwidth_per_minute_mb'
+  | 'error_rate_percent'
+  | 'disk_usage_percent';
+
+export interface AlertRule {
+  name: AlertRuleName;
+  label: string;
+  description: string;
+  threshold: number;
+  unit: string;
+  enabled: boolean;
+}
+
+export interface AlertRecord {
+  id: string;
+  rule: AlertRuleName;
+  projectId: string | null;
+  status: 'firing' | 'resolved';
+  value: number;
+  threshold: number;
+  message: string;
+  triggeredAt: string;
+  resolvedAt: string | null;
+  acknowledged: boolean;
+}
+
+export interface MonitoringSettings {
+  rules: AlertRule[];
+  cooldownMinutes: number;
+  webhookUrl: string | null;
+  enabled: boolean;
+  stats: { totalAlerts: number; firing: number; unresolved: number };
+}
+
+export async function getMonitoringSettings(): Promise<MonitoringSettings> {
+  return request<MonitoringSettings>('/api/admin/settings/monitoring');
+}
+
+export async function updateMonitoringSettings(updates: {
+  rules?: { name: AlertRuleName; threshold: number; enabled: boolean }[];
+  cooldownMinutes?: number;
+  webhookUrl?: string;
+  enabled?: boolean;
+}): Promise<void> {
+  await request('/api/admin/settings/monitoring', {
+    method: 'PUT',
+    body: JSON.stringify(updates),
+  });
+}
+
+export async function listAlerts(status?: 'firing' | 'resolved', limit = 50): Promise<AlertRecord[]> {
+  const q = status ? `?status=${status}&limit=${limit}` : `?limit=${limit}`;
+  const res = await request<{ alerts: AlertRecord[] }>(`/api/admin/alerts${q}`);
+  return res.alerts;
+}
+
+export async function sendTestAlert(rule?: AlertRuleName): Promise<AlertRecord> {
+  const res = await request<{ alert: AlertRecord }>('/api/admin/alerts/test', {
+    method: 'POST',
+    body: JSON.stringify(rule ? { rule } : {}),
+  });
+  return res.alert;
+}
+
+export async function acknowledgeAlert(id: string): Promise<void> {
+  await request(`/api/admin/alerts/${id}/acknowledge`, { method: 'POST', body: JSON.stringify({}) });
+}
+
+export async function resolveAlert(id: string): Promise<void> {
+  await request(`/api/admin/alerts/${id}/resolve`, { method: 'POST', body: JSON.stringify({}) });
+}
+
 // ─── M32: BACKUPS — config terjadwal + trigger manual + list + download ──────
 
 export interface BackupConfig {

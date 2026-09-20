@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   getMailSettings,
   updateMailSettings,
@@ -35,6 +36,8 @@ import {
   KeyRound,
   Eye,
   EyeOff,
+  Activity,
+  ChevronRight,
 } from "lucide-react";
 
 export default function SettingsPage() {
@@ -209,6 +212,22 @@ export default function SettingsPage() {
             <span>{error}</span>
           </Card>
         )}
+
+        {/* ─── MONITORING shortcut (M33: platform alerts) ─── */}
+        <Link href="/monitoring" className="block group">
+          <Card className="p-4 mb-6 hover:border-foreground/20 transition-colors flex items-center gap-3">
+            <div className="w-9 h-9 rounded-md bg-secondary border border-border flex items-center justify-center shrink-0">
+              <Activity className="w-4.5 h-4.5 text-muted-foreground group-hover:text-foreground transition-colors" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-foreground">Platform Monitoring &amp; Alerts</p>
+              <p className="text-xs text-muted-foreground">
+                Threshold rules (request rate, bandwidth, errors, disk) + alert history with webhook notifications.
+              </p>
+            </div>
+            <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:translate-x-0.5 transition-transform shrink-0" />
+          </Card>
+        </Link>
 
         {/* ─── ADMIN ACCOUNT (change password) ─── */}
         <Card className="p-5 mb-6">

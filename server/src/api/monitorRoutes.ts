@@ -17,6 +17,7 @@ import {
   listAlerts,
   testAlert,
   acknowledgeAlert,
+  resolveAlertManually,
   runMonitorCheck,
   type AlertRule,
   type AlertRuleName,
@@ -124,23 +125,14 @@ export function createMonitorRouter(): Router {
   // ─── MANUAL RESOLVE ─────────────────────────────────────────────────────────
 
   router.post('/api/admin/alerts/:id/resolve', requireAdmin, (req, res) => {
-    // Force resolve via acknowledgeAlert + direct status update
-    const ok = acknowledgeAlert(req.params.id);
+    // Manual resolve: status → resolved + acknowledged (sekaligus).
+    // Sebelumnya hanya memanggil acknowledgeAlert → status tidak pernah berubah.
+    const ok = resolveAlertManually(req.params.id);
     if (!ok) {
-      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Alert not found' } });
+      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Alert not found or already resolved' } });
       return;
     }
-    // Also set status to resolved (acknowledgeAlert only sets acknowledged flag)
-    // For v1, use the monitor's resolveAlert logic
-    const alerts = listAlerts(200, 'firing');
-    const alert = alerts.find((a) => a.id === req.params.id);
-    if (alert) {
-      // Force resolve by running a check (will resolve if metric is now below threshold)
-      // For manual resolve, we just acknowledge it
-      res.json({ ok: true, message: 'Alert acknowledged (will auto-resolve when metric drops below threshold)' });
-    } else {
-      res.json({ ok: true, message: 'Alert acknowledged' });
-    }
+    res.json({ ok: true, message: 'Alert resolved' });
   });
 
   // ─── FORCE CHECK ────────────────────────────────────────────────────────────

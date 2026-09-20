@@ -153,6 +153,20 @@ function resolveAlert(id: string): void {
   ).run(new Date().toISOString(), id);
 }
 
+/** M33u: manual resolve dari admin route — dulu endpoint /resolve hanya
+ *  memanggil acknowledgeAlert (flag saja) dan status tidak pernah berubah. */
+export function resolveAlertManually(id: string): boolean {
+  initAlertTables();
+  const db = getPlatformDb();
+  const result = db
+    .prepare(
+      `UPDATE _alerts SET status = 'resolved', resolved_at = ?, acknowledged = 1
+       WHERE id = ? AND status = 'firing'`
+    )
+    .run(new Date().toISOString(), id);
+  return result.changes > 0;
+}
+
 export function listAlerts(limit = 50, status?: 'firing' | 'resolved'): AlertRecord[] {
   initAlertTables();
   const db = getPlatformDb();
