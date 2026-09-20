@@ -21,6 +21,7 @@ import {
 } from "@/lib/api";
 import { Navbar } from "@/components/Navbar";
 import { ProjectSidebar } from "@/components/ProjectSidebar";
+import { BackupCard } from "@/components/BackupCard";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -435,6 +436,9 @@ export default function ProjectDetailPage() {
             </div>
           )}
         </Card>
+
+        {/* M32: Backups — jadwal, trigger manual, list, download */}
+        <BackupCard projectId={project.id} />
 
         {/* API Keys Card (M26: server-to-server access) */}
         <Card className="p-6">

@@ -830,6 +830,73 @@ export async function clearExecutionLogs(projectId: string, functionName: string
   );
 }
 
+// ─── M32: BACKUPS — config terjadwal + trigger manual + list + download ──────
+
+export interface BackupConfig {
+  schedule: 'daily' | 'weekly' | 'off';
+  retention: number; // 1–30
+}
+
+export interface BackupInfo {
+  filename: string;
+  timestamp: string;
+  size: number;
+  durationMs: number;
+  collectionCount: number;
+  recordCount: number;
+}
+
+export async function getBackupConfig(projectId: string): Promise<BackupConfig> {
+  return request<BackupConfig>(`/api/admin/projects/${projectId}/backup/config`);
+}
+
+export async function setBackupConfig(
+  projectId: string,
+  config: { schedule: 'daily' | 'weekly' | 'off'; retention: number }
+): Promise<void> {
+  await request(`/api/admin/projects/${projectId}/backup/config`, {
+    method: 'PUT',
+    body: JSON.stringify(config),
+  });
+}
+
+export async function resetBackupConfig(projectId: string): Promise<void> {
+  await request(`/api/admin/projects/${projectId}/backup/config`, { method: 'DELETE' });
+}
+
+export async function runBackup(projectId: string): Promise<BackupInfo> {
+  const res = await request<{ backup: BackupInfo }>(
+    `/api/admin/projects/${projectId}/backup/run`,
+    { method: 'POST', body: JSON.stringify({}) }
+  );
+  return res.backup;
+}
+
+export async function listBackups(projectId: string): Promise<{ config: BackupConfig; backups: BackupInfo[]; totalSize: number }> {
+  return request(`/api/admin/projects/${projectId}/backup/list`);
+}
+
+/** Download file backup .db — fetch + blob karena butuh header Authorization. */
+export async function downloadBackup(projectId: string, filename: string): Promise<void> {
+  const token = getToken();
+  const res = await fetch(
+    `${PUBLIC_API_URL}/api/admin/projects/${projectId}/backup/download/${encodeURIComponent(filename)}`,
+    { headers: token ? { Authorization: `Bearer ${token}` } : {} }
+  );
+  if (!res.ok) {
+    throw new Error(`Download failed: ${res.status}`);
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 // ─── M28: WEBHOOKS — notifikasi HTTP saat record berubah ────────────────────
 
 export interface WebhookDef {
