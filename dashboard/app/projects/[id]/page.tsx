@@ -12,6 +12,7 @@ import {
   createProjectApiKey,
   listProjectApiKeys,
   revokeProjectApiKey,
+  PUBLIC_API_URL,
   type Project,
   type ProjectStats,
   type ProjectApiKey,
@@ -49,6 +50,12 @@ export default function ProjectDetailPage() {
   const [stats, setStats] = useState<ProjectStats | null>(null);
   const [error, setError] = useState("");
 
+  // Delete project: konfirmasi inline + ketik nama (bukan confirm() native)
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleteTyped, setDeleteTyped] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
+
   // M26: API keys state
   const [apiKeys, setApiKeys] = useState<ProjectApiKey[]>([]);
   const [newKeyName, setNewKeyName] = useState("");
@@ -75,12 +82,18 @@ export default function ProjectDetailPage() {
     reloadKeys();
   }, [id, router]);
 
-  // M24: refresh statistik tiap 30 detik (selaras interval flush server)
+  // M24: refresh statistik tiap 30 detik (selaras interval flush server).
+  // Jeda saat tab tidak aktif agar tidak polling di background.
   useEffect(() => {
-    const timer = setInterval(() => {
-      getProjectStats(id).then(setStats).catch(() => {});
-    }, 30_000);
-    return () => clearInterval(timer);
+    let timer: ReturnType<typeof setInterval> | null = null;
+    const refresh = () => getProjectStats(id).then(setStats).catch(() => {});
+    const start = () => { if (!timer) timer = setInterval(refresh, 30_000); };
+    const stop = () => { if (timer) { clearInterval(timer); timer = null; } };
+    const onVisibility = () => (document.hidden ? stop() : start());
+
+    start();
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => { stop(); document.removeEventListener("visibilitychange", onVisibility); };
   }, [id]);
 
   async function handleCreateKey() {
@@ -114,9 +127,16 @@ export default function ProjectDetailPage() {
 
   async function onDelete() {
     if (!project) return;
-    if (!confirm(`Permanently delete project "${project.name}"? All database records and storage files will be lost.`)) return;
-    await deleteProject(project.id);
-    router.replace("/projects");
+    if (deleteTyped.trim() !== project.name) return; // tombol sudah disabled, ini sabuk pengaman
+    setDeleting(true);
+    setDeleteError("");
+    try {
+      await deleteProject(project.id);
+      router.replace("/projects");
+    } catch (e) {
+      setDeleteError(e instanceof Error ? e.message : "Failed to delete project");
+      setDeleting(false);
+    }
   }
 
   if (error) {
@@ -155,13 +175,57 @@ export default function ProjectDetailPage() {
           <Button
             variant="destructive"
             size="sm"
-            onClick={onDelete}
+            onClick={() => { setConfirmDelete(true); setDeleteTyped(""); setDeleteError(""); }}
             className="gap-1.5"
           >
             <Trash2 className="w-3.5 h-3.5" />
             <span>Delete Project</span>
           </Button>
         </div>
+
+        {/* Delete confirmation — ketik nama project untuk konfirmasi */}
+        {confirmDelete && (
+          <Card className="p-5 mb-8 border-destructive/50 bg-destructive/5">
+            <h3 className="text-sm font-semibold text-destructive flex items-center gap-2 mb-2">
+              <AlertTriangle className="w-4 h-4" />
+              <span>Delete project &quot;{project.name}&quot; permanently?</span>
+            </h3>
+            <p className="text-xs text-muted-foreground mb-4">
+              All database records and storage files will be lost. This cannot be undone.
+              Type <code className="font-mono text-foreground">{project.name}</code> to confirm.
+            </p>
+            <div className="flex flex-col sm:flex-row gap-3">
+              <Input
+                value={deleteTyped}
+                onChange={(e) => setDeleteTyped(e.target.value)}
+                placeholder={`Type "${project.name}" to confirm`}
+                className="flex-1"
+                autoFocus
+              />
+              <div className="flex gap-2 shrink-0">
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  disabled={deleteTyped.trim() !== project.name || deleting}
+                  onClick={onDelete}
+                  className="gap-1.5"
+                >
+                  {deleting ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                  <span>{deleting ? "Deleting…" : "Delete Forever"}</span>
+                </Button>
+                <Button variant="secondary" size="sm" onClick={() => setConfirmDelete(false)} disabled={deleting}>
+                  Cancel
+                </Button>
+              </div>
+            </div>
+            {deleteError && (
+              <p className="text-xs text-destructive mt-3 flex items-center gap-1.5">
+                <AlertTriangle className="w-3.5 h-3.5" />
+                <span>{deleteError}</span>
+              </p>
+            )}
+          </Card>
+        )}
 
         {/* Project Metadata Card */}
         <Card className="p-6 mb-8">
@@ -420,7 +484,7 @@ export default function ProjectDetailPage() {
           <div className="mt-4 pt-4 border-t border-border">
             <p className="text-xs text-muted-foreground mb-2">Use the key from any server:</p>
             <code className="block text-xs font-mono text-foreground bg-secondary border border-border rounded-md px-3 py-2 overflow-x-auto whitespace-nowrap">
-              curl -H "Authorization: Bearer bf_..." http://localhost:5100/api/p/{id}/collections/posts/records
+              curl -H &quot;Authorization: Bearer &lt;key&gt;&quot; {PUBLIC_API_URL}/api/p/{id}/collections/posts/records
             </code>
           </div>
         </Card>
