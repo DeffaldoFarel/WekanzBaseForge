@@ -689,6 +689,10 @@ export interface StoredFunction {
   triggers: FunctionTrigger[];
   schedule: string | null;
   httpAllow: string[];
+  timezone: string;
+  dbAccess: boolean;
+  modules: string[];
+  memoryMb: number;
   created: string;
   updated: string;
 }
@@ -702,7 +706,7 @@ export async function listFunctions(projectId: string): Promise<StoredFunction[]
 
 export async function createFunction(
   projectId: string,
-  def: { name: string; code: string; enabled?: boolean; timeoutMs?: number; triggers?: FunctionTrigger[]; schedule?: string | null; httpAllow?: string[] }
+  def: { name: string; code: string; enabled?: boolean; timeoutMs?: number; triggers?: FunctionTrigger[]; schedule?: string | null; httpAllow?: string[]; timezone?: string; dbAccess?: boolean; modules?: string[]; memoryMb?: number }
 ): Promise<StoredFunction> {
   const res = await request<{ function: StoredFunction }>(
     `/api/admin/projects/${projectId}/functions`,
@@ -714,7 +718,7 @@ export async function createFunction(
 export async function updateFunction(
   projectId: string,
   name: string,
-  updates: { code?: string; enabled?: boolean; timeoutMs?: number; triggers?: FunctionTrigger[]; schedule?: string | null; httpAllow?: string[] }
+  updates: { code?: string; enabled?: boolean; timeoutMs?: number; triggers?: FunctionTrigger[]; schedule?: string | null; httpAllow?: string[]; timezone?: string; dbAccess?: boolean; modules?: string[]; memoryMb?: number }
 ): Promise<StoredFunction> {
   const res = await request<{ function: StoredFunction }>(
     `/api/admin/projects/${projectId}/functions/${name}`,
@@ -725,6 +729,93 @@ export async function updateFunction(
 
 export async function deleteFunction(projectId: string, name: string): Promise<void> {
   await request(`/api/admin/projects/${projectId}/functions/${name}`, { method: 'DELETE' });
+}
+
+// ─── M42: FUNCTION SECRETS ($env) — nilai TIDAK PERNAH dikembalikan API ──────
+
+export interface SecretMeta {
+  key: string;
+  hasValue: boolean;
+  updated: string;
+}
+
+export async function listSecrets(projectId: string, functionName: string): Promise<SecretMeta[]> {
+  const res = await request<{ secrets: SecretMeta[] }>(
+    `/api/admin/projects/${projectId}/functions/${functionName}/secrets`
+  );
+  return res.secrets;
+}
+
+export async function setSecret(
+  projectId: string,
+  functionName: string,
+  key: string,
+  value: string
+): Promise<void> {
+  await request(`/api/admin/projects/${projectId}/functions/${functionName}/secrets`, {
+    method: 'PUT',
+    body: JSON.stringify({ key, value }),
+  });
+}
+
+export async function deleteSecret(projectId: string, functionName: string, key: string): Promise<void> {
+  await request(`/api/admin/projects/${projectId}/functions/${functionName}/secrets/${encodeURIComponent(key)}`, {
+    method: 'DELETE',
+  });
+}
+
+// ─── M43: MODULE REGISTRY ($lib) ────────────────────────────────────────────
+
+export interface ModuleMeta {
+  name: string;
+  sizeBytes: number;
+  updated: string;
+}
+
+export async function listModules(projectId: string): Promise<ModuleMeta[]> {
+  const res = await request<{ modules: ModuleMeta[] }>(
+    `/api/admin/projects/${projectId}/modules`
+  );
+  return res.modules;
+}
+
+// ─── M46: EXECUTION LOGS — riwayat eksekusi (callable/public/trigger/schedule)
+
+export interface ExecutionLogEntry {
+  id: string;
+  functionName: string;
+  source: 'callable' | 'public' | 'trigger' | 'schedule';
+  ok: boolean;
+  error: string | null;
+  logs: string[];
+  durationMs: number;
+  memoryMb: number | null;
+  created: string;
+}
+
+export interface ExecutionLogPage {
+  page: number;
+  perPage: number;
+  totalItems: number;
+  items: ExecutionLogEntry[];
+}
+
+export async function listExecutionLogs(
+  projectId: string,
+  functionName: string,
+  page = 1,
+  perPage = 20
+): Promise<ExecutionLogPage> {
+  return request<ExecutionLogPage>(
+    `/api/admin/projects/${projectId}/functions/${functionName}/logs?page=${page}&perPage=${perPage}`
+  );
+}
+
+export async function clearExecutionLogs(projectId: string, functionName: string): Promise<{ cleared: number }> {
+  return request<{ cleared: number }>(
+    `/api/admin/projects/${projectId}/functions/${functionName}/logs`,
+    { method: 'DELETE' }
+  );
 }
 
 export interface FunctionExecResult {

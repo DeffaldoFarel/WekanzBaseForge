@@ -27,13 +27,30 @@ import {
 import { Navbar } from "@/components/Navbar";
 import { ProjectSidebar } from "@/components/ProjectSidebar";
 import { FunctionEditor } from "@/components/studio/FunctionEditor";
+import { FunctionLogs } from "@/components/studio/FunctionLogs";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Clock, GitFork, Play, CheckCircle2, AlertTriangle, XCircle, Plus, Globe, type LucideIcon } from "lucide-react";
+import { ConfirmDelete } from "@/components/ui/confirm-delete";
+import { useToasts, ToastHost } from "@/components/ui/toast";
+import {
+  Clock,
+  GitFork,
+  Play,
+  CheckCircle2,
+  AlertTriangle,
+  XCircle,
+  Plus,
+  Globe,
+  Database,
+  Package,
+  History,
+  KeyRound,
+  type LucideIcon,
+} from "lucide-react";
 
 const DEFAULT_CODE = `// req = { body, query, auth } for callable functions
 // any return value → JSON response
@@ -46,17 +63,26 @@ export default function FunctionsPage() {
   const [functions, setFunctions] = useState<StoredFunction[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
 
   // editor state
   const [editing, setEditing] = useState<StoredFunction | null>(null); // existing
   const [creating, setCreating] = useState(false);
   const [collectionNames, setCollectionNames] = useState<string[]>([]);
 
-  // run panel
+  // run panel — per-function body agar tidak nyangkut antar function
   const [running, setRunning] = useState<string | null>(null); // nama function
-  const [runBody, setRunBody] = useState("{}");
+  const [runBodies, setRunBodies] = useState<Record<string, string>>({});
   const [runResult, setRunResult] = useState<{ ok: boolean; result?: unknown; error?: string; logs: string[]; durationMs: number; timedOut?: boolean } | null>(null);
+  const [executing, setExecuting] = useState(false);
+
+  // panel detail (history/secrets) per function
+  const [detailOpen, setDetailOpen] = useState<string | null>(null);
+
+  // konfirmasi delete (menggantikan confirm() native)
+  const [confirmDeleteFn, setConfirmDeleteFn] = useState<StoredFunction | null>(null);
+
+  // toast (menggantikan notice statis)
+  const { toasts, success: toastSuccess, error: toastError, dismiss } = useToasts();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -87,18 +113,21 @@ export default function FunctionsPage() {
   }
 
   async function handleDelete(fn: StoredFunction) {
-    if (!confirm(`Delete function '${fn.name}'?`)) return;
     setError("");
     try {
       await deleteFunction(projectId, fn.name);
-      setNotice(`Function '${fn.name}' deleted`);
+      toastSuccess(`Function '${fn.name}' deleted.`);
+      setConfirmDeleteFn(null);
       if (running === fn.name) {
         setRunning(null);
         setRunResult(null);
       }
+      if (detailOpen === fn.name) setDetailOpen(null);
       load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to delete");
+      const msg = e instanceof Error ? e.message : "Failed to delete";
+      toastError(msg);
+      setError(msg);
     }
   }
 
@@ -106,10 +135,11 @@ export default function FunctionsPage() {
     setError("");
     setRunning(fn.name);
     setRunResult(null);
+    setExecuting(true);
     try {
       let body: unknown = {};
       try {
-        body = JSON.parse(runBody || "{}");
+        body = JSON.parse((runBodies[fn.name] ?? "{}") || "{}");
       } catch {
         throw new Error("Invalid JSON body");
       }
@@ -117,6 +147,8 @@ export default function FunctionsPage() {
       setRunResult(result);
     } catch (e) {
       setRunResult({ ok: false, error: e instanceof Error ? e.message : "Execution failed", logs: [], durationMs: 0 });
+    } finally {
+      setExecuting(false);
     }
   }
 
@@ -127,6 +159,20 @@ export default function FunctionsPage() {
       items.push({ icon: GitFork, label: `${t.collection}:${t.actions.join("/")}` });
     }
     if (items.length === 0) items.push({ icon: Play, label: "callable" });
+    return items;
+  }
+
+  function extraBadges(fn: StoredFunction) {
+    const items: { icon: LucideIcon; label: string; title: string }[] = [];
+    if (fn.schedule && fn.timezone && fn.timezone !== "UTC") {
+      items.push({ icon: Clock, label: fn.timezone, title: `Schedule timezone: ${fn.timezone}` });
+    }
+    if (fn.dbAccess) {
+      items.push({ icon: Database, label: "$db", title: "In-process database access enabled (admin-level)" });
+    }
+    if (fn.modules && fn.modules.length > 0) {
+      items.push({ icon: Package, label: `$lib×${fn.modules.length}`, title: `Modules: ${fn.modules.join(", ")}` });
+    }
     return items;
   }
 
@@ -160,17 +206,25 @@ export default function FunctionsPage() {
             Code runs in a sandbox: no <code>process</code>/<code>require</code>, enforced timeouts, captured console output.
           </p>
 
-          {notice && (
-            <Card className="p-3 mt-3 border-emerald-500/40 bg-emerald-500/10 text-emerald-400 text-sm flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 shrink-0" />
-              <span>{notice}</span>
-            </Card>
-          )}
           {error && (
             <Card className="p-3 mt-3 border-destructive/50 bg-destructive/10 text-destructive text-sm flex items-center gap-2">
               <AlertTriangle className="w-4 h-4 shrink-0" />
               <span>{error}</span>
             </Card>
+          )}
+
+          {confirmDeleteFn && (
+            <ConfirmDelete
+              title={`Delete function '${confirmDeleteFn.name}'?`}
+              description={
+                confirmDeleteFn.triggers.length > 0 || confirmDeleteFn.schedule
+                  ? "This function runs automatically (triggers/schedule). Deleting it stops all of those executions. Its secrets and execution history are also removed."
+                  : "The function, its secrets, and its execution history will be permanently deleted."
+              }
+              confirmLabel="Delete Function"
+              onConfirm={() => handleDelete(confirmDeleteFn)}
+              onCancel={() => setConfirmDeleteFn(null)}
+            />
           )}
 
       {/* Daftar functions */}
@@ -198,6 +252,15 @@ export default function FunctionsPage() {
                     </Badge>
                   );
                 })}
+                {extraBadges(fn).map((b, i) => {
+                  const Icon = b.icon;
+                  return (
+                    <Badge key={`x${i}`} variant="purple" className="text-xs gap-1" title={b.title}>
+                      <Icon className="w-3 h-3" />
+                      <span>{b.label}</span>
+                    </Badge>
+                  );
+                })}
                 {fn.httpAllow.length > 0 && (
                   <Badge variant="blue" className="text-xs gap-1" title={`$http allowed: ${fn.httpAllow.join(", ")}`}>
                     <Globe className="w-3 h-3" />
@@ -205,7 +268,7 @@ export default function FunctionsPage() {
                   </Badge>
                 )}
                 <span className="text-xs text-muted-foreground font-mono">
-                  {fn.timeoutMs}ms
+                  {fn.timeoutMs}ms · {fn.memoryMb}MB
                 </span>
                 <span className="flex-1" />
                 <label className="flex items-center gap-1.5 text-sm cursor-pointer">
@@ -215,7 +278,23 @@ export default function FunctionsPage() {
                   />
                   {fn.enabled ? "active" : "disabled"}
                 </label>
-                <Button variant="secondary" size="sm" onClick={() => handleRun(fn)} className="gap-1">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setDetailOpen(detailOpen === fn.name ? null : fn.name)}
+                  className="gap-1"
+                  title="Execution history & secrets"
+                >
+                  {detailOpen === fn.name ? <KeyRound className="w-3 h-3" /> : <History className="w-3 h-3" />}
+                  <span>{detailOpen === fn.name ? "Hide Details" : "Details"}</span>
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => handleRun(fn)}
+                  disabled={executing}
+                  className="gap-1"
+                >
                   <Play className="w-3 h-3 fill-current" />
                   <span>Run</span>
                 </Button>
@@ -229,10 +308,19 @@ export default function FunctionsPage() {
                 >
                   Edit
                 </Button>
-                <Button variant="destructive" size="sm" onClick={() => handleDelete(fn)}>
-                  Hapus
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => setConfirmDeleteFn(fn)}
+                >
+                  Delete
                 </Button>
               </div>
+
+              {/* Detail panel: execution history + secrets */}
+              {detailOpen === fn.name && (
+                <FunctionLogs projectId={projectId} functionName={fn.name} />
+              )}
 
               {/* Run panel */}
               {running === fn.name && (
@@ -240,17 +328,19 @@ export default function FunctionsPage() {
                   <Label className="text-xs">req.body (JSON)</Label>
                   <Textarea
                     rows={2}
-                    value={runBody}
-                    onChange={(e) => setRunBody(e.target.value)}
+                    value={runBodies[fn.name] ?? "{}"}
+                    onChange={(e) =>
+                      setRunBodies((prev) => ({ ...prev, [fn.name]: e.target.value }))
+                    }
                     className="font-mono text-sm mt-1"
                   />
                   <div className="flex gap-2 mt-2">
-                    <Button size="sm" onClick={() => handleRun(fn)} className="gap-1">
+                    <Button size="sm" onClick={() => handleRun(fn)} disabled={executing} className="gap-1">
                       <Play className="w-3 h-3 fill-current" />
-                      <span>Run</span>
+                      <span>{executing ? "Running…" : "Run"}</span>
                     </Button>
-                    <Button variant="secondary" size="sm" onClick={() => setRunning(null)}>
-                      Tutup
+                    <Button variant="secondary" size="sm" onClick={() => { setRunning(null); setRunResult(null); }}>
+                      Close
                     </Button>
                   </div>
                   {runResult && (
@@ -309,11 +399,14 @@ export default function FunctionsPage() {
           onSaved={() => {
             setCreating(false);
             setEditing(null);
-            setNotice("Function saved");
+            toastSuccess("Function saved");
             load();
           }}
         />
       )}
+
+      {/* Toast notifications (global) */}
+      <ToastHost toasts={toasts} onDismiss={dismiss} />
         </div>
       </div>
     </>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
-import { AlertTriangle, GitFork, Plus, X, Globe } from "lucide-react";
+import { AlertTriangle, GitFork, Plus, X, Globe, Clock, Package } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -23,8 +23,10 @@ import {
 import {
   createFunction,
   updateFunction,
+  listModules,
   type StoredFunction,
   type FunctionTrigger,
+  type ModuleMeta,
 } from "@/lib/api";
 
 const DEFAULT_CODE = `// req = { body, query, auth } for callable functions
@@ -53,8 +55,21 @@ export function FunctionEditor({
   const [triggers, setTriggers] = useState<FunctionTrigger[]>(existing?.triggers ?? []);
   // M25: allowlist host untuk $http (comma-separated → array saat save)
   const [httpAllow, setHttpAllow] = useState((existing?.httpAllow ?? []).join(", "));
+  // M39/M41/M43/M44: setting lanjutan yang dulu hanya bisa disetel via API
+  const [timezone, setTimezone] = useState(existing?.timezone ?? "UTC");
+  const [dbAccess, setDbAccess] = useState(existing?.dbAccess ?? false);
+  const [modulesAvail, setModulesAvail] = useState<ModuleMeta[]>([]);
+  const [selectedModules, setSelectedModules] = useState<string[]>(existing?.modules ?? []);
+  const [memoryMb, setMemoryMb] = useState(String(existing?.memoryMb ?? 32));
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
+
+  // M43: daftar modul tersedia untuk dipilih sebagai $lib
+  useEffect(() => {
+    listModules(projectId)
+      .then(setModulesAvail)
+      .catch(() => setModulesAvail([])); // project tanpa modul / error → kosong
+  }, [projectId]);
 
   function updateTrigger(idx: number, patch: Partial<FunctionTrigger>) {
     setTriggers(triggers.map((t, i) => (i === idx ? { ...t, ...patch } : t)));
@@ -82,6 +97,10 @@ export function FunctionEditor({
         schedule: schedule.trim() === "" ? null : schedule.trim(),
         triggers,
         httpAllow: allowList,
+        timezone: timezone.trim() === "" ? "UTC" : timezone.trim(),
+        dbAccess,
+        modules: selectedModules,
+        memoryMb: parseInt(memoryMb, 10) || 32,
       };
       if (existing) {
         await updateFunction(projectId, existing.name, payload);
@@ -163,6 +182,34 @@ export function FunctionEditor({
                 placeholder="* * * * *"
               />
             </div>
+            <div className="flex-1 min-w-[150px] space-y-2">
+              <Label htmlFor="fn-timezone" className="flex items-center gap-1.5">
+                <Clock className="w-3.5 h-3.5" />
+                Timezone
+              </Label>
+              <Input
+                id="fn-timezone"
+                value={timezone}
+                onChange={(e) => setTimezone(e.target.value)}
+                placeholder="Asia/Jakarta"
+                className="font-mono text-sm"
+              />
+              <p className="text-xs text-muted-foreground">
+                IANA timezone for the cron schedule (default UTC).
+              </p>
+            </div>
+            <div className="flex-1 min-w-[120px] space-y-2">
+              <Label htmlFor="fn-memory">Memory (MB)</Label>
+              <Input
+                id="fn-memory"
+                type="number"
+                value={memoryMb}
+                onChange={(e) => setMemoryMb(e.target.value)}
+                min={16}
+                max={256}
+              />
+              <p className="text-xs text-muted-foreground">Isolate cap: 16–256 MB.</p>
+            </div>
           </div>
 
           {/* M25: $http allowlist */}
@@ -188,6 +235,65 @@ export function FunctionEditor({
               IPs stay blocked). An exact hostname (e.g. <code className="bg-secondary px-1 rounded">192.168.1.10</code>)
               explicitly opts in to internal access.
             </p>
+          </div>
+
+          {/* M41: $db access toggle */}
+          <div className="space-y-2">
+            <label htmlFor="fn-dbaccess" className="flex items-center gap-2 text-sm cursor-pointer">
+              <Checkbox
+                id="fn-dbaccess"
+                checked={dbAccess}
+                onCheckedChange={(c: boolean | "indeterminate") => setDbAccess(c === true)}
+              />
+              <span>
+                Enable <code className="bg-secondary px-1 rounded">$db</code> access
+                <span className="text-muted-foreground text-xs block mt-0.5">
+                  Allow in-process database access. Runs as admin — API rules do NOT apply.
+                </span>
+              </span>
+            </label>
+          </div>
+
+          {/* M43: module registry ($lib) */}
+          <div className="space-y-2">
+            <Label className="flex items-center gap-1.5">
+              <Package className="w-3.5 h-3.5" />
+              <span>Modules <span className="text-muted-foreground text-xs font-normal">(<code className="bg-secondary px-1 rounded">$lib</code>, loaded in order)</span></span>
+            </Label>
+            {modulesAvail.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No modules registered in this project yet.
+              </p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {modulesAvail.map((m) => {
+                  const idx = selectedModules.indexOf(m.name);
+                  return (
+                    <label
+                      key={m.name}
+                      className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-sm cursor-pointer transition-colors ${
+                        idx >= 0
+                          ? "border-accent bg-accent text-foreground"
+                          : "border-border text-muted-foreground hover:text-foreground"
+                      }`}
+                      title={`${m.sizeBytes} bytes · updated ${m.updated}`}
+                    >
+                      <Checkbox
+                        checked={idx >= 0}
+                        onCheckedChange={() =>
+                          setSelectedModules(
+                            idx >= 0
+                              ? selectedModules.filter((x) => x !== m.name)
+                              : [...selectedModules, m.name]
+                          )
+                        }
+                      />
+                      <span className="font-mono text-xs">{m.name}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {/* Triggers */}

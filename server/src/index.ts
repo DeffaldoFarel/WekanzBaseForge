@@ -54,7 +54,7 @@ const loggerMiddleware: Middleware = (req, res) => {
 // Browser menolak lintas-origin kecuali server mengizinkan — itulah CORS.
 const corsMiddleware: Middleware = (req, res) => {
   res.raw.setHeader('Access-Control-Allow-Origin', '*'); // dev only!
-  res.raw.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
+  res.raw.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
   res.raw.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
   // Browser mengirim OPTIONS "preflight" sebelum request non-sederhana
