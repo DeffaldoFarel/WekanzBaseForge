@@ -307,8 +307,8 @@ export function verifyAuthCredentials(
 
 export function listAuthUsers(
   db: DatabaseSync,
-  page = 1,
-  perPage = 20,
+  rawPage = 1,
+  rawPerPage = 20,
   search?: string
 ): {
   items: AuthUser[];
@@ -317,16 +317,19 @@ export function listAuthUsers(
   page: number;
   perPage: number;
 } {
+  const page = Number.isFinite(rawPage) && rawPage >= 1 ? Math.floor(rawPage) : 1;
+  const perPage = Number.isFinite(rawPerPage) && rawPerPage >= 1 ? Math.min(500, Math.floor(rawPerPage)) : 20;
+
   let where = '';
   const params: (string | number)[] = [];
   if (search && search.trim().length > 0) {
-    where = 'WHERE email LIKE ?';
-    params.push(`%${search.trim()}%`);
+    const escaped = search.trim().replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
+    where = "WHERE (email LIKE ? ESCAPE '\\' OR name LIKE ? ESCAPE '\\')";
+    params.push(`%${escaped}%`, `%${escaped}%`);
   }
 
-  const totalItems = (
-    db.prepare(`SELECT COUNT(*) AS n FROM _auth_users ${where}`).get(...params) as { n: number }
-  ).n;
+  const countRow = db.prepare(`SELECT COUNT(*) AS n FROM _auth_users ${where}`).get(...params) as { n: number };
+  const totalItems = countRow?.n ?? 0;
   const totalPages = Math.max(1, Math.ceil(totalItems / perPage));
   const offset = (page - 1) * perPage;
 

@@ -167,7 +167,22 @@ export class Router {
     const contentTypeHeader = String(rawReq.headers['content-type'] ?? '');
     const isMultipart = contentTypeHeader.startsWith('multipart/form-data');
     if (method === 'POST' || method === 'PATCH' || method === 'PUT') {
-      rawBody = await readRawBody(rawReq);
+      const maxLimit = isMultipart ? 105 * 1024 * 1024 : 10 * 1024 * 1024;
+      try {
+        rawBody = await readRawBody(rawReq, maxLimit);
+      } catch (err: unknown) {
+        const isTooLarge = (err as { code?: string })?.code === 'PAYLOAD_TOO_LARGE';
+        res.status(isTooLarge ? 413 : 400).json({
+          error: {
+            code: isTooLarge ? 'PAYLOAD_TOO_LARGE' : 'BAD_REQUEST',
+            message: isTooLarge
+              ? `Request body exceeds size limit (${Math.round(maxLimit / 1024 / 1024)}MB)`
+              : 'Failed to read request body',
+          },
+        });
+        return;
+      }
+
       if (!isMultipart && rawBody.length > 0) {
         try {
           const text = rawBody.toString('utf-8');
@@ -228,44 +243,44 @@ export class Router {
       }
     });
 
-    // Jalankan middleware global dulu
-    for (const mw of this.globalMiddlewares) {
-      const proceed = await mw(req, res);
-      if (!proceed) return; // middleware menghentikan request
-    }
-
-    // Cari route yang cocok
-    const pathSegments = path.split('/').filter(Boolean);
-    for (const route of this.routes) {
-      if (route.method !== method) continue;
-
-      const params = this.match(route, pathSegments);
-      if (!params) continue;
-
-      req.params = params;
-
-      // Jalankan middleware khusus route (misalnya requireAuth)
-      for (const mw of route.middlewares) {
+    try {
+      // Jalankan middleware global dulu
+      for (const mw of this.globalMiddlewares) {
         const proceed = await mw(req, res);
-        if (!proceed) return;
+        if (!proceed) return; // middleware menghentikan request
       }
 
-      try {
-        await route.handler(req, res);
-      } catch (err) {
-        // Error boundary: satu handler gagal tidak boleh mematikan server
-        console.error('[router] Handler error:', err);
-        if (!rawRes.headersSent) {
-          res.status(500).json({
-            error: { code: 'INTERNAL_ERROR', message: err instanceof Error ? err.message : 'Unknown error' },
-          });
+      // Cari route yang cocok
+      const pathSegments = path.split('/').filter(Boolean);
+      for (const route of this.routes) {
+        if (route.method !== method) continue;
+
+        const params = this.match(route, pathSegments);
+        if (!params) continue;
+
+        req.params = params;
+
+        // Jalankan middleware khusus route (misalnya requireAuth)
+        for (const mw of route.middlewares) {
+          const proceed = await mw(req, res);
+          if (!proceed) return;
         }
-      }
-      return;
-    }
 
-    // Tidak ada route cocok → 404
-    res.status(404).json({ error: { code: 'NOT_FOUND', message: `${method} ${path} not found` } });
+        await route.handler(req, res);
+        return;
+      }
+
+      // Tidak ada route cocok → 404
+      res.status(404).json({ error: { code: 'NOT_FOUND', message: `${method} ${path} not found` } });
+    } catch (err) {
+      // Error boundary: handler atau middleware yang melempar error tidak boleh mematikan server
+      console.error('[router] Uncaught error in dispatch:', err);
+      if (!rawRes.headersSent) {
+        res.status(500).json({
+          error: { code: 'INTERNAL_ERROR', message: err instanceof Error ? err.message : 'Unknown error' },
+        });
+      }
+    }
   }
 }
 
@@ -286,15 +301,38 @@ function makeResponse(rawRes: ServerResponse): ForgeResponse {
   return res;
 }
 
-// Membaca stream body sampai habis sebagai BUFFER MENTAH.
+// Membaca stream body sampai habis sebagai BUFFER MENTAH dengan perlindungan batas ukuran (anti DoS/OOM).
 // Aha! moment: request body TIDAK tersedia sekaligus — ia mengalir
 // sebagai potongan-potongan (chunk) lewat jaringan.
 // M14: JSON parsing dipindah ke caller (handle) supaya multipart
 // tidak ikut ter-parse sebagai JSON.
-function readRawBody(rawReq: IncomingMessage): Promise<Buffer> {
+function readRawBody(rawReq: IncomingMessage, maxBytes = 10 * 1024 * 1024): Promise<Buffer> {
   return new Promise((resolve, reject) => {
+    const contentLength = parseInt(String(rawReq.headers['content-length'] ?? '0'), 10);
+    if (contentLength > maxBytes) {
+      const err = new Error('Request payload exceeds size limit');
+      (err as { code?: string }).code = 'PAYLOAD_TOO_LARGE';
+      reject(err);
+      return;
+    }
+
     const chunks: Buffer[] = [];
-    rawReq.on('data', (chunk: Buffer) => chunks.push(chunk));
+    let bytesRead = 0;
+
+    const onData = (chunk: Buffer) => {
+      bytesRead += chunk.length;
+      if (bytesRead > maxBytes) {
+        rawReq.off('data', onData);
+        rawReq.destroy();
+        const err = new Error('Request payload exceeds size limit');
+        (err as { code?: string }).code = 'PAYLOAD_TOO_LARGE';
+        reject(err);
+        return;
+      }
+      chunks.push(chunk);
+    };
+
+    rawReq.on('data', onData);
     rawReq.on('end', () => resolve(Buffer.concat(chunks)));
     rawReq.on('error', reject);
   });
