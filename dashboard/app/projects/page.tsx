@@ -184,12 +184,12 @@ function ProjectCard({
                 <Badge
                   key={item.key}
                   variant="secondary"
-                  className="text-[11px] gap-1.5 font-medium py-0.5 px-2 bg-secondary/80 border border-border text-foreground hover:bg-secondary"
+                  className="text-[11px] inline-flex items-center gap-1.5 font-medium py-1 px-2.5 bg-secondary/80 border border-border text-foreground hover:bg-secondary transition-colors"
                   title={`${item.label}: ${item.formatBadge(item.count)}`}
                 >
-                  <Icon aria-hidden="true" className="w-3 h-3 text-muted-foreground" />
-                  <span>{item.label}</span>
-                  <span className="text-[10px] text-muted-foreground font-mono font-normal">
+                  <Icon aria-hidden="true" className="w-3 h-3 text-muted-foreground shrink-0" />
+                  <span className="leading-none">{item.label}</span>
+                  <span className="inline-flex items-center justify-center h-4 min-w-4 px-1 rounded-full bg-background/80 border border-border/80 text-[10px] font-mono font-medium leading-none text-muted-foreground">
                     {item.count}
                   </span>
                 </Badge>
