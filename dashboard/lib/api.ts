@@ -29,8 +29,44 @@ export function setToken(token: string | null): void {
   else localStorage.removeItem('bf_token');
 }
 
+let isRedirecting = false;
+
+/**
+ * Tangani sesi kedaluwarsa secara terpusat:
+ * 1. Hapus token lama dari localStorage
+ * 2. Cegah redirect berulang (looping)
+ * 3. Redirect ke /login dengan parameter ?redirect= agar user kembali ke halaman semula setelah login
+ */
+export function handleUnauthorizedRedirect(): void {
+  if (typeof window === 'undefined') return;
+  setToken(null);
+
+  const currentPath = window.location.pathname;
+  if (currentPath === '/login' || currentPath === '/signup') return;
+
+  if (isRedirecting) return;
+  isRedirecting = true;
+
+  const redirectTarget = window.location.pathname + window.location.search;
+  const loginUrl = `/login?redirect=${encodeURIComponent(redirectTarget)}`;
+  window.location.href = loginUrl;
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = getToken();
+
+  // Endpoint publik yang tidak membutuhkan token sesi admin
+  const isPublicAuthPath =
+    path === '/api/admin/setup-state' ||
+    path === '/api/admin/auth/setup' ||
+    path === '/api/admin/auth/login';
+
+  // Jika endpoint admin butuh token namun token tidak tersedia di storage
+  if (!token && !isPublicAuthPath && path.startsWith('/api/admin/')) {
+    handleUnauthorizedRedirect();
+    throw new Error('Session expired: please sign in again.');
+  }
+
   const res = await fetch(`${API_URL}${path}`, {
     ...options,
     headers: {
@@ -39,6 +75,12 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
       ...options.headers,
     },
   });
+
+  if (res.status === 401 && !isPublicAuthPath) {
+    handleUnauthorizedRedirect();
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data?.error?.message ?? 'Session expired. Redirecting to login...');
+  }
 
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
