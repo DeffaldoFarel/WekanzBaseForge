@@ -267,26 +267,26 @@ export function RecordsTab({
           <div className="overflow-x-auto flex-1">
             <Table>
               <TableHeader>
-                <tr className="border-b border-border bg-secondary/50 text-muted-foreground font-medium uppercase tracking-wider text-[11px]">
+                <tr className="border-b border-border bg-secondary/50 text-muted-foreground font-medium text-xs">
                   <TableHead className="w-[36px] pl-3">
                     <Checkbox
                       checked={allSelected}
                       onCheckedChange={(checked: boolean | "indeterminate") => onSelectAll(!!checked)}
                     />
                   </TableHead>
-                  <TableHead className="w-[140px] font-mono text-xs">ID</TableHead>
+                  <TableHead className="w-[140px] font-mono text-xs text-foreground font-medium">id</TableHead>
                   {collection?.fields.map((f) => (
                     <TableHead key={f.name}>
                       <div className="flex items-center gap-1.5">
-                        <span className="text-foreground">{f.name}</span>
-                        <span className="text-[9px] text-muted-foreground bg-secondary border border-border px-1 py-0.2 rounded font-mono font-normal">
+                        <span className="text-foreground font-mono font-medium">{f.name}</span>
+                        <span className="text-[10px] text-muted-foreground bg-secondary border border-border px-1.5 py-0.5 rounded font-mono font-normal">
                           {f.type}
                         </span>
                       </div>
                     </TableHead>
                   ))}
-                  <TableHead className="w-[150px]">Created</TableHead>
-                  <TableHead className="w-[110px] text-right pr-4">Actions</TableHead>
+                  <TableHead className="w-[150px] text-xs font-mono text-muted-foreground">created</TableHead>
+                  <TableHead className="w-[110px] text-right pr-4 text-xs">Actions</TableHead>
                 </tr>
               </TableHeader>
               <TableBody>
