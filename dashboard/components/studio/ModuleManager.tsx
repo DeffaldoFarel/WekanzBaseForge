@@ -103,6 +103,21 @@ export function ModuleManager({ projectId, functions, onChanged, onSuccess, onEr
     return functions.filter((f) => (f.modules ?? []).includes(name)).map((f) => f.name);
   }
 
+  function handleCodeKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === "Tab") {
+      e.preventDefault();
+      const target = e.currentTarget;
+      const start = target.selectionStart;
+      const end = target.selectionEnd;
+      const val = target.value;
+      const nextVal = val.substring(0, start) + "  " + val.substring(end);
+      setCodeDraft(nextVal);
+      requestAnimationFrame(() => {
+        target.selectionStart = target.selectionEnd = start + 2;
+      });
+    }
+  }
+
   function startCreate() {
     setEditingName(null);
     setNameDraft("");
@@ -308,6 +323,7 @@ export function ModuleManager({ projectId, functions, onChanged, onSuccess, onEr
                     id="mod-code"
                     value={codeDraft}
                     onChange={(e) => setCodeDraft(e.target.value)}
+                    onKeyDown={handleCodeKeyDown}
                     spellCheck={false}
                     rows={14}
                     className="w-full bg-background border border-border rounded-md p-3 font-mono text-xs text-foreground resize-y focus:outline-none focus:ring-1 focus:ring-ring"

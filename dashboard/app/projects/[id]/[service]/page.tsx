@@ -19,7 +19,7 @@ export default function ServicePage() {
   const info = TITLES[service] ?? { title: service, milestone: "?" };
 
   return (
-    <div className="max-w-[1180px] mx-auto px-6 py-6">
+    <div className="w-full px-5 py-5">
       <Link href={`/projects/${id}`} className="text-sm text-muted-foreground hover:text-foreground">
         ← Back to Project
       </Link>

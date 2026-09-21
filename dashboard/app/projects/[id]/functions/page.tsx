@@ -54,6 +54,7 @@ import {
   Search,
   Pencil,
   Trash2,
+  Sparkles,
   type LucideIcon,
 } from "lucide-react";
 
@@ -187,6 +188,31 @@ export default function FunctionsPage() {
     }
   }
 
+  function handleJsonKeyDown(fnName: string, e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === "Tab") {
+      e.preventDefault();
+      const target = e.currentTarget;
+      const start = target.selectionStart;
+      const end = target.selectionEnd;
+      const val = target.value;
+      const nextVal = val.substring(0, start) + "  " + val.substring(end);
+      setRunBodies((prev) => ({ ...prev, [fnName]: nextVal }));
+      requestAnimationFrame(() => {
+        target.selectionStart = target.selectionEnd = start + 2;
+      });
+    }
+  }
+
+  function formatRunBody(fnName: string) {
+    const raw = runBodies[fnName] ?? "{}";
+    try {
+      const parsed = JSON.parse(raw);
+      setRunBodies((prev) => ({ ...prev, [fnName]: JSON.stringify(parsed, null, 2) }));
+    } catch {
+      toastError("Cannot format: invalid JSON syntax");
+    }
+  }
+
   // Filter & Search functions
   const filteredFunctions = useMemo(() => {
     return functions.filter((fn) => {
@@ -219,7 +245,7 @@ export default function FunctionsPage() {
     <>
       <Navbar projectId={projectId} />
 
-      <div className="max-w-[1180px] mx-auto px-6 py-6 flex gap-6 items-start">
+      <div className="flex min-h-[calc(100vh-61px)] px-5 py-5 gap-5 items-start w-full">
         {/* ─── PROJECT SIDEBAR ─── */}
         <ProjectSidebar projectId={projectId} />
 
@@ -522,17 +548,30 @@ export default function FunctionsPage() {
                   {running === fn.name && (
                     <div className="bg-muted/80 border border-border rounded-lg p-3.5 mt-1">
                       <div className="flex items-center justify-between mb-1.5">
-                        <Label className="text-xs font-semibold text-foreground">Execute Function: {fn.name}</Label>
-                        <span className="text-[10px] text-muted-foreground font-mono">req.body (JSON)</span>
+                        <div className="flex items-center gap-2">
+                          <Label className="text-xs font-semibold text-foreground">Execute Function: {fn.name}</Label>
+                          <span className="text-[10px] text-muted-foreground font-mono bg-secondary px-1.5 py-0.5 rounded border border-border">req.body</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => formatRunBody(fn.name)}
+                          className="text-[11px] text-muted-foreground hover:text-foreground inline-flex items-center gap-1 transition-colors px-1.5 py-0.5 rounded hover:bg-secondary cursor-pointer"
+                          title="Format JSON payload"
+                        >
+                          <Sparkles className="w-3 h-3 text-amber-400" />
+                          <span>Format JSON</span>
+                        </button>
                       </div>
                       <Textarea
-                        rows={2}
-                        value={runBodies[fn.name] ?? "{}"}
+                        rows={4}
+                        value={runBodies[fn.name] ?? "{\n  \n}"}
                         onChange={(e) =>
                           setRunBodies((prev) => ({ ...prev, [fn.name]: e.target.value }))
                         }
-                        className="font-mono text-xs mt-1"
-                        placeholder="{}"
+                        onKeyDown={(e) => handleJsonKeyDown(fn.name, e)}
+                        className="font-mono text-xs mt-1 leading-relaxed bg-background"
+                        placeholder="{\n  &quot;key&quot;: &quot;value&quot;\n}"
+                        spellCheck={false}
                       />
                       <div className="flex items-center gap-2 mt-2.5">
                         <Button

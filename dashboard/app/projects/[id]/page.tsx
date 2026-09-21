@@ -214,7 +214,7 @@ export default function ProjectDetailPage() {
 
   if (error) {
     return (
-      <div className="max-w-[1180px] mx-auto px-6 py-6">
+      <div className="w-full px-5 py-5">
         <Link href="/projects" className="text-sm text-muted-foreground hover:text-foreground">← Back to Projects</Link>
         <p className="text-destructive mt-2">{error}</p>
       </div>
@@ -226,12 +226,12 @@ export default function ProjectDetailPage() {
     <>
       <Navbar projectId={project.id} projectName={project.name} />
 
-      <div className="max-w-[1180px] mx-auto px-6 py-6 flex gap-6 items-start">
+      <div className="flex min-h-[calc(100vh-61px)] px-5 py-5 gap-5 items-start w-full">
         {/* ─── PROJECT SIDEBAR ─── */}
         <ProjectSidebar projectId={project.id} projectName={project.name} />
 
         {/* ─── MAIN CONTENT ─── */}
-        <div style={{ flex: 1, minWidth: 0 }}>
+        <div className="flex-1 min-w-0">
         {/* Breadcrumb & Header */}
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
           <div>

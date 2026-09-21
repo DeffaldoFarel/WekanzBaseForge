@@ -47,7 +47,7 @@ export default function DatabaseIndexPage() {
     <>
       <Navbar projectId={projectId} />
 
-      <div className="max-w-[1180px] mx-auto px-6 py-6 flex gap-6 items-start">
+      <div className="flex min-h-[calc(100vh-61px)] px-5 py-5 gap-5 items-start w-full">
         <ProjectSidebar projectId={projectId} />
 
         <div className="flex-1 min-w-0">

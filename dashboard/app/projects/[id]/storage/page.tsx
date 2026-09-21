@@ -261,12 +261,12 @@ export default function StorageExplorerPage() {
     <>
       <Navbar projectId={projectId} />
 
-      <div className="max-w-[1400px] mx-auto px-6 py-6 flex gap-6 items-start">
+      <div className="flex min-h-[calc(100vh-61px)] px-5 py-5 gap-5 items-start w-full">
         {/* ─── PROJECT SIDEBAR ─── */}
         <ProjectSidebar projectId={projectId} />
 
         {/* ─── MAIN CONTENT ─── */}
-        <div style={{ flex: 1, minWidth: 0 }}>
+        <div className="flex-1 min-w-0">
         {/* Header Navigation */}
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
           <div>
