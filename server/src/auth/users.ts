@@ -324,8 +324,8 @@ export function listAuthUsers(
   const params: (string | number)[] = [];
   if (search && search.trim().length > 0) {
     const escaped = search.trim().replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
-    where = "WHERE (email LIKE ? ESCAPE '\\' OR name LIKE ? ESCAPE '\\')";
-    params.push(`%${escaped}%`, `%${escaped}%`);
+    where = "WHERE (id LIKE ? ESCAPE '\\' OR email LIKE ? ESCAPE '\\' OR name LIKE ? ESCAPE '\\')";
+    params.push(`%${escaped}%`, `%${escaped}%`, `%${escaped}%`);
   }
 
   const countRow = db.prepare(`SELECT COUNT(*) AS n FROM _auth_users ${where}`).get(...params) as { n: number };

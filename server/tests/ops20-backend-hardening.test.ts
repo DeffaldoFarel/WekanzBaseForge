@@ -136,12 +136,19 @@ test('Ops-20: listAuthUsers handles NaN/negative pagination and escapes LIKE wil
   assert.equal(nameSearch.items.length, 1);
   assert.equal(nameSearch.items[0].email, 'userc@test.com');
 
-  // 3. Literal % search only matches Bob % Builder, not all rows!
+  // 3. Search matches user ID directly!
+  const charlieId = nameSearch.items[0].id;
+  const idSearch = listAuthUsers(db, 1, 10, charlieId);
+  assert.equal(idSearch.items.length, 1);
+  assert.equal(idSearch.items[0].id, charlieId);
+  assert.equal(idSearch.items[0].email, 'userc@test.com');
+
+  // 4. Literal % search only matches Bob % Builder, not all rows!
   const pctSearch = listAuthUsers(db, 1, 10, '%');
   assert.equal(pctSearch.items.length, 1);
   assert.equal(pctSearch.items[0].name, 'Bob % Builder');
 
-  // 4. Literal _ search only matches user_a, not all rows!
+  // 5. Literal _ search only matches user_a, not all rows!
   const underscoreSearch = listAuthUsers(db, 1, 10, '_');
   assert.equal(underscoreSearch.items.length, 1);
   assert.equal(underscoreSearch.items[0].email, 'user_a@test.com');
