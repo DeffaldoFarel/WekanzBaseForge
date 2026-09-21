@@ -42,6 +42,12 @@ export function initAuthTokensTable(db: DatabaseSync): void {
     CREATE INDEX IF NOT EXISTS idx_auth_tokens_user
     ON _auth_tokens (user_id);
   `);
+
+  // Lookup by expiration (untuk cleanup expired tokens berkala)
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_auth_tokens_expires
+    ON _auth_tokens (expires_at);
+  `);
 }
 
 // ─── Helper: hash refresh token (seperti password — M08!) ───────────────────
@@ -178,8 +184,10 @@ export function revokeAllUserTokens(db: DatabaseSync, userId: string): number {
 // ─── CLEANUP: hapus token expired (dipanggil berkala/cron) ───────────────────
 
 export function cleanupExpiredTokens(db: DatabaseSync): number {
+  const now = new Date().toISOString();
+  const weekAgo = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString();
   const result = db
-    .prepare(`DELETE FROM _auth_tokens WHERE expires_at < ? OR (revoked = 1 AND expires_at < ?)`)
-    .run(new Date().toISOString(), new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString());
+    .prepare(`DELETE FROM _auth_tokens WHERE expires_at < ? OR (revoked = 1 AND created < ?)`)
+    .run(now, weekAgo);
   return Number(result.changes);
 }

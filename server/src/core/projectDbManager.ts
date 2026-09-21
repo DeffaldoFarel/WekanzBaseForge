@@ -69,6 +69,7 @@ export function closeProjectDb(projectId: string): void {
 export function closeAllProjectDbs(): void {
   for (const [id, db] of connections.entries()) {
     try {
+      db.exec('PRAGMA wal_checkpoint(PASSIVE)');
       db.close();
     } catch {
       // abaikan

@@ -148,6 +148,7 @@ export function getPlatformDb(): DatabaseSync {
 export function closePlatformDb(): void {
   if (platformDb) {
     try {
+      platformDb.exec('PRAGMA wal_checkpoint(PASSIVE)');
       platformDb.close();
     } catch {
       /* sudah tertutup — bukan alasan menggagalkan cleanup */

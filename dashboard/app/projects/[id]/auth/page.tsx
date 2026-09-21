@@ -13,6 +13,9 @@ import {
   setAuthUserVerified,
   setAuthUserDisabled,
   deleteAuthUser,
+  createAuthUser,
+  changeAuthUserPassword,
+  resetAuthUserMfa,
   type AuthUser,
 } from "@/lib/api";
 import { Navbar } from "@/components/Navbar";
@@ -56,6 +59,11 @@ import {
   FolderKanban,
   CheckCircle2,
   ShieldCheck,
+  Plus,
+  ShieldOff,
+  Lock,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 
 interface ProviderFormState {
@@ -151,6 +159,26 @@ export default function AuthSettingsPage() {
   const [authUsersError, setAuthUsersError] = useState("");
   const [confirmDeleteUser, setConfirmDeleteUser] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+
+  // Create User modal state
+  const [createUserOpen, setCreateUserOpen] = useState(false);
+  const [createUserEmail, setCreateUserEmail] = useState("");
+  const [createUserPassword, setCreateUserPassword] = useState("");
+  const [createUserName, setCreateUserName] = useState("");
+  const [createUserShowPw, setCreateUserShowPw] = useState(false);
+  const [createUserLoading, setCreateUserLoading] = useState(false);
+  const [createUserError, setCreateUserError] = useState("");
+
+  // Change Password modal state
+  const [changePwUser, setChangePwUser] = useState<AuthUser | null>(null);
+  const [newPassword, setNewPassword] = useState("");
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [changePwLoading, setChangePwLoading] = useState(false);
+  const [changePwError, setChangePwError] = useState("");
+
+  // Reset MFA state
+  const [confirmResetMfaUser, setConfirmResetMfaUser] = useState<AuthUser | null>(null);
+  const [resetMfaLoading, setResetMfaLoading] = useState(false);
 
   // Draft form per provider
   const [forms, setForms] = useState<Record<string, ProviderFormState>>({});
@@ -256,6 +284,75 @@ export default function AuthSettingsPage() {
       toastError(errorMessage(e, "Failed to delete user"));
     } finally {
       setActionLoading(null);
+    }
+  }
+
+  async function handleCreateUser(e: React.FormEvent) {
+    e.preventDefault();
+    if (!createUserEmail.trim()) {
+      setCreateUserError("Email is required");
+      return;
+    }
+    if (!createUserPassword || createUserPassword.length < 8) {
+      setCreateUserError("Password must be at least 8 characters");
+      return;
+    }
+    setCreateUserLoading(true);
+    setCreateUserError("");
+    try {
+      const newUser = await createAuthUser(projectId, {
+        email: createUserEmail.trim(),
+        password: createUserPassword,
+        name: createUserName.trim() || undefined,
+      });
+      toastSuccess(`User ${newUser.email} created successfully.`);
+      setCreateUserOpen(false);
+      setCreateUserEmail("");
+      setCreateUserPassword("");
+      setCreateUserName("");
+      await loadAuthUsers(authUsersSearch || undefined, 1);
+    } catch (err) {
+      setCreateUserError(errorMessage(err, "Failed to create user"));
+    } finally {
+      setCreateUserLoading(false);
+    }
+  }
+
+  async function handleChangePassword(e: React.FormEvent) {
+    e.preventDefault();
+    if (!changePwUser) return;
+    if (!newPassword || newPassword.length < 8) {
+      setChangePwError("Password must be at least 8 characters");
+      return;
+    }
+    setChangePwLoading(true);
+    setChangePwError("");
+    try {
+      await changeAuthUserPassword(projectId, changePwUser.id, newPassword);
+      toastSuccess(`Password for ${changePwUser.email} updated.`);
+      setChangePwUser(null);
+      setNewPassword("");
+    } catch (err) {
+      setChangePwError(errorMessage(err, "Failed to update password"));
+    } finally {
+      setChangePwLoading(false);
+    }
+  }
+
+  async function handleResetMfa() {
+    if (!confirmResetMfaUser) return;
+    setResetMfaLoading(true);
+    try {
+      await resetAuthUserMfa(projectId, confirmResetMfaUser.id);
+      toastSuccess(`MFA reset for ${confirmResetMfaUser.email}.`);
+      setAuthUsers((prev) =>
+        prev.map((u) => (u.id === confirmResetMfaUser.id ? { ...u, mfaEnabled: false } : u))
+      );
+      setConfirmResetMfaUser(null);
+    } catch (err) {
+      toastError(errorMessage(err, "Failed to reset MFA"));
+    } finally {
+      setResetMfaLoading(false);
     }
   }
 
@@ -396,44 +493,58 @@ export default function AuthSettingsPage() {
                       End-user accounts registered through your app ({authUsersTotal} total).
                     </p>
                   </div>
-                  <form
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      void loadAuthUsers(authUsersSearch || undefined, 1);
-                    }}
-                    className="flex items-center gap-2 w-full sm:w-auto"
-                  >
-                    <div className="relative flex-1 sm:w-64">
-                      <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
-                      <Input
-                        placeholder="Search by email…"
-                        value={authUsersSearch}
-                        onChange={(e) => setAuthUsersSearch(e.target.value)}
-                        className="pl-9 h-9 text-xs"
-                      />
-                      {authUsersSearch && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setAuthUsersSearch("");
-                            void loadAuthUsers(undefined, 1);
-                          }}
-                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground hover:text-foreground"
-                        >
-                          &times;
-                        </button>
-                      )}
-                    </div>
-                    <Button
-                      type="submit"
-                      variant="secondary"
-                      size="sm"
-                      className="h-9 px-3 text-xs shrink-0"
-                      disabled={authUsersLoading}
+                  <div className="flex items-center gap-2 w-full sm:w-auto">
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        void loadAuthUsers(authUsersSearch || undefined, 1);
+                      }}
+                      className="flex items-center gap-2 flex-1 sm:flex-initial"
                     >
-                      {authUsersLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Search"}
+                      <div className="relative flex-1 sm:w-64">
+                        <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                        <Input
+                          placeholder="Search by email…"
+                          value={authUsersSearch}
+                          onChange={(e) => setAuthUsersSearch(e.target.value)}
+                          className="pl-9 h-9 text-xs"
+                        />
+                        {authUsersSearch && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAuthUsersSearch("");
+                              void loadAuthUsers(undefined, 1);
+                            }}
+                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground hover:text-foreground"
+                          >
+                            &times;
+                          </button>
+                        )}
+                      </div>
+                      <Button
+                        type="submit"
+                        variant="secondary"
+                        size="sm"
+                        className="h-9 px-3 text-xs shrink-0"
+                        disabled={authUsersLoading}
+                      >
+                        {authUsersLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Search"}
+                      </Button>
+                    </form>
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="h-9 px-3 text-xs gap-1.5 shrink-0"
+                      onClick={() => {
+                        setCreateUserOpen(true);
+                        setCreateUserError("");
+                      }}
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>New User</span>
                     </Button>
-                  </form>
+                  </div>
                 </div>
 
                 {/* State: Error */}
@@ -472,9 +583,21 @@ export default function AuthSettingsPage() {
                         <Users className="w-6 h-6" />
                       </div>
                       <h3 className="text-base font-semibold text-foreground mb-1">No users yet</h3>
-                      <p className="text-sm text-muted-foreground max-w-md mx-auto">
-                        Your application doesn&apos;t have any registered users yet. Users will appear here after they sign up via your API.
+                      <p className="text-sm text-muted-foreground max-w-md mx-auto mb-4">
+                        Your application doesn&apos;t have any registered users yet. Users will appear here after they sign up via your API, or you can create one manually.
                       </p>
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="h-8 px-3 text-xs gap-1.5"
+                        onClick={() => {
+                          setCreateUserOpen(true);
+                          setCreateUserError("");
+                        }}
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Create First User</span>
+                      </Button>
                     </Card>
                   )
                 ) : (
@@ -555,6 +678,32 @@ export default function AuthSettingsPage() {
                                       )}
                                     </Button>
                                   )}
+                                  {u.mfaEnabled && (
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-7 px-2 text-xs gap-1 text-amber-500 hover:text-amber-400 hover:bg-amber-500/10"
+                                      onClick={() => setConfirmResetMfaUser(u)}
+                                      title="Reset two-factor authentication"
+                                    >
+                                      <ShieldOff className="w-3 h-3" />
+                                      <span>Reset MFA</span>
+                                    </Button>
+                                  )}
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 px-2 text-xs gap-1 text-muted-foreground hover:text-foreground"
+                                    onClick={() => {
+                                      setChangePwUser(u);
+                                      setNewPassword("");
+                                      setChangePwError("");
+                                    }}
+                                    title="Change user password"
+                                  >
+                                    <KeyRound className="w-3 h-3" />
+                                    <span>Password</span>
+                                  </Button>
                                   <Button
                                     variant="ghost"
                                     size="sm"
@@ -628,6 +777,210 @@ export default function AuthSettingsPage() {
                     onCancel={() => setConfirmDeleteUser(null)}
                   />
                 )}
+
+                {/* Konfirmasi Reset MFA */}
+                {confirmResetMfaUser && (
+                  <ConfirmDelete
+                    title={`Reset MFA for ${confirmResetMfaUser.email}?`}
+                    description="This will immediately remove two-factor authentication from this user account. They will be able to sign in using their password only."
+                    confirmLabel="Reset MFA"
+                    busy={resetMfaLoading}
+                    onConfirm={() => void handleResetMfa()}
+                    onCancel={() => setConfirmResetMfaUser(null)}
+                  />
+                )}
+
+                {/* Modal Ganti Password User */}
+                <Dialog
+                  open={!!changePwUser}
+                  onOpenChange={(open: boolean) => {
+                    if (!open) {
+                      setChangePwUser(null);
+                      setChangePwError("");
+                      setNewPassword("");
+                    }
+                  }}
+                >
+                  <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                      <DialogTitle className="flex items-center gap-2">
+                        <KeyRound className="w-4 h-4 text-brand" />
+                        <span>Change User Password</span>
+                      </DialogTitle>
+                      <DialogDescription>
+                        Set a new password for <code className="font-mono text-foreground font-medium">{changePwUser?.email}</code>.
+                      </DialogDescription>
+                    </DialogHeader>
+
+                    {changePwError && (
+                      <div className="text-xs text-destructive bg-destructive/10 border border-destructive/20 p-2.5 rounded-md">
+                        {changePwError}
+                      </div>
+                    )}
+
+                    <form onSubmit={handleChangePassword} className="space-y-3.5">
+                      <div className="space-y-1.5">
+                        <Label htmlFor="new-user-pw" className="text-xs">New Password * (min. 8 characters)</Label>
+                        <div className="relative">
+                          <Input
+                            id="new-user-pw"
+                            type={showNewPassword ? "text" : "password"}
+                            placeholder="••••••••"
+                            value={newPassword}
+                            onChange={(e) => setNewPassword(e.target.value)}
+                            className="h-9 text-xs pr-9"
+                            required
+                            minLength={8}
+                            autoFocus
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowNewPassword(!showNewPassword)}
+                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                          >
+                            {showNewPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="flex justify-end gap-2 pt-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-8 text-xs"
+                          onClick={() => setChangePwUser(null)}
+                          disabled={changePwLoading}
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          type="submit"
+                          size="sm"
+                          className="h-8 text-xs gap-1.5"
+                          disabled={changePwLoading}
+                        >
+                          {changePwLoading ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <>
+                              <Lock className="w-3.5 h-3.5" />
+                              <span>Update Password</span>
+                            </>
+                          )}
+                        </Button>
+                      </div>
+                    </form>
+                  </DialogContent>
+                </Dialog>
+
+                {/* Modal Create User */}
+                <Dialog
+                  open={createUserOpen}
+                  onOpenChange={(open: boolean) => {
+                    if (!open) {
+                      setCreateUserOpen(false);
+                      setCreateUserError("");
+                    }
+                  }}
+                >
+                  <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                      <DialogTitle className="flex items-center gap-2">
+                        <Users className="w-4 h-4 text-brand" />
+                        <span>Create New User</span>
+                      </DialogTitle>
+                      <DialogDescription>
+                        Add a new end-user account directly to this project.
+                      </DialogDescription>
+                    </DialogHeader>
+
+                    {createUserError && (
+                      <div className="text-xs text-destructive bg-destructive/10 border border-destructive/20 p-2.5 rounded-md">
+                        {createUserError}
+                      </div>
+                    )}
+
+                    <form onSubmit={handleCreateUser} className="space-y-3.5">
+                      <div className="space-y-1.5">
+                        <Label htmlFor="create-user-email" className="text-xs">Email Address *</Label>
+                        <Input
+                          id="create-user-email"
+                          type="email"
+                          placeholder="user@example.com"
+                          value={createUserEmail}
+                          onChange={(e) => setCreateUserEmail(e.target.value)}
+                          className="h-9 text-xs"
+                          required
+                          autoFocus
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <Label htmlFor="create-user-name" className="text-xs">Display Name</Label>
+                        <Input
+                          id="create-user-name"
+                          type="text"
+                          placeholder="Full Name (optional)"
+                          value={createUserName}
+                          onChange={(e) => setCreateUserName(e.target.value)}
+                          className="h-9 text-xs"
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <Label htmlFor="create-user-password" className="text-xs">Password * (min. 8 characters)</Label>
+                        <div className="relative">
+                          <Input
+                            id="create-user-password"
+                            type={createUserShowPw ? "text" : "password"}
+                            placeholder="••••••••"
+                            value={createUserPassword}
+                            onChange={(e) => setCreateUserPassword(e.target.value)}
+                            className="h-9 text-xs pr-9"
+                            required
+                            minLength={8}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setCreateUserShowPw(!createUserShowPw)}
+                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                          >
+                            {createUserShowPw ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="flex justify-end gap-2 pt-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-8 text-xs"
+                          onClick={() => setCreateUserOpen(false)}
+                          disabled={createUserLoading}
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          type="submit"
+                          size="sm"
+                          className="h-8 text-xs gap-1.5"
+                          disabled={createUserLoading}
+                        >
+                          {createUserLoading ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <>
+                              <Plus className="w-3.5 h-3.5" />
+                              <span>Create User</span>
+                            </>
+                          )}
+                        </Button>
+                      </div>
+                    </form>
+                  </DialogContent>
+                </Dialog>
               </div>
             </TabsContent>
 

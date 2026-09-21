@@ -594,6 +594,16 @@ export async function deleteAuthUser(projectId: string, userId: string): Promise
   });
 }
 
+export async function resetAuthUserMfa(
+  projectId: string,
+  userId: string
+): Promise<{ ok: boolean; mfaEnabled: boolean }> {
+  return request<{ ok: boolean; mfaEnabled: boolean }>(
+    `/api/admin/projects/${projectId}/auth-users/${userId}/mfa-reset`,
+    { method: 'POST' }
+  );
+}
+
 // ─── Ops-16: custom profile field ──────────────────────────────────────────
 
 export interface AuthFieldDefinition {

@@ -34,6 +34,8 @@ import { startMetricsFlusher } from './core/metrics.js';
 import { flushApiKeyUsage } from './auth/apiKeys.js';
 import { scheduler } from './core/scheduler.js';
 import { getProjectDb } from './core/projectDbManager.js';
+import { tokenCleanupScheduler } from './core/tokenCleanup.js';
+import { registerShutdownHandlers } from './core/lifecycle.js';
 import { Router, type Middleware } from './core/router.js';
 
 const PORT = parseInt(process.env.PORT ?? '5100', 10);
@@ -116,8 +118,8 @@ async function main(): Promise<void> {
 
     // M24: flush metrics buffer ke platform.db tiap 30 detik
     // M26: flush API key usage counter ke DB project masing-masing
-    startMetricsFlusher(30_000);
-    setInterval(() => {
+    const metricsTimer = startMetricsFlusher(30_000);
+    const apiKeyTimer = setInterval(() => {
       try {
         flushApiKeyUsage((pid) => {
           try {
@@ -129,13 +131,23 @@ async function main(): Promise<void> {
       } catch (err) {
         console.error('[api-keys] usage flush failed:', err);
       }
-    }, 30_000).unref?.();
+    }, 30_000);
+    apiKeyTimer.unref?.();
 
     // M32: backup scheduler — cek tiap 30 detik, backup sesuai config per project
     backupScheduler.start();
 
     // M33: monitor scheduler — cek threshold tiap 30 detik, alert via webhook
     monitorScheduler.start();
+
+    // Token cleanup scheduler — bersihkan token expired & revoked tiap 1 jam
+    tokenCleanupScheduler.start();
+
+    // Graceful shutdown — tangani SIGTERM & SIGINT (systemd restart & ctrl+c)
+    registerShutdownHandlers(server, {
+      schedulers: [scheduler, backupScheduler, monitorScheduler, tokenCleanupScheduler],
+      timers: [metricsTimer, apiKeyTimer],
+    });
   });
 }
 
