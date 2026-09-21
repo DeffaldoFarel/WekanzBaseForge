@@ -24,7 +24,7 @@ import {
   type ProjectServices,
   type ProjectSort,
 } from '../core/platformDb.js';
-import { closeProjectDb } from '../core/projectDbManager.js';
+import { closeProjectDb, getProjectResourceCounts } from '../core/projectDbManager.js';
 
 export function createAdminRouter(): Router {
   const router = new Router();
@@ -284,17 +284,18 @@ function serializeProject(row: {
   created: string;
   updated: string;
 }) {
-  const parsed = JSON.parse(row.services || '{}');
   return {
     id: row.id,
     name: row.name,
+    // Semua layanan BaaS selalu aktif secara bawaan (ready to use)
     services: {
       database: true,
       auth: true,
       storage: true,
       functions: true,
-      ...parsed,
     } as ProjectServices,
+    // Hitungan data riil untuk badge indikator UI
+    resources: getProjectResourceCounts(row.id),
     created: row.created,
     updated: row.updated,
   };

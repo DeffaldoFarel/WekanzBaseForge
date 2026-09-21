@@ -11,6 +11,7 @@
 
 import { DatabaseSync } from 'node:sqlite';
 import fs from 'node:fs';
+import path from 'node:path';
 import { projectDbPath, getProject } from './platformDb.js';
 import { initSchemaTable } from './schema.js';
 
@@ -97,4 +98,68 @@ export function closeAllProjectDbs(): void {
     }
     connections.delete(id);
   }
+}
+
+export interface ProjectResourceCounts {
+  collections: number;
+  authUsers: number;
+  storageFiles: number;
+  functions: number;
+}
+
+/**
+ * Menghitung jumlah data riil (koleksi, user, fungsi, berkas) pada sebuah project.
+ * Query super ringan ke sqlite_master dan tabel terkait.
+ */
+export function getProjectResourceCounts(projectId: string): ProjectResourceCounts {
+  const counts: ProjectResourceCounts = {
+    collections: 0,
+    authUsers: 0,
+    storageFiles: 0,
+    functions: 0,
+  };
+
+  try {
+    const db = getProjectDb(projectId);
+    const tables = db
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('_collections', '_auth_users', '_functions', '_bucket_files')"
+      )
+      .all() as unknown as { name: string }[];
+    const tableSet = new Set(tables.map((t) => t.name));
+
+    if (tableSet.has('_collections')) {
+      const row = db.prepare('SELECT COUNT(*) as c FROM _collections').get() as { c: number } | undefined;
+      counts.collections = row?.c ?? 0;
+    }
+    if (tableSet.has('_auth_users')) {
+      const row = db.prepare('SELECT COUNT(*) as c FROM _auth_users').get() as { c: number } | undefined;
+      counts.authUsers = row?.c ?? 0;
+    }
+    if (tableSet.has('_functions')) {
+      const row = db.prepare('SELECT COUNT(*) as c FROM _functions').get() as { c: number } | undefined;
+      counts.functions = row?.c ?? 0;
+    }
+    if (tableSet.has('_bucket_files')) {
+      const row = db.prepare('SELECT COUNT(*) as c FROM _bucket_files').get() as { c: number } | undefined;
+      counts.storageFiles = row?.c ?? 0;
+    }
+  } catch {
+    // Project DB mungkin belum diinisialisasi
+  }
+
+  // Cek juga file fisik di direktori jika tabel _bucket_files belum mencakupnya
+  if (counts.storageFiles === 0) {
+    try {
+      const dbPath = projectDbPath(projectId);
+      const filesDir = path.join(path.dirname(dbPath), 'files');
+      if (fs.existsSync(filesDir)) {
+        counts.storageFiles = fs.readdirSync(filesDir).length;
+      }
+    } catch {
+      // abaikan
+    }
+  }
+
+  return counts;
 }

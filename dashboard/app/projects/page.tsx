@@ -25,6 +25,7 @@ import {
   Database,
   HardDrive,
   Code2,
+  KeyRound,
   Calendar,
   Sparkles,
   ArrowRight,
@@ -37,11 +38,44 @@ import {
   ChevronRight,
 } from "lucide-react";
 
-const SERVICE_CAPABILITIES = [
-  { key: "database", label: "Database & Auth", icon: Database },
-  { key: "storage", label: "Storage", icon: HardDrive },
-  { key: "functions", label: "Functions", icon: Code2 },
-] as const;
+interface ResourceIndicator {
+  key: string;
+  label: string;
+  icon: typeof Database;
+  getCount: (project: Project) => number;
+  formatBadge: (count: number) => string;
+}
+
+const RESOURCE_INDICATORS: ResourceIndicator[] = [
+  {
+    key: "database",
+    label: "Database",
+    icon: Database,
+    getCount: (p) => p.resources?.collections ?? 0,
+    formatBadge: (count) => (count === 1 ? "1 collection" : `${count} collections`),
+  },
+  {
+    key: "auth",
+    label: "Auth",
+    icon: KeyRound,
+    getCount: (p) => p.resources?.authUsers ?? 0,
+    formatBadge: (count) => (count === 1 ? "1 user" : `${count} users`),
+  },
+  {
+    key: "storage",
+    label: "Storage",
+    icon: HardDrive,
+    getCount: (p) => p.resources?.storageFiles ?? 0,
+    formatBadge: (count) => (count === 1 ? "1 file" : `${count} files`),
+  },
+  {
+    key: "functions",
+    label: "Functions",
+    icon: Code2,
+    getCount: (p) => p.resources?.functions ?? 0,
+    formatBadge: (count) => (count === 1 ? "1 function" : `${count} functions`),
+  },
+];
 
 // Nama project bebas (server hanya menolak kosong) — tapi klien tetap
 // memberi batas masuk akal agar nama rapi & aman dipakai di URL/label.
@@ -127,27 +161,37 @@ function ProjectCard({
           </div>
         </div>
 
-        {/* Service badges — data riil dari project, bukan hardcode */}
-        <div className="flex flex-wrap gap-1.5 pt-3 border-t border-border">
+        {/* Resource indicators — hanya muncul jika data benar-benar ada */}
+        <div className="flex flex-wrap gap-1.5 pt-3 border-t border-border items-center">
           {(() => {
-            // Satu sumber kebenaran: daftar layanan aktif dihitung SEKALI,
-            // lalu dipakai untuk badge maupun pesan kosong. Versi lama
-            // mengulang aturan yang sama di dua tempat dan bisa drift.
-            const active = SERVICE_CAPABILITIES.filter((item) =>
-              // "Database & Auth" hanya tampil bila keduanya aktif
-              item.key === "database"
-                ? project.services.database && project.services.auth
-                : project.services[item.key]
-            );
+            const active = RESOURCE_INDICATORS.map((item) => ({
+              ...item,
+              count: item.getCount(project),
+            })).filter((item) => item.count > 0);
+
             if (active.length === 0) {
-              return <span className="text-[11px] text-muted-foreground italic">No services enabled</span>;
+              return (
+                <span className="text-[11px] text-muted-foreground italic flex items-center gap-1.5 py-0.5">
+                  <Sparkles className="w-3 h-3 text-muted-foreground/60" />
+                  <span>Empty project · Ready to build</span>
+                </span>
+              );
             }
+
             return active.map((item) => {
               const Icon = item.icon;
               return (
-                <Badge key={item.key} variant="secondary" className="text-[11px]">
-                  <Icon aria-hidden="true" className="w-3 h-3" />
-                  {item.label}
+                <Badge
+                  key={item.key}
+                  variant="secondary"
+                  className="text-[11px] gap-1.5 font-medium py-0.5 px-2 bg-secondary/80 border border-border text-foreground hover:bg-secondary"
+                  title={`${item.label}: ${item.formatBadge(item.count)}`}
+                >
+                  <Icon aria-hidden="true" className="w-3 h-3 text-muted-foreground" />
+                  <span>{item.label}</span>
+                  <span className="text-[10px] text-muted-foreground font-mono font-normal">
+                    {item.count}
+                  </span>
                 </Badge>
               );
             });

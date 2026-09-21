@@ -389,18 +389,30 @@ export default function ProjectDetailPage() {
             <div>
               <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1 flex items-center gap-1.5">
                 <Layers className="w-3.5 h-3.5" />
-                <span>Active Services</span>
+                <span>Deployed Resources</span>
               </div>
               <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
-                {project.services ? (
-                  <>
-                    <Badge variant={project.services.database ? "purple" : "outline"} className="text-[10px] font-mono">DB</Badge>
-                    <Badge variant={project.services.auth ? "green" : "outline"} className="text-[10px] font-mono">Auth</Badge>
-                    <Badge variant={project.services.storage ? "blue" : "outline"} className="text-[10px] font-mono">Storage</Badge>
-                    <Badge variant={project.services.functions ? "purple" : "outline"} className="text-[10px] font-mono">Functions</Badge>
-                  </>
+                {project.resources ? (
+                  (() => {
+                    const active = [
+                      project.resources.collections > 0 && `${project.resources.collections} Collections`,
+                      project.resources.authUsers > 0 && `${project.resources.authUsers} Users`,
+                      project.resources.storageFiles > 0 && `${project.resources.storageFiles} Files`,
+                      project.resources.functions > 0 && `${project.resources.functions} Functions`,
+                    ].filter(Boolean) as string[];
+
+                    if (active.length === 0) {
+                      return <span className="text-xs text-muted-foreground italic">No data yet</span>;
+                    }
+
+                    return active.map((resLabel) => (
+                      <Badge key={resLabel} variant="secondary" className="text-[10px] font-mono font-medium">
+                        {resLabel}
+                      </Badge>
+                    ));
+                  })()
                 ) : (
-                  <span className="text-xs text-muted-foreground">All enabled</span>
+                  <span className="text-xs text-muted-foreground">All services ready</span>
                 )}
               </div>
             </div>

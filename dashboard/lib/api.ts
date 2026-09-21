@@ -6,6 +6,13 @@ const API_URL = process.env.NEXT_PUBLIC_BASEFORGE_API || 'http://localhost:5100'
 /** Base URL API publik — dipakai untuk contoh curl di UI (usage snippets). */
 export const PUBLIC_API_URL = API_URL;
 
+export interface ProjectResourceCounts {
+  collections: number;
+  authUsers: number;
+  storageFiles: number;
+  functions: number;
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -17,6 +24,7 @@ export interface Project {
     storage: boolean;
     functions: boolean;
   };
+  resources?: ProjectResourceCounts;
 }
 
 export function getToken(): string | null {
