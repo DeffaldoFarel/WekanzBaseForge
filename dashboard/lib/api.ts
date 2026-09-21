@@ -541,6 +541,8 @@ export interface AuthUser {
   verified: boolean;
   disabled: boolean;
   mfaEnabled?: boolean;
+  /** Ops-16: custom profile fields */
+  profile?: Record<string, unknown>;
   created: string;
   updated: string;
   // password_hash TIDAK PERNAH dikirim server — lihat users.ts
@@ -557,12 +559,14 @@ export interface AuthUsersResult {
 export async function listAuthUsers(
   projectId: string,
   page = 1,
-  search?: string
+  search?: string,
+  signal?: AbortSignal
 ): Promise<AuthUsersResult> {
   const params = new URLSearchParams({ page: String(page), perPage: '50' });
   if (search) params.set('search', search);
   return request<AuthUsersResult>(
-    `/api/admin/projects/${projectId}/auth-users?${params.toString()}`
+    `/api/admin/projects/${projectId}/auth-users?${params.toString()}`,
+    { signal }
   );
 }
 

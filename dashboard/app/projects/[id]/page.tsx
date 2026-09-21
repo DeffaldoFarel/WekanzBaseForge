@@ -43,6 +43,7 @@ import {
   Check,
   AlertTriangle,
   Pencil,
+  Layers,
 } from "lucide-react";
 
 export default function ProjectDetailPage() {
@@ -354,7 +355,7 @@ export default function ProjectDetailPage() {
 
         {/* Project Metadata Card */}
         <Card className="p-6 mb-8">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-6">
             <div>
               <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1 flex items-center gap-1.5">
                 <Hash className="w-3.5 h-3.5" />
@@ -382,6 +383,25 @@ export default function ProjectDetailPage() {
               </div>
               <div className="text-sm font-medium text-foreground">
                 {new Date(project.created).toLocaleDateString("en-US", { day: "numeric", month: "long", year: "numeric" })}
+              </div>
+            </div>
+
+            <div>
+              <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1 flex items-center gap-1.5">
+                <Layers className="w-3.5 h-3.5" />
+                <span>Active Services</span>
+              </div>
+              <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+                {project.services ? (
+                  <>
+                    <Badge variant={project.services.database ? "purple" : "outline"} className="text-[10px] font-mono">DB</Badge>
+                    <Badge variant={project.services.auth ? "green" : "outline"} className="text-[10px] font-mono">Auth</Badge>
+                    <Badge variant={project.services.storage ? "blue" : "outline"} className="text-[10px] font-mono">Storage</Badge>
+                    <Badge variant={project.services.functions ? "purple" : "outline"} className="text-[10px] font-mono">Functions</Badge>
+                  </>
+                ) : (
+                  <span className="text-xs text-muted-foreground">All enabled</span>
+                )}
               </div>
             </div>
           </div>

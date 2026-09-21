@@ -17,6 +17,8 @@ import {
   Folder,
   ArrowRight,
   Settings,
+  KeyRound,
+  Webhook,
 } from "lucide-react";
 import {
   Dialog,
@@ -89,6 +91,12 @@ export function Navbar({ projectId, projectName }: NavbarProps) {
             href: `/projects/${projectId}/database`,
           },
           {
+            title: "Authentication & Users",
+            desc: "Manage registered end users, OAuth social logins, and custom fields",
+            icon: KeyRound,
+            href: `/projects/${projectId}/auth`,
+          },
+          {
             title: "Storage Explorer",
             desc: "Manage physical files, image thumbnails, and clean orphans",
             icon: HardDrive,
@@ -99,6 +107,12 @@ export function Navbar({ projectId, projectName }: NavbarProps) {
             desc: "Manage isolated JS execution, triggers, and scheduled cron",
             icon: Code2,
             href: `/projects/${projectId}/functions`,
+          },
+          {
+            title: "Webhooks",
+            desc: "Manage HTTP notifications on database mutations with HMAC signatures",
+            icon: Webhook,
+            href: `/projects/${projectId}/webhooks`,
           },
         ]
       : []),

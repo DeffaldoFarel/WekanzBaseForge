@@ -21,6 +21,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
+import { LoadError } from "@/components/ui/load-error";
 import {
   Search,
   Plus,
@@ -71,6 +72,7 @@ interface RecordsTabProps {
   onDeleteRecord: (id: string) => void;
   onBulkDelete: () => void;
   onViewJson: (row: Record<string, unknown>) => void;
+  onRetry?: () => void;
   renderCell: (props: {
     field: FieldDef;
     value: unknown;
@@ -108,6 +110,7 @@ export function RecordsTab({
   onDeleteRecord,
   onBulkDelete,
   onViewJson,
+  onRetry,
   renderCell,
 }: RecordsTabProps) {
   const allSelected =
@@ -214,7 +217,11 @@ export function RecordsTab({
 
       {/* Records Data Table Card — membentang mengisi tinggi sisa layar */}
       <div className="border border-border rounded-lg overflow-hidden bg-card flex-1 flex flex-col justify-between min-h-[380px]">
-        {loading ? (
+        {error ? (
+          <div className="p-8">
+            <LoadError message={error} onRetry={onRetry} />
+          </div>
+        ) : loading ? (
           <div className="p-8 space-y-3">
             <Skeleton className="h-5 w-full" />
             <Skeleton className="h-5 w-4/5" />

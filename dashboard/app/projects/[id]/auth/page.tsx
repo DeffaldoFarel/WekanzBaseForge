@@ -224,19 +224,21 @@ export default function AuthSettingsPage() {
 
   // M47: load auth users
   const loadAuthUsers = useCallback(
-    async (search?: string, page: number = 1) => {
+    async (search?: string, page: number = 1, signal?: AbortSignal) => {
       setAuthUsersLoading(true);
       setAuthUsersError("");
       try {
-        const result = await listAuthUsers(projectId, page, search);
+        const result = await listAuthUsers(projectId, page, search, signal);
+        if (signal?.aborted) return;
         setAuthUsers(result.items);
         setAuthUsersTotal(result.totalItems);
         setAuthUsersTotalPages(result.totalPages ?? 1);
         setAuthUsersPage(result.page ?? page);
       } catch (e) {
+        if (signal?.aborted || (e instanceof DOMException && e.name === "AbortError")) return;
         setAuthUsersError(errorMessage(e, "Failed to load auth users"));
       } finally {
-        setAuthUsersLoading(false);
+        if (!signal?.aborted) setAuthUsersLoading(false);
       }
     },
     [projectId]
@@ -621,7 +623,27 @@ export default function AuthSettingsPage() {
                               <td className="p-3 pl-4 font-mono text-xs text-foreground font-medium">
                                 {u.email}
                               </td>
-                              <td className="p-3 text-muted-foreground">{u.name || "—"}</td>
+                              <td className="p-3 text-muted-foreground">
+                                <div className="text-foreground font-medium">{u.name || "—"}</div>
+                                {u.profile &&
+                                  Object.entries(u.profile).filter(
+                                    ([, v]) => v !== null && v !== undefined && v !== ""
+                                  ).length > 0 && (
+                                    <div className="flex items-center gap-1 mt-1 flex-wrap">
+                                      {Object.entries(u.profile)
+                                        .filter(([, v]) => v !== null && v !== undefined && v !== "")
+                                        .map(([k, v]) => (
+                                          <span
+                                            key={k}
+                                            className="text-[10px] bg-secondary border border-border px-1.5 py-0.5 rounded font-mono text-muted-foreground"
+                                            title={`${k}: ${String(v)}`}
+                                          >
+                                            <strong className="text-foreground font-medium">{k}:</strong> {String(v)}
+                                          </span>
+                                        ))}
+                                    </div>
+                                  )}
+                              </td>
                               <td className="p-3">
                                 <div className="flex items-center gap-1.5 flex-wrap">
                                   {u.verified ? (

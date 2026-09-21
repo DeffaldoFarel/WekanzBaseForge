@@ -635,6 +635,7 @@ export default function AdvancedDatabaseStudioPage() {
               result={result}
               loading={loading}
               error={error}
+              onRetry={() => loadRecords()}
               searchQuery={searchQuery}
               filterQuery={filterQuery}
               queryPending={queryPending}
