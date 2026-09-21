@@ -23,6 +23,7 @@ import {
   bucketFileUrl,
 } from '../core/bucketStorage.js';
 import { parseMultipart } from '../core/multipart.js';
+import { getThumb, isThumbable } from '../core/thumbs.js';
 
 const MIME_WHITELIST_OVERRIDES: Record<string, string> = {
   '.pdf': 'application/pdf',
@@ -136,14 +137,39 @@ export function createBucketRouter(): Router {
       }
 
       const mime = result.info.contentType || mimeFor(result.info.filename);
+
+      // M35+M14b: ?thumb=WxH — grid storage meminta thumbnail untuk SETIAP
+      // file gambar. Endpoint ini dulu MENGABAIKAN thumb dan mengirim file
+      // asli: grid 24 foto ponsel (~600 KB) menyedot 14.2 MB untuk 24
+      // "thumbnail" yang seharusnya ~80 KB — 7x boros, dan lambat di jaringan
+      // lambat. Bucket pakai fileId sebagai recordId di getThumb (cache path
+      // tetap unik per file), sama seperti endpoint record di storageRoutes.
+      const thumbSpec = req.query.get('thumb');
+      let serveData = result.data;
+      if (thumbSpec) {
+        if (!isThumbable(result.info.filename)) {
+          res.status(400).json({
+            error: { code: 'BAD_REQUEST', message: 'Thumbnails are only supported for jpg/png/gif/webp' },
+          });
+          return;
+        }
+        try {
+          serveData = await getThumb(req.params.pid, result.info.fileId, result.info.filename, thumbSpec, result.data);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : 'Failed to generate thumbnail';
+          res.status(400).json({ error: { code: 'BAD_REQUEST', message } });
+          return;
+        }
+      }
+
       res.raw.setHeader('Content-Type', mime);
-      res.raw.setHeader('Content-Length', String(result.data.length));
+      res.raw.setHeader('Content-Length', String(serveData.length));
       res.raw.setHeader('Cache-Control', 'public, max-age=3600');
       res.raw.setHeader('Content-Disposition', `inline; filename="${result.info.filename}"`);
       if (mime === 'application/octet-stream') {
         res.raw.setHeader('Content-Disposition', `attachment; filename="${result.info.filename}"`);
       }
-      res.raw.end(result.data);
+      res.raw.end(serveData);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Internal error';
       res.status(500).json({ error: { code: 'INTERNAL', message } });

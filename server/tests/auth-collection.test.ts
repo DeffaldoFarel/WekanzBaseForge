@@ -10,7 +10,7 @@ import { Router } from '../src/core/router.js';
 import { createAdminRouter } from '../src/api/adminRoutes.js';
 import { createDatabaseRouter } from '../src/api/databaseRoutes.js';
 import { createPublicRouter } from '../src/api/publicRoutes.js';
-import { initPlatformDb, createProject } from '../src/core/platformDb.js';
+import { initPlatformDb, createProject, closePlatformDb } from '../src/core/platformDb.js';
 import { getProjectDb, closeAllProjectDbs } from '../src/core/projectDbManager.js';
 import { initSchemaTable, defineCollection, rebuildCollection } from '../src/core/schema.js';
 import { createRecord, getRecord, listRecords } from '../src/core/records.js';
@@ -147,6 +147,8 @@ describe('HTTP Auth Collection Endpoints', () => {
 
   after(() => {
     closeAllProjectDbs();
+    // Windows: rmSync gagal EPERM selama handle platform.db masih terbuka.
+    closePlatformDb();
     server.close();
     fs.rmSync(TEST_DATA_DIR, { recursive: true, force: true });
   });

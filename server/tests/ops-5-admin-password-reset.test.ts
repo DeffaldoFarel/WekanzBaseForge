@@ -16,7 +16,7 @@ import assert from 'node:assert';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { initPlatformDb, getPlatformDb } from '../src/core/platformDb.js';
+import { initPlatformDb, getPlatformDb, closePlatformDb } from '../src/core/platformDb.js';
 import { createInitialAdmin, loginAdmin } from '../src/platform/adminAuth.js';
 import { resetAdminPassword } from '../src/platform/resetAdminPassword.js';
 
@@ -35,13 +35,15 @@ before(() => {
 });
 
 after(() => {
-  setTimeout(() => {
-    try {
-      fs.rmSync(TEST_DATA_DIR, { recursive: true, force: true });
-    } catch {
-      /* best-effort */
-    }
-  }, 100);
+  // Dulu rmSync ditunda lewat setTimeout(100) — callback-nya tidak pernah
+  // ditunggu test runner, jadi proses keluar duluan dan direktori TIDAK
+  // pernah terhapus. Tutup DB (melepas handle) lalu hapus secara sinkron.
+  closePlatformDb();
+  try {
+    fs.rmSync(TEST_DATA_DIR, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  } catch {
+    /* best-effort — jangan gagalkan suite yang assertion-nya sudah lulus */
+  }
 });
 
 describe('Ops-5: reset password admin platform', () => {

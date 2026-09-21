@@ -5,7 +5,7 @@
 // menghitung jumlah query secara nyata.
 // ============================================================================
 
-import { test } from 'node:test';
+import { test, after } from 'node:test';
 import assert from 'node:assert';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -16,6 +16,17 @@ import { expandRecords, QueryCounter } from '../src/core/relations.js';
 import { getCollectionByName } from '../src/core/schema.js';
 
 const TEST_DIR = path.resolve('../data/m12-test');
+
+// Bersihkan direktori test setelah suite selesai. Tanpa ini, file DB yang
+// dinamai unik per-test (tidak pernah tertimpa) menumpuk di data/ tiap run.
+after(() => {
+  try {
+    fs.rmSync(TEST_DIR, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  } catch {
+    // Windows menahan handle SQLite sampai GC; kegagalan cleanup tidak boleh
+    // menggagalkan suite yang assertion-nya sudah lulus.
+  }
+});
 let counter = 0;
 
 function freshDb(): DatabaseSync {

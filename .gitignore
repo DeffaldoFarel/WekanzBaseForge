@@ -13,3 +13,10 @@ dashboard/out/
 
 # Local safety backups from cleanup procedures (data-*-backup-*.tar.gz)
 data-*-backup-*.tar.gz
+*.db
+
+# Hermes
+.hermes/
+
+# Debug scripts
+server/ivm-debug.mts

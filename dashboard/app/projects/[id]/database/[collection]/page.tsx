@@ -16,6 +16,7 @@ import {
   createRecord,
   updateRecord,
   deleteRecord,
+  deleteRecordsBatch,
   getRules,
   updateRules,
   createRecordWithFiles,
@@ -45,7 +46,15 @@ import { RenderTableCell } from "@/components/studio/RenderTableCell";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ConfirmDelete } from "@/components/ui/confirm-delete";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
 import { useToasts, ToastHost } from "@/components/ui/toast";
+import { errorMessage } from "@/components/ui/load-error";
 import AggregatePanel from "@/components/AggregatePanel";
 import {
   Database,
@@ -61,6 +70,8 @@ import {
   Table as TableIcon,
   Layers,
   ArrowLeft,
+  Loader2,
+  MoreHorizontal,
 } from "lucide-react";
 
 const FIELD_TYPES = [
@@ -105,6 +116,7 @@ export default function AdvancedDatabaseStudioPage() {
   const [collections, setCollections] = useState<CollectionInfo[]>([]);
   const [colFilter, setColFilter] = useState("");
   const [collection, setCollection] = useState<CollectionInfo | null>(null);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [activeTab, setActiveTab] = useState<"records" | "schema" | "rules" | "agg" | "io">("records");
 
   // Records Table State
@@ -113,6 +125,18 @@ export default function AdvancedDatabaseStudioPage() {
   const [error, setError] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [filterQuery, setFilterQuery] = useState("");
+  // Nilai yang benar-benar dikirim ke server. Dipisah dari nilai input agar
+  // mengetik tidak sama dengan memanggil API: dulu setiap karakter masuk ke
+  // deps loadRecords, jadi "customer" = 8 query FTS5 berturut-turut (terukur
+  // 7x beban server dibanding satu query). Route admin tidak melewati
+  // checkSearchRateLimit (guard itu hanya dipasang di publicRoutes), jadi
+  // tidak ada rem apa pun di sisi server.
+  const [searchApplied, setSearchApplied] = useState("");
+  const [filterApplied, setFilterApplied] = useState("");
+  // true selama ketikan belum menjadi query — dipakai untuk spinner kecil di
+  // kotak search, supaya jeda 300 ms tidak terasa seperti aplikasi diam.
+  const queryPending =
+    searchQuery !== searchApplied || filterQuery !== filterApplied;
   const [sortQuery, setSortQuery] = useState("-created");
   const [page, setPage] = useState(1);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -124,6 +148,7 @@ export default function AdvancedDatabaseStudioPage() {
   const [showDuplicateCol, setShowDuplicateCol] = useState(false);
   const [duplicateName, setDuplicateName] = useState("");
   const [duplicateWithData, setDuplicateWithData] = useState(true);
+  const [duplicating, setDuplicating] = useState(false);
 
   // New Collection Modal
   const [showNewCol, setShowNewCol] = useState(false);
@@ -139,11 +164,15 @@ export default function AdvancedDatabaseStudioPage() {
   const [rulesDraft, setRulesDraft] = useState<Rules | null>(null);
   const [rulesSaving, setRulesSaving] = useState(false);
   const [rulesError, setRulesError] = useState("");
+  // Terpisah dari rulesError (kegagalan SAVE): ini kegagalan LOAD, yang
+  // membuat seluruh editor tidak boleh dipercaya.
+  const [rulesLoadError, setRulesLoadError] = useState("");
 
   // Import / Export State
   const [importJsonText, setImportJsonText] = useState("");
   const [importMode, setImportMode] = useState<"create" | "replace" | "merge">("create");
   const [importing, setImporting] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [ioMessage, setIoMessage] = useState("");
 
   // Notifikasi non-blokir (pengganti alert()) + konfirmasi delete (pengganti confirm())
@@ -172,53 +201,106 @@ export default function AdvancedDatabaseStudioPage() {
     }
   }, [projectId, collectionName]);
 
-  const loadRecords = useCallback(async () => {
-    if (!collectionName) return;
-    try {
-      setLoading(true);
-      const data = await listRecords(projectId, collectionName, {
-        search: searchQuery.trim() || undefined,
-        filter: filterQuery.trim() || undefined,
-        sort: sortQuery || undefined,
-        page,
-        perPage: 15,
-      });
-      setResult(data);
-      setSelectedIds(new Set());
-      setError("");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load records");
-    } finally {
-      setLoading(false);
-    }
-  }, [projectId, collectionName, searchQuery, filterQuery, sortQuery, page]);
+  const loadRecords = useCallback(
+    async (signal?: AbortSignal) => {
+      if (!collectionName) return;
+      try {
+        setLoading(true);
+        const data = await listRecords(projectId, collectionName, {
+          search: searchApplied.trim() || undefined,
+          filter: filterApplied.trim() || undefined,
+          sort: sortQuery || undefined,
+          page,
+          perPage: 15,
+          signal,
+        });
+        if (signal?.aborted) return;
+        setResult(data);
+        setSelectedIds(new Set());
+        setError("");
+      } catch (e) {
+        // Request yang dibatalkan BUKAN kegagalan — menampilkannya sebagai
+        // error akan membuat tabel berkedip merah di tiap ketikan.
+        if (signal?.aborted || (e instanceof DOMException && e.name === "AbortError")) return;
+        setError(errorMessage(e, "Failed to load records"));
+      } finally {
+        if (!signal?.aborted) setLoading(false);
+      }
+    },
+    [projectId, collectionName, searchApplied, filterApplied, sortQuery, page]
+  );
 
   useEffect(() => {
     loadAllCollections();
   }, [loadAllCollections]);
 
+  // ─── Debounce: ketikan → query ────────────────────────────────────────────
+  // 300 ms setelah ketikan berhenti, barulah nilai dikirim ke server. Tombol
+  // "Filter" tetap berguna sebagai jalan pintas (submit = terapkan seketika).
   useEffect(() => {
-    loadRecords();
+    const t = setTimeout(() => {
+      setSearchApplied(searchQuery);
+      setFilterApplied(filterQuery);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [searchQuery, filterQuery]);
+
+  // Query berubah → kembali ke halaman 1. Tanpa ini, mempersempit pencarian
+  // saat berada di halaman 5 menyisakan tabel kosong yang terlihat seperti
+  // "tidak ada hasil".
+  useEffect(() => {
+    setPage(1);
+  }, [searchApplied, filterApplied, sortQuery]);
+
+  useEffect(() => {
+    // AbortController: ketikan cepat tetap bisa menghasilkan beberapa request
+    // yang tumpang tindih (debounce mengurangi, bukan meniadakan). Tanpa ini
+    // respons lambat dari query LAMA bisa mendarat setelah query baru dan
+    // menimpa tabel dengan hasil yang salah.
+    const ac = new AbortController();
+    loadRecords(ac.signal);
+    return () => ac.abort();
   }, [loadRecords]);
 
   // Muat rules saat berpindah tab atau collection
-  useEffect(() => {
-    if (collectionName) {
-      getRules(projectId, collectionName)
-        .then((r) => {
-          setRules(r);
-          setRulesDraft(r);
-        })
-        .catch(() => setRules(null));
-    }
+  const loadRules = useCallback(() => {
+    if (!collectionName) return;
+    setRulesLoadError("");
+    getRules(projectId, collectionName)
+      .then((r) => {
+        setRules(r);
+        setRulesDraft(r);
+      })
+      .catch((e) => {
+        // BAHAYA yang dulu ada di sini: `.catch(() => setRules(null))`.
+        // rulesDraft ikut tertinggal null, dan RulesTab merender null sebagai
+        // badge "Admin Only (null)" untuk KELIMA rule — collection yang
+        // sebenarnya publik tampak terkunci rapat.
+        //
+        // Lebih buruk lagi: onRulesChange menyusun draft dari DEFAULT_RULES
+        // (semua null), jadi admin yang mengubah SATU rule lalu menekan Save
+        // akan diam-diam me-reset empat rule lainnya menjadi admin-only —
+        // cukup untuk mematikan aplikasi produksi yang bergantung padanya.
+        setRules(null);
+        setRulesDraft(null);
+        setRulesLoadError(errorMessage(e, "Failed to load API rules"));
+      });
   }, [projectId, collectionName]);
+
+  useEffect(() => {
+    loadRules();
+  }, [loadRules]);
 
   // ─── Handlers ──────────────────────────────────────────────────────────────
 
-  async function handleSearch(e: React.FormEvent) {
+  function handleSearch(e: React.FormEvent) {
     e.preventDefault();
+    // Submit = "terapkan SEKARANG", tanpa menunggu debounce. Menerapkan nilai
+    // input langsung ke state applied sudah cukup: useEffect loadRecords
+    // memicu request-nya, jadi kita tidak menembak dua kali.
+    setSearchApplied(searchQuery);
+    setFilterApplied(filterQuery);
     setPage(1);
-    await loadRecords();
   }
 
   function handleSelectAll(e: React.ChangeEvent<HTMLInputElement>) {
@@ -253,25 +335,27 @@ export default function AdvancedDatabaseStudioPage() {
   async function handleBulkDelete() {
     if (selectedIds.size === 0) return;
     setDeleting(true);
-    // Laporkan hasil per-record — jangan berhenti di kegagalan pertama lalu
-    // menyembunyikan bahwa sebagian berhasil & sebagian tidak.
     const ids = Array.from(selectedIds);
-    const failed: string[] = [];
-    for (const id of ids) {
-      try {
-        await deleteRecord(projectId, collectionName, id);
-      } catch {
-        failed.push(id);
+    try {
+      // Satu request untuk seluruh batch — dulu SATU HTTP request per record,
+      // jadi menghapus 100 record = 100 request serial yang membekukan UI.
+      // Server tetap melaporkan hasil per id (partial), jadi pesan ke user
+      // tidak berubah.
+      const res = await deleteRecordsBatch(projectId, collectionName, ids);
+      setSelectedIds(new Set());
+      setConfirmBulkDelete(false);
+      if (res.failedCount === 0) {
+        toasts.success(`Deleted ${res.deletedCount} records.`);
+      } else {
+        const reasons = [...new Set(res.failed.map((f) => f.reason))].join("; ");
+        toasts.error(
+          `Deleted ${res.deletedCount} of ${ids.length} records — ${res.failedCount} failed (${reasons}).`
+        );
       }
-    }
-    const succeeded = ids.length - failed.length;
-    setSelectedIds(new Set());
-    setConfirmBulkDelete(false);
-    setDeleting(false);
-    if (failed.length === 0) {
-      toasts.success(`Deleted ${succeeded} records.`);
-    } else {
-      toasts.error(`Deleted ${succeeded} of ${ids.length} records — ${failed.length} failed (still in the table).`);
+    } catch (e) {
+      toasts.error(errorMessage(e, "Failed to delete records"));
+    } finally {
+      setDeleting(false);
     }
     await loadRecords();
   }
@@ -295,19 +379,29 @@ export default function AdvancedDatabaseStudioPage() {
 
   async function handleDuplicateCollection() {
     if (!duplicateName.trim()) return;
+    // Duplicate collection besar (withData) membaca + menulis ulang SELURUH
+    // table — bisa berjalan detik. Tanpa disabled, double-click memulai dua
+    // duplikasi (yang kedua gagal karena nama sudah dipakai).
+    setDuplicating(true);
     try {
       await duplicateCollection(projectId, collectionName, duplicateName.trim(), duplicateWithData);
       setShowDuplicateCol(false);
-      setDuplicateName("");
       toasts.success("Collection duplicated.");
-      const updated = await loadAllCollections();
-      router.push(`/projects/${projectId}/database/${encodeURIComponent(duplicateName.trim())}`);
+      const target = duplicateName.trim();
+      setDuplicateName("");
+      await loadAllCollections();
+      router.push(`/projects/${projectId}/database/${encodeURIComponent(target)}`);
     } catch (e) {
       toasts.error(e instanceof Error ? e.message : "Failed to duplicate collection");
+    } finally {
+      setDuplicating(false);
     }
   }
 
   async function handleExportJson() {
+    // Export collection besar bisa lama; tanpa disabled, klik berulang
+    // memulai beberapa export paralel (masing-masing membaca SELURUH table).
+    setExporting(true);
     try {
       const json = await exportCollection(projectId, collectionName);
       const blob = new Blob([json], { type: "application/json" });
@@ -320,6 +414,8 @@ export default function AdvancedDatabaseStudioPage() {
       toasts.success(`Exported ${collectionName} as JSON.`);
     } catch (e) {
       toasts.error(e instanceof Error ? e.message : "Failed to export data");
+    } finally {
+      setExporting(false);
     }
   }
 
@@ -387,91 +483,99 @@ export default function AdvancedDatabaseStudioPage() {
   return (
     <>
       <Navbar projectId={projectId} />
-      <div className="flex min-h-[calc(100vh-61px)] px-5 py-5 gap-6 items-start">
+      <div className="flex min-h-[calc(100vh-61px)] px-5 py-5 gap-5 items-stretch">
         {/* ─── GLOBAL PROJECT SIDEBAR ─── */}
         <ProjectSidebar projectId={projectId} />
 
-        {/* ─── SIDEBAR MASTER COLLECTIONS ─── */}
+        {/* ─── SIDEBAR MASTER COLLECTIONS (Bisa di-collapse untuk menghemat ruang) ─── */}
         <StudioSidebar
           projectId={projectId}
           collectionName={collectionName}
           collections={collections}
           colFilter={colFilter}
+          collapsed={sidebarCollapsed}
+          onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
           onColFilterChange={setColFilter}
           onNewCollection={() => setShowNewCol(true)}
         />
 
-      {/* ─── MAIN CONTENT STUDIO ─── */}
-      <main className="flex-1 bg-card border border-border rounded-xl p-6 overflow-x-auto">
-        {/* Header Koleksi */}
-        <div className="flex justify-between items-start mb-4 flex-wrap gap-3">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-md bg-secondary flex items-center justify-center border border-border">
-              {collection?.type === "view" ? (
-                <Eye className="w-5 h-5 text-purple-400" />
-              ) : collection?.type === "auth" ? (
-                <Users className="w-5 h-5 text-emerald-400" />
-              ) : (
-                <Database className="w-5 h-5 text-foreground" />
-              )}
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-2xl font-semibold tracking-tight m-0">{collectionName}</h1>
-                <Badge
-                  variant={
-                    collection?.type === "view"
-                      ? "purple"
-                      : collection?.type === "auth"
-                      ? "green"
-                      : "outline"
-                  }
-                >
-                  {collection?.type === "view"
-                    ? "SQL View"
-                    : collection?.type === "auth"
-                    ? "Auth Collection"
-                    : "Base Collection"}
-                </Badge>
+        {/* ─── MAIN CONTENT STUDIO (Membentang penuh mengisi tinggi viewport) ─── */}
+        <main className="flex-1 min-w-0 bg-card border border-border rounded-xl p-6 min-h-[calc(100vh-101px)] flex flex-col">
+          {/* Header Koleksi */}
+          <div className="flex justify-between items-center mb-5 flex-wrap gap-3">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-lg bg-secondary flex items-center justify-center border border-border shrink-0">
+                {collection?.type === "view" ? (
+                  <Eye className="w-5 h-5 text-purple-400" />
+                ) : collection?.type === "auth" ? (
+                  <Users className="w-5 h-5 text-emerald-400" />
+                ) : (
+                  <Database className="w-5 h-5 text-foreground" />
+                )}
               </div>
-              <p className="text-sm text-muted-foreground mt-0.5">
-                {collection?.fields.length ?? 0} fields · {collection?.recordCount ?? 0} records
-              </p>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h1 className="text-xl sm:text-2xl font-semibold tracking-tight m-0">{collectionName}</h1>
+                  <Badge
+                    variant={
+                      collection?.type === "view"
+                        ? "purple"
+                        : collection?.type === "auth"
+                        ? "green"
+                        : "outline"
+                    }
+                  >
+                    {collection?.type === "view"
+                      ? "SQL View"
+                      : collection?.type === "auth"
+                      ? "Auth Collection"
+                      : "Base Collection"}
+                  </Badge>
+                </div>
+                <p className="text-xs text-muted-foreground mt-0.5 font-mono">
+                  {collection?.fields.length ?? 0} fields · {collection?.recordCount ?? 0} records
+                </p>
+              </div>
             </div>
+
+            {/* Aksi Koleksi — diringkas ke DropdownMenu (⋯) agar tidak mempolusi tampilan harian */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="secondary" size="sm" className="h-8 w-8 p-0" title="Collection options">
+                  <MoreHorizontal className="w-4 h-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuItem
+                  onClick={() => {
+                    setDuplicateName(`${collectionName}_copy`);
+                    setShowDuplicateCol(true);
+                  }}
+                  className="gap-2 cursor-pointer text-xs"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>Duplicate Collection</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={handleExportJson}
+                  disabled={exporting}
+                  className="gap-2 cursor-pointer text-xs"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Export as JSON</span>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onClick={() => setConfirmDeleteCol(true)}
+                  className="gap-2 text-destructive focus:text-destructive focus:bg-destructive/10 cursor-pointer text-xs"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Delete Collection</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
 
-          <div className="flex gap-2">
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => {
-                setDuplicateName(`${collectionName}_copy`);
-                setShowDuplicateCol(true);
-              }}
-              title="Duplikasi struktur atau data collection ini"
-            >
-              <Copy className="w-3.5 h-3.5 mr-1.5" />
-              Duplicate
-            </Button>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={handleExportJson}
-              title="Download backup JSON"
-            >
-              <Download className="w-3.5 h-3.5 mr-1.5" />
-              Export JSON
-            </Button>
-            <Button
-              variant="destructive"
-              size="sm"
-              onClick={() => setConfirmDeleteCol(true)}
-            >
-              <Trash2 className="w-3.5 h-3.5 mr-1.5" />
-              Delete
-            </Button>
-          </div>
-        </div>
 
         {/* Konfirmasi delete collection — sabuk ketik nama (aksi paling berbahaya) */}
         {confirmDeleteCol && (
@@ -520,109 +624,115 @@ export default function AdvancedDatabaseStudioPage() {
 
         {error && <div className="text-destructive text-sm font-medium mb-4">{error}</div>}
 
-        {/* ─── TAB 1: RECORDS (DATA BROWSER) ─── */}
-        {activeTab === "records" && (
-          <RecordsTab
-            projectId={projectId}
-            collectionName={collectionName}
-            collection={collection}
-            result={result}
-            loading={loading}
-            error={error}
-            searchQuery={searchQuery}
-            filterQuery={filterQuery}
-            sortQuery={sortQuery}
-            page={page}
-            selectedIds={selectedIds}
-            isView={isView}
-            onSearchSubmit={handleSearch}
-            onSearchChange={setSearchQuery}
-            onFilterChange={setFilterQuery}
-            onSortChange={setSortQuery}
-            onPageChange={setPage}
-            onSelectAll={(checked) => {
-              if (checked && result) {
-                setSelectedIds(new Set(result.items.map((it) => String(it.id))));
-              } else {
-                setSelectedIds(new Set());
-              }
-            }}
-            onToggleRow={handleToggleRow}
-            onNewRecord={() => {
-              setEditingRecord(null);
-              setShowNewRecord(true);
-            }}
-            onEditRecord={(row) => {
-              setEditingRecord(row);
-              setShowNewRecord(true);
-            }}
-            onDuplicateRecord={(row) => {
-              const clone = { ...row };
-              delete clone.id;
-              delete clone.created;
-              delete clone.updated;
-              setEditingRecord(clone);
-              setShowNewRecord(true);
-            }}
-            onDeleteRecord={(id) => setConfirmDeleteRecord(id)}
-            onBulkDelete={() => setConfirmBulkDelete(true)}
-            onViewJson={setRawJsonView}
-            renderCell={(props) => <RenderTableCell {...props} />}
-          />
-        )}
+        {/* ─── TAB CONTENT (Membentang penuh mengisi tinggi viewport) ─── */}
+        <div className="flex-1 flex flex-col min-h-0">
+          {/* ─── TAB 1: RECORDS (DATA BROWSER) ─── */}
+          {activeTab === "records" && (
+            <RecordsTab
+              projectId={projectId}
+              collectionName={collectionName}
+              collection={collection}
+              result={result}
+              loading={loading}
+              error={error}
+              searchQuery={searchQuery}
+              filterQuery={filterQuery}
+              queryPending={queryPending}
+              sortQuery={sortQuery}
+              page={page}
+              selectedIds={selectedIds}
+              isView={isView}
+              onSearchSubmit={handleSearch}
+              onSearchChange={setSearchQuery}
+              onFilterChange={setFilterQuery}
+              onSortChange={setSortQuery}
+              onPageChange={setPage}
+              onSelectAll={(checked) => {
+                if (checked && result) {
+                  setSelectedIds(new Set(result.items.map((it) => String(it.id))));
+                } else {
+                  setSelectedIds(new Set());
+                }
+              }}
+              onToggleRow={handleToggleRow}
+              onNewRecord={() => {
+                setEditingRecord(null);
+                setShowNewRecord(true);
+              }}
+              onEditRecord={(row) => {
+                setEditingRecord(row);
+                setShowNewRecord(true);
+              }}
+              onDuplicateRecord={(row) => {
+                const clone = { ...row };
+                delete clone.id;
+                delete clone.created;
+                delete clone.updated;
+                setEditingRecord(clone);
+                setShowNewRecord(true);
+              }}
+              onDeleteRecord={(id) => setConfirmDeleteRecord(id)}
+              onBulkDelete={() => setConfirmBulkDelete(true)}
+              onViewJson={setRawJsonView}
+              renderCell={(props) => <RenderTableCell {...props} />}
+            />
+          )}
 
-        {/* ─── TAB 2: SCHEMA & FIELDS (OR VIEW QUERY) ─── */}
-        {activeTab === "schema" && (
-          <SchemaTab
-            projectId={projectId}
-            collectionName={collectionName}
-            collection={collection}
-            collections={collections}
-            isView={isView}
-            fieldsDraft={fieldsDraft}
-            indexesDraft={indexesDraft}
-            schemaSaving={schemaSaving}
-            schemaError={schemaError}
-            onFieldsChange={setFieldsDraft}
-            onIndexesChange={setIndexesDraft}
-            onSaveSchema={handleSaveSchema}
-          />
-        )}
+          {/* ─── TAB 2: SCHEMA & FIELDS (OR VIEW QUERY) ─── */}
+          {activeTab === "schema" && (
+            <SchemaTab
+              projectId={projectId}
+              collectionName={collectionName}
+              collection={collection}
+              collections={collections}
+              isView={isView}
+              fieldsDraft={fieldsDraft}
+              indexesDraft={indexesDraft}
+              schemaSaving={schemaSaving}
+              schemaError={schemaError}
+              onFieldsChange={setFieldsDraft}
+              onIndexesChange={setIndexesDraft}
+              onSaveSchema={handleSaveSchema}
+            />
+          )}
 
-        {/* ─── TAB 3: API RULES ─── */}
-        {activeTab === "rules" && (
-          <RulesTab
-            rulesDraft={rulesDraft}
-            rulesSaving={rulesSaving}
-            rulesError={rulesError}
-            onRulesChange={setRulesDraft}
-            onSaveRules={handleSaveRules}
-          />
-        )}
+          {/* ─── TAB 3: API RULES ─── */}
+          {activeTab === "rules" && (
+            <RulesTab
+              rulesDraft={rulesDraft}
+              rulesSaving={rulesSaving}
+              rulesError={rulesError}
+              rulesLoadError={rulesLoadError}
+              onRetryLoad={loadRules}
+              onRulesChange={setRulesDraft}
+              onSaveRules={handleSaveRules}
+            />
+          )}
 
-        {/* ─── TAB 4: AGGREGATIONS (M19) ─── */}
-        {activeTab === "agg" && collection && (
-          <AggregatePanel
-            projectId={projectId}
-            collection={collection}
-            initialFilter={filterQuery}
-          />
-        )}
+          {/* ─── TAB 4: AGGREGATIONS (M19) ─── */}
+          {activeTab === "agg" && collection && (
+            <AggregatePanel
+              projectId={projectId}
+              collection={collection}
+              initialFilter={filterQuery}
+            />
+          )}
 
-        {/* ─── TAB 5: EXPORT / IMPORT ─── */}
-        {activeTab === "io" && (
-          <ImportExportTab
-            collectionName={collectionName}
-            importMode={importMode}
-            importJsonText={importJsonText}
-            importing={importing}
-            ioMessage={ioMessage}
-            onImportModeChange={setImportMode}
-            onImportJsonChange={setImportJsonText}
-            onExport={handleExportJson}
-            onImport={handleImportJson}
-          />
-        )}
+          {/* ─── TAB 5: EXPORT / IMPORT ─── */}
+          {activeTab === "io" && (
+            <ImportExportTab
+              collectionName={collectionName}
+              importMode={importMode}
+              importJsonText={importJsonText}
+              importing={importing}
+              ioMessage={ioMessage}
+              onImportModeChange={setImportMode}
+              onImportJsonChange={setImportJsonText}
+              onExport={handleExportJson}
+              onImport={handleImportJson}
+            />
+          )}
+        </div>
       </main>
 
       {/* ─── MODAL: RECORD FORM (CREATE / EDIT) ─── */}
@@ -652,6 +762,7 @@ export default function AdvancedDatabaseStudioPage() {
         collectionName={collectionName}
         duplicateName={duplicateName}
         duplicateWithData={duplicateWithData}
+      busy={duplicating}
         onNameChange={setDuplicateName}
         onWithDataChange={setDuplicateWithData}
         onCancel={() => setShowDuplicateCol(false)}

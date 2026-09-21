@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'path';
 import nodeHttp from 'node:http';
-import { initPlatformDb } from '../src/core/platformDb.js';
+import { initPlatformDb, closePlatformDb } from '../src/core/platformDb.js';
 import { closeAllProjectDbs } from '../src/core/projectDbManager.js';
 import { Router } from '../src/core/router.js';
 import { createAdminRouter } from '../src/api/adminRoutes.js';
@@ -116,6 +116,8 @@ before(async () => {
 after(async () => {
   await new Promise<void>((r) => server.close(() => r()));
   closeAllProjectDbs();
+  // Windows: rmSync gagal EPERM selama handle platform.db masih terbuka.
+  closePlatformDb();
   fs.rmSync(TEST_DATA_DIR, { recursive: true, force: true });
 });
 

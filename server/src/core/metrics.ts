@@ -46,26 +46,33 @@ function utcDateKey(d = new Date()): string {
   return d.toISOString().slice(0, 10);
 }
 
-/** Ekstrak projectId dari path request — dipakai router untuk atribusi. */
+/**
+ * Ekstrak projectId dari path request untuk atribusi trafik aplikasi:
+ * - /api/p/{pid}/...     → public API (end-user / client SDK)
+ * - /api/files/{pid}/... → file & media serving
+ *
+ * Jalur /api/admin/... TIDAK diatribusikan:
+ * Aktivitas admin di konsol dashboard (melihat skema, mengecek log, membaca
+ * daftar file) bukan konsumsi trafik aplikasi. Metrik project murni mengukur
+ * penggunaan oleh klien/pengguna nyata (mental model ala Supabase / Firebase).
+ */
 export function extractProjectId(path: string): string | null {
-  // /api/p/{pid}/...            → public API (end-user)
-  // /api/admin/projects/{pid}/… → admin API (dashboard)
-  // /api/files/{pid}/...        → file serving (bandwidth besar!)
   const seg = path.split('/').filter(Boolean);
   if (seg.length < 3 || seg[0] !== 'api') return null;
   if (seg[1] === 'p' || seg[1] === 'files') return seg[2];
-  if (seg[1] === 'admin' && seg[2] === 'projects') return seg[3] ?? null;
   return null;
 }
 
 /**
  * Atribusi project untuk METRICS — mengembalikan null untuk path yang
- * sengaja tidak dihitung. Observer effect: endpoint /stats membaca angka
- * dirinya sendiri — kalau ikut dihitung, tiap pembacaan dashboard menambah
- * traffic (feedback loop + test jadi non-deterministik).
+ * sengaja tidak dihitung.
+ *
+ * Menjamin jalur /api/admin/... tidak pernah dihitung, termasuk endpoint
+ * monitoring /stats (observer effect: pembacaan statistik tidak boleh menambah
+ * angka trafik dirinya sendiri).
  */
 export function metricsProjectId(path: string): string | null {
-  if (/^\/api\/admin\/projects\/[^/]+\/stats$/.test(path)) return null;
+  if (path.startsWith('/api/admin/')) return null;
   return extractProjectId(path);
 }
 
@@ -148,6 +155,105 @@ export interface ProjectStats {
   /** 14 hari terakhir (UTC), hari tanpa data diisi nol — siap untuk chart */
   days: DayStats[];
   totals: { requests: number; bytesIn: number; bytesOut: number };
+}
+
+/** Ringkasan murah per project — dipakai kartu daftar project (tanpa deret 14 hari). */
+export interface ProjectStatsSummary {
+  today: { requests: number; bytesIn: number; bytesOut: number };
+  totals: { requests: number; bytesIn: number; bytesOut: number };
+}
+
+/** Batas jumlah id per panggilan batch — menjaga ukuran SQL & URL tetap waras. */
+export const MAX_STATS_BATCH = 200;
+
+/**
+ * Ringkasan stats untuk BANYAK project dalam SATU query SQL.
+ *
+ * Kenapa ada: daftar project memanggil satu endpoint /stats per kartu — 400
+ * project = 400 request HTTP + 400 query. Browser hanya membuka ~6 koneksi per
+ * host, jadi kartu terakhir menunggu berpuluh antrean. Agregasi dilakukan di
+ * SQL (SUM + GROUP BY), bukan di JS, supaya hanya satu baris per project yang
+ * menyeberang dari SQLite.
+ *
+ * Catatan indeks: PRIMARY KEY (project_id, date) menjadikan project_id kolom
+ * paling kiri — `WHERE project_id IN (...)` memakai index itu, bukan full scan.
+ *
+ * Project tanpa satu pun baris metrics tetap dikembalikan (nol) supaya klien
+ * tidak perlu membedakan "belum ada data" dan "tidak dikirim server".
+ */
+export function getProjectsStatsSummary(
+  projectIds: string[]
+): Record<string, ProjectStatsSummary> {
+  const out: Record<string, ProjectStatsSummary> = {};
+  // Dedupe: id ganda tidak boleh menggandakan placeholder SQL.
+  const ids = [...new Set(projectIds)].slice(0, MAX_STATS_BATCH);
+  for (const id of ids) {
+    out[id] = {
+      today: { requests: 0, bytesIn: 0, bytesOut: 0 },
+      totals: { requests: 0, bytesIn: 0, bytesOut: 0 },
+    };
+  }
+  if (ids.length === 0) return out;
+
+  const db = getPlatformDb();
+  initMetricsTables(db);
+  const today = utcDateKey();
+
+  const placeholders = ids.map(() => '?').join(', ');
+  const rows = db
+    .prepare(
+      `SELECT project_id,
+              SUM(requests)  AS requests,
+              SUM(bytes_in)  AS bytes_in,
+              SUM(bytes_out) AS bytes_out,
+              SUM(CASE WHEN date = ? THEN requests  ELSE 0 END) AS today_requests,
+              SUM(CASE WHEN date = ? THEN bytes_in  ELSE 0 END) AS today_bytes_in,
+              SUM(CASE WHEN date = ? THEN bytes_out ELSE 0 END) AS today_bytes_out
+         FROM _platform_metrics
+        WHERE project_id IN (${placeholders})
+        GROUP BY project_id`
+    )
+    .all(today, today, today, ...ids) as unknown as {
+    project_id: string;
+    requests: number;
+    bytes_in: number;
+    bytes_out: number;
+    today_requests: number;
+    today_bytes_in: number;
+    today_bytes_out: number;
+  }[];
+
+  for (const r of rows) {
+    const entry = out[r.project_id];
+    if (!entry) continue;
+    entry.totals = { requests: r.requests, bytesIn: r.bytes_in, bytesOut: r.bytes_out };
+    entry.today = {
+      requests: r.today_requests,
+      bytesIn: r.today_bytes_in,
+      bytesOut: r.today_bytes_out,
+    };
+  }
+
+  // Buffer in-memory: hari berjalan yang belum di-flush (stats tetap real-time,
+  // konsisten dengan getProjectStats single-project).
+  const wanted = new Set(ids);
+  for (const [key, day] of buffer.entries()) {
+    const sep = key.lastIndexOf('|');
+    const pid = key.slice(0, sep);
+    const date = key.slice(sep + 1);
+    if (!wanted.has(pid)) continue;
+    const entry = out[pid];
+    entry.totals.requests += day.requests;
+    entry.totals.bytesIn += day.bytesIn;
+    entry.totals.bytesOut += day.bytesOut;
+    if (date === today) {
+      entry.today.requests += day.requests;
+      entry.today.bytesIn += day.bytesIn;
+      entry.today.bytesOut += day.bytesOut;
+    }
+  }
+
+  return out;
 }
 
 export function getProjectStats(projectId: string): ProjectStats {

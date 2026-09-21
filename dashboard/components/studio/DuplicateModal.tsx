@@ -10,12 +10,15 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Loader2 } from "lucide-react";
 
 interface DuplicateModalProps {
   open: boolean;
   collectionName: string;
   duplicateName: string;
   duplicateWithData: boolean;
+  /** true saat proses duplicate berjalan — tombol dinonaktifkan + spinner. */
+  busy?: boolean;
   onNameChange: (name: string) => void;
   onWithDataChange: (withData: boolean) => void;
   onCancel: () => void;
@@ -27,6 +30,7 @@ export function DuplicateModal({
   collectionName,
   duplicateName,
   duplicateWithData,
+  busy = false,
   onNameChange,
   onWithDataChange,
   onCancel,
@@ -61,10 +65,16 @@ export function DuplicateModal({
           </label>
 
           <div className="flex justify-end gap-2 pt-2">
-            <Button variant="secondary" onClick={onCancel}>
+            <Button variant="secondary" onClick={onCancel} disabled={busy}>
               Cancel
             </Button>
-            <Button onClick={onDuplicate}>Duplicate Collection</Button>
+            <Button onClick={onDuplicate} disabled={busy}>
+              {busy ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <span>Duplicate Collection</span>
+              )}
+            </Button>
           </div>
         </div>
       </DialogContent>

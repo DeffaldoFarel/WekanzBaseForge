@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Lock, Globe, SlidersHorizontal } from "lucide-react";
+import { LoadError } from "@/components/ui/load-error";
 import type { CollectionRules as Rules } from "@/lib/api";
 
 const DEFAULT_RULES: Rules = {
@@ -27,6 +28,9 @@ interface RulesTabProps {
   rulesDraft: Rules | null;
   rulesSaving: boolean;
   rulesError: string;
+  /** Kegagalan MEMUAT rules — editor tidak boleh dirender sama sekali. */
+  rulesLoadError?: string;
+  onRetryLoad?: () => void;
   onRulesChange: (rules: Rules | ((prev: Rules | null) => Rules)) => void;
   onSaveRules: () => void;
 }
@@ -35,9 +39,33 @@ export function RulesTab({
   rulesDraft,
   rulesSaving,
   rulesError,
+  rulesLoadError,
+  onRetryLoad,
   onRulesChange,
   onSaveRules,
 }: RulesTabProps) {
+  // Gerbang keamanan: saat rules gagal dimuat, JANGAN render editor.
+  // Editor akan menampilkan null sebagai "Admin Only" untuk setiap rule —
+  // pembacaan yang salah tentang postur keamanan collection — dan Save
+  // berikutnya akan menulis tebakan itu kembali ke server.
+  if (rulesLoadError) {
+    return (
+      <Card className="p-6">
+        <div className="mb-5">
+          <h3 className="text-lg font-semibold">API Rules (Row-Level Security)</h3>
+          <p className="text-sm text-muted-foreground mt-1">
+            Configure who can read, write, update, and delete data in this collection.
+          </p>
+        </div>
+        <LoadError message={rulesLoadError} onRetry={onRetryLoad} />
+        <p className="text-xs text-muted-foreground mt-3">
+          The editor stays hidden until the current rules are known — showing unknown rules as
+          &quot;Admin Only&quot; could make you save permissions you never intended.
+        </p>
+      </Card>
+    );
+  }
+
   return (
     <Card className="p-6">
       <div className="mb-5">

@@ -19,7 +19,7 @@ import nodeHttp from 'node:http';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { initPlatformDb } from '../src/core/platformDb.js';
+import { initPlatformDb, closePlatformDb } from '../src/core/platformDb.js';
 import { closeAllProjectDbs, getProjectDb } from '../src/core/projectDbManager.js';
 import { createAdminRouter } from '../src/api/adminRoutes.js';
 import { createDatabaseRouter } from '../src/api/databaseRoutes.js';
@@ -97,6 +97,8 @@ before(async () => {
 
 after(async () => {
   closeAllProjectDbs();
+  // Windows: rmSync gagal EPERM selama handle platform.db masih terbuka.
+  closePlatformDb();
   server.close();
   fs.rmSync(TEST_DATA_DIR, { recursive: true, force: true });
 });

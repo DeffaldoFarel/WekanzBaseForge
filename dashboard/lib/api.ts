@@ -116,18 +116,37 @@ export function getCachedProjectName(id: string): string | undefined {
   return projectNameCache.get(id);
 }
 
+// Pending-request dedupe: ProjectSidebar dan Navbar sama-sama memanggil
+// fetchProjectName saat halaman project dibuka — tanpa ini dua fetch identik
+// menembak paralel SETIAP navigasi. Cukup satu in-flight promise per id yang
+// dibagi semua pemanggil; hasilnya tetap di-cache seperti sebelumnya.
+const projectNameInFlight = new Map<string, Promise<string>>();
+
 export async function fetchProjectName(id: string): Promise<string> {
   const cached = getCachedProjectName(id);
   if (cached) return cached;
+
+  const pending = projectNameInFlight.get(id);
+  if (pending) return pending;
+
+  const promise = (async () => {
+    try {
+      const project = await getProject(id);
+      if (project?.name) {
+        projectNameCache.set(id, project.name);
+        saveProjectNameCache();
+        return project.name;
+      }
+    } catch {}
+    return id;
+  })();
+
+  projectNameInFlight.set(id, promise);
   try {
-    const project = await getProject(id);
-    if (project?.name) {
-      projectNameCache.set(id, project.name);
-      saveProjectNameCache();
-      return project.name;
-    }
-  } catch {}
-  return id;
+    return await promise;
+  } finally {
+    projectNameInFlight.delete(id);
+  }
 }
 
 export async function listProjects(): Promise<Project[]> {
@@ -137,6 +156,51 @@ export async function listProjects(): Promise<Project[]> {
   }
   saveProjectNameCache();
   return data.projects;
+}
+
+// ─── M48: daftar project berpaginasi (search + sort dikerjakan server) ──────
+
+export type ProjectSort = 'newest' | 'oldest' | 'name';
+
+export interface ProjectPage {
+  projects: Project[];
+  page: number;
+  perPage: number;
+  total: number;
+  totalPages: number;
+}
+
+export async function listProjectsPage(opts: {
+  page?: number;
+  perPage?: number;
+  search?: string;
+  sort?: ProjectSort;
+  signal?: AbortSignal;
+}): Promise<ProjectPage> {
+  const params = new URLSearchParams();
+  params.set('page', String(opts.page ?? 1));
+  params.set('perPage', String(opts.perPage ?? 24));
+  if (opts.search?.trim()) params.set('search', opts.search.trim());
+  if (opts.sort) params.set('sort', opts.sort);
+
+  const data = await request<{
+    projects: Project[];
+    meta?: { page: number; perPage: number; total: number; totalPages: number };
+  }>(`/api/admin/projects?${params.toString()}`, { signal: opts.signal });
+
+  for (const p of data.projects) {
+    projectNameCache.set(p.id, p.name);
+  }
+  saveProjectNameCache();
+
+  const meta = data.meta;
+  return {
+    projects: data.projects,
+    page: meta?.page ?? 1,
+    perPage: meta?.perPage ?? data.projects.length,
+    total: meta?.total ?? data.projects.length,
+    totalPages: meta?.totalPages ?? 1,
+  };
 }
 
 export async function createProject(name: string): Promise<Project> {
@@ -348,7 +412,16 @@ export async function deleteCollection(projectId: string, name: string): Promise
 export async function listRecords(
   projectId: string,
   collection: string,
-  opts: { filter?: string; sort?: string; page?: number; perPage?: number; search?: string; expand?: string } = {}
+  opts: {
+    filter?: string;
+    sort?: string;
+    page?: number;
+    perPage?: number;
+    search?: string;
+    expand?: string;
+    /** Batalkan request yang sudah tidak relevan (ketikan berikutnya). */
+    signal?: AbortSignal;
+  } = {}
 ): Promise<ListResult> {
   const params = new URLSearchParams();
   if (opts.filter) params.set('filter', opts.filter);
@@ -359,7 +432,8 @@ export async function listRecords(
   if (opts.perPage) params.set('perPage', String(opts.perPage));
   const qs = params.toString();
   return request<ListResult>(
-    `/api/admin/projects/${projectId}/collections/${collection}/records${qs ? '?' + qs : ''}`
+    `/api/admin/projects/${projectId}/collections/${collection}/records${qs ? '?' + qs : ''}`,
+    { signal: opts.signal }
   );
 }
 
@@ -435,6 +509,25 @@ export async function deleteRecord(
   await request(`/api/admin/projects/${projectId}/collections/${collection}/records/${id}`, {
     method: 'DELETE',
   });
+}
+
+/** Hapus banyak record dalam SATU request — dipakai bulk delete Database Studio. */
+export interface BatchDeleteResult {
+  deleted: string[];
+  failed: { id: string; reason: string }[];
+  deletedCount: number;
+  failedCount: number;
+}
+
+export async function deleteRecordsBatch(
+  projectId: string,
+  collection: string,
+  ids: string[]
+): Promise<BatchDeleteResult> {
+  return request<BatchDeleteResult>(
+    `/api/admin/projects/${projectId}/collections/${collection}/records/batch-delete`,
+    { method: 'POST', body: JSON.stringify({ ids }) }
+  );
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -1386,6 +1479,32 @@ export interface ProjectStats {
 
 export async function getProjectStats(projectId: string): Promise<ProjectStats> {
   return request<ProjectStats>(`/api/admin/projects/${projectId}/stats`);
+}
+
+// ─── M48: ringkasan stats banyak project dalam SATU request ─────────────────
+// Kartu project dulu memanggil getProjectStats() masing-masing: 400 kartu =
+// 400 request yang diantre browser 6-per-host. Ini menggantinya dengan satu
+// panggilan untuk seluruh halaman yang tampil.
+
+export interface ProjectStatsSummary {
+  today: { requests: number; bytesIn: number; bytesOut: number };
+  totals: { requests: number; bytesIn: number; bytesOut: number };
+}
+
+/** Server menolak > 200 id per request — halaman UI jauh di bawah batas ini. */
+export const MAX_STATS_BATCH = 200;
+
+export async function getProjectsStatsBatch(
+  projectIds: string[],
+  signal?: AbortSignal
+): Promise<Record<string, ProjectStatsSummary>> {
+  if (projectIds.length === 0) return {};
+  const ids = projectIds.slice(0, MAX_STATS_BATCH);
+  const data = await request<{ stats: Record<string, ProjectStatsSummary> }>(
+    `/api/admin/stats/projects?ids=${encodeURIComponent(ids.join(','))}`,
+    { signal }
+  );
+  return data.stats ?? {};
 }
 
 export function formatBytes(bytes: number): string {

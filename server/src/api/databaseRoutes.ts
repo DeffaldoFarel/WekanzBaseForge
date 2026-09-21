@@ -36,7 +36,7 @@ import {
 } from '../core/records.js';
 import { fireWebhooks } from '../core/webhooks.js';
 import { fireTriggersSafe } from '../core/triggerExecutor.js';
-import { DuplicateIdError, DuplicateEmailError } from '../core/records.js';
+import { DuplicateIdError, DuplicateEmailError, RestrictError } from '../core/records.js';
 import type { CollectionDefinition, IndexDefinition } from '../core/schema.js';
 import type { CollectionRules } from '../core/rules.js';
 import type { FieldDefinition } from '../core/fieldTypes.js';
@@ -385,6 +385,71 @@ export function createDatabaseRouter(): Router {
     }
   });
 
+  // POST /api/admin/projects/:pid/collections/:name/records/batch-delete
+  //   body: { ids: [...] } → hapus banyak record dalam SATU request.
+  //
+  // Kenapa ada: Database Studio "bulk delete" dulu mengirim SATU request DELETE
+  // per record — menghapus 100 record = 100 HTTP request serial yang membekukan
+  // UI. Satu request menggantikan semuanya.
+  //
+  // Semantik (sengaja, bukan Ops-2): endpoint ini untuk ADMIN (data browser),
+  // bukan end-user, jadi diizinkan PARTIAL — yang gagal dilaporkan per id
+  // (mis. cascade restrict), bukan me-rollback yang berhasil. `deleteRecord`
+  // membungkus transaksinya sendiri per record (untuk cascade D3), jadi setiap
+  // record tetap aman secara individual; yang berbeda hanya jumlah HTTP request.
+  //
+  // Maks 100 per batch — selaras batas create batch Ops-2.
+  router.post('/api/admin/projects/:pid/collections/:name/records/batch-delete', requireAdmin, (req, res) => {
+    try {
+      const db = getProjectDb(req.params.pid);
+      const body = req.body as { ids?: string[] } | undefined;
+
+      if (!Array.isArray(body?.ids) || body.ids.length === 0) {
+        res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'ids must be a non-empty array' } });
+        return;
+      }
+      if (body.ids.length > 100) {
+        res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'a batch may hold at most 100 ids' } });
+        return;
+      }
+
+      const deleted: string[] = [];
+      const failed: { id: string; reason: string }[] = [];
+
+      for (const id of body.ids) {
+        if (typeof id !== 'string' || id.trim() === '') {
+          failed.push({ id: String(id), reason: 'invalid id' });
+          continue;
+        }
+        try {
+          // M38: snapshot sebelum delete (webhook/trigger dapat full payload,
+          // konsisten dengan single delete di atas).
+          const snapshot = snapshotRecord(db, req.params.name, id);
+          const ok = deleteRecord(db, req.params.name, id);
+          if (!ok) {
+            failed.push({ id, reason: 'not found' });
+            continue;
+          }
+          const payload = (snapshot ?? { id }) as Record<string, unknown>;
+          fireWebhooks(db, {
+            projectId: req.params.pid,
+            action: 'delete',
+            collection: req.params.name,
+            record: payload,
+          });
+          fireTriggersSafe(db, req.params.name, 'delete', payload);
+          deleted.push(id);
+        } catch (err) {
+          failed.push({ id, reason: err instanceof Error ? err.message : 'delete failed' });
+        }
+      }
+
+      res.json({ deleted, failed, deletedCount: deleted.length, failedCount: failed.length });
+    } catch (err) {
+      handleError(res, err);
+    }
+  });
+
   // ════════════════════════════════════════════════════════════════════════
   // B3: UTILITAS (duplikasi collection + batch API)
   // ════════════════════════════════════════════════════════════════════════
@@ -499,6 +564,15 @@ function handleError(res: { status: (c: number) => { json: (d: unknown) => void 
   // M40: email duplikat di auth collection → 409 EMAIL_TAKEN
   if (err instanceof DuplicateEmailError) {
     res.status(409).json({ error: { code: 'EMAIL_TAKEN', message } });
+    return;
+  }
+
+  // Restrict (cascade D3): penghapusan DITOLAK karena ada record lain yang
+  // merujuk — konflik referensial, bukan kesalahan server. Dulu jatuh ke cabang
+  // 500 INTERNAL_ERROR yang membingungkan (single delete mengembalikan 500
+  // untuk keputusan yang benar dari sistem integritas).
+  if (err instanceof RestrictError) {
+    res.status(409).json({ error: { code: 'RESTRICT_VIOLATION', message } });
     return;
   }
 

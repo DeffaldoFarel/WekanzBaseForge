@@ -20,7 +20,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
-import { initPlatformDb, createProject, provisionProjectStorage } from '../src/core/platformDb.js';
+import { initPlatformDb, createProject, provisionProjectStorage, closePlatformDb } from '../src/core/platformDb.js';
 import { getProjectDb, closeAllProjectDbs } from '../src/core/projectDbManager.js';
 import { scheduler } from '../src/core/scheduler.js';
 import { createFunction, initFunctionsTable } from '../src/core/functionsStore.js';
@@ -47,6 +47,8 @@ before(() => {
 after(() => {
   scheduler.stop();
   closeAllProjectDbs();
+  // Windows: rmSync gagal EPERM selama handle platform.db masih terbuka.
+  closePlatformDb();
   setTimeout(() => {
     try {
       fs.rmSync(TEST_DATA_DIR, { recursive: true, force: true });

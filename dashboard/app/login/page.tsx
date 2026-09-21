@@ -21,17 +21,25 @@ export default function LoginPage() {
     let active = true;
     getAdminSetupState()
       .then((state) => {
-        if (active && state.needsSetup) {
-          setNeedsSetup(true);
+        if (!active) return;
+        // Jika belum ada admin di database, langsung arahkan ke First-Time Setup
+        // (PocketBase pattern) agar operator membuat master admin pertama.
+        if (state.needsSetup) {
+          router.replace("/signup");
+          return;
         }
       })
       .catch(() => {
-        // Abaikan jika error network
+        // Sengaja diabaikan, DAN ini aman — berbeda dari `catch {}` lain yang
+        // sudah diperbaiki. Banner setup hanyalah jalan pintas; instalasi baru
+        // tetap bisa dicapai lewat /signup, dan kegagalan login sendiri sudah
+        // melapor lewat `setError` di onSubmit. Menampilkan error jaringan di
+        // halaman login sebelum user melakukan apa pun justru membingungkan.
       });
     return () => {
       active = false;
     };
-  }, []);
+  }, [router]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();

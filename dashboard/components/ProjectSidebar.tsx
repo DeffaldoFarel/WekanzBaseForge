@@ -92,8 +92,7 @@ export function ProjectSidebar({ projectId, projectName }: ProjectSidebarProps) 
 
   return (
     <aside
-      className="w-[230px] shrink-0 hidden lg:flex flex-col gap-0.5 py-4 pr-4 border-r border-border sticky top-[61px] self-start"
-      style={{ maxHeight: "calc(100vh - 61px)" }}
+      className="w-[220px] shrink-0 hidden lg:flex flex-col gap-0.5 py-2 pr-4 border-r border-border sticky top-[81px] min-h-[calc(100vh-101px)]"
     >
       {/* Back to Projects */}
       <Link
@@ -139,6 +138,8 @@ export function ProjectSidebar({ projectId, projectName }: ProjectSidebarProps) 
           </Link>
         );
       })}
+
+      <div className="flex-1" />
     </aside>
   );
 }

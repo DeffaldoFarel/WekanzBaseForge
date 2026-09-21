@@ -25,6 +25,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { ConfirmDelete } from "@/components/ui/confirm-delete";
 import { useToasts, ToastHost } from "@/components/ui/toast";
+import { LoadError } from "@/components/ui/load-error";
 import {
   RefreshCw,
   History,
@@ -202,11 +203,18 @@ export function FunctionLogs({
               onCancel={() => setConfirmClear(false)}
             />
           )}
-          {logsError && (
-            <p className="text-destructive text-xs mb-2">{logsError}</p>
-          )}
           {loadingLogs ? (
             <p className="text-muted-foreground text-xs">Loading history…</p>
+          ) : logsError ? (
+            /* Eksklusif, bukan berdampingan: sebelumnya error tampil DI ATAS
+               "No executions recorded yet", sehingga user membaca dua klaim
+               yang bertentangan sekaligus. */
+            <LoadError
+              variant="inline"
+              message={logsError}
+              onRetry={() => loadLogs(page)}
+              retrying={loadingLogs}
+            />
           ) : entries.length === 0 ? (
             <p className="text-muted-foreground text-xs">
               No executions recorded yet. Runs, triggers, and scheduled executions will appear here.
@@ -294,7 +302,6 @@ export function FunctionLogs({
         </div>
       ) : (
         <div>
-          {secretsError && <p className="text-destructive text-xs mb-2">{secretsError}</p>}
           {loadingSecrets ? (
             <p className="text-muted-foreground text-xs">Loading secrets…</p>
           ) : (
@@ -308,7 +315,16 @@ export function FunctionLogs({
                   onCancel={() => setConfirmDelSecret(null)}
                 />
               )}
-              {secrets.length === 0 ? (
+              {secretsError ? (
+                /* "No secrets set" saat fetch gagal bisa membuat admin
+                   menambah ulang secret yang sebenarnya sudah ada. */
+                <LoadError
+                  variant="inline"
+                  message={secretsError}
+                  onRetry={loadSecrets}
+                  retrying={loadingSecrets}
+                />
+              ) : secrets.length === 0 ? (
                 <p className="text-muted-foreground text-xs">
                   No secrets set. Add one below — the value is encrypted at rest and never
                   shown again by the API.

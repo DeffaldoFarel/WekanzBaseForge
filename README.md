@@ -78,12 +78,11 @@ npm run dev:dashboard
 # → Dashboard berjalan di http://localhost:7701
 ```
 
-### 3. Login Dashboard
+### 3. Setup Master Admin & Login Dashboard
 Buka browser ke **http://localhost:7701**:
-* **Email:** `admin@baseforge.local`
-* **Password:** `admin123`
-
-*(Kredensial di atas adalah nilai default development. Database lokal dan direktori `data/` akan dibuat otomatis saat pertama kali server dinyalakan).*
+* Saat pertama kali dibuka, BaseForge akan mengarahkan ke halaman **First-Time Setup** (`/signup`) untuk membuat akun Master Admin pertama Anda.
+* Akun tersimpan secara aman di database `platform.db` dengan enkripsi hash `scrypt` OWASP (tidak ada akun default plaintext dari `.env`).
+* Setelah akun dibuat, endpoint setup langsung terkunci dan Anda otomatis masuk ke konsol Dashboard.
 
 ### 4. Menjalankan Test Suite
 ```bash

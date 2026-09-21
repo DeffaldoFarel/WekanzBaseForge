@@ -22,6 +22,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { LoadError, errorMessage } from "@/components/ui/load-error";
+import { ConfirmDelete } from "@/components/ui/confirm-delete";
 import {
   Mail,
   Save,
@@ -63,6 +65,10 @@ export default function SettingsPage() {
 
   // Outbox
   const [outbox, setOutbox] = useState<OutboxMessage[]>([]);
+  const [outboxError, setOutboxError] = useState("");
+  const [clearingOutbox, setClearingOutbox] = useState(false);
+  const [confirmClearOutbox, setConfirmClearOutbox] = useState(false);
+  const [confirmClearSmtp, setConfirmClearSmtp] = useState(false);
   const [openMessage, setOpenMessage] = useState<string | null>(null);
 
   // Admin change-password form
@@ -90,8 +96,17 @@ export default function SettingsPage() {
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load settings"))
       .finally(() => setLoaded(true));
     listMailOutbox(20)
-      .then(setOutbox)
-      .catch(() => setOutbox([]));
+      .then((m) => {
+        setOutbox(m);
+        setOutboxError("");
+      })
+      .catch((e) => {
+        // "Outbox is empty" saat fetch gagal itu menyesatkan: di mode DEV
+        // outbox inilah satu-satunya tempat link verifikasi & reset password
+        // bisa diambil. Admin akan mengira email tidak pernah terkirim.
+        setOutbox([]);
+        setOutboxError(errorMessage(e, "Failed to load outbox"));
+      });
   }
 
   useEffect(() => {
@@ -135,6 +150,7 @@ export default function SettingsPage() {
       setInfo({ config: null, mode: res.mode });
       setHost(""); setUser(""); setPass(""); setFrom(""); setPort("587"); setSecure(false);
       setNotice("SMTP configuration cleared — back to dev outbox mode.");
+      setConfirmClearSmtp(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to clear");
     } finally {
@@ -359,12 +375,33 @@ export default function SettingsPage() {
               </div>
             </div>
             {smtpActive && (
-              <Button variant="ghost" size="sm" className="gap-1.5 text-muted-foreground" onClick={handleClear} disabled={saving}>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="gap-1.5 text-muted-foreground"
+                onClick={() => setConfirmClearSmtp(true)}
+                disabled={saving}
+              >
                 <Trash2 className="w-3.5 h-3.5" />
                 <span>Clear</span>
               </Button>
             )}
           </div>
+
+          {/* Menghapus config SMTP mengembalikan SEMUA email ke dev outbox di
+              seluruh project — dampaknya platform-wide, bukan satu halaman. */}
+          {confirmClearSmtp && (
+            <div className="mb-4">
+              <ConfirmDelete
+                title="Clear SMTP configuration?"
+                description="Every project will fall back to dev outbox mode — outgoing emails (verification, password reset) will no longer be delivered externally until SMTP is configured again."
+                confirmLabel="Clear SMTP"
+                busy={saving}
+                onConfirm={handleClear}
+                onCancel={() => setConfirmClearSmtp(false)}
+              />
+            </div>
+          )}
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-1.5">
@@ -431,7 +468,9 @@ export default function SettingsPage() {
               <div>
                 <h3 className="text-base font-semibold">Dev Outbox</h3>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  Last {Math.max(outbox.length, 20)} emails while SMTP is not active — verification & reset links live here.
+                  {/* Dulu `Math.max(outbox.length, 20)` — selalu berbunyi "Last 20"
+                      walau hanya ada 3 email. Sebut jumlah yang benar-benar tampil. */}
+                  Last {outbox.length} of up to 20 emails while SMTP is not active — verification &amp; reset links live here.
                 </p>
               </div>
             </div>
@@ -440,7 +479,13 @@ export default function SettingsPage() {
                 <RefreshCw className="w-4 h-4" />
               </Button>
               {outbox.length > 0 && (
-                <Button variant="ghost" size="sm" className="gap-1.5 text-muted-foreground" onClick={async () => { await clearMailOutbox(); setOutbox([]); }}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="gap-1.5 text-muted-foreground"
+                  disabled={clearingOutbox}
+                  onClick={() => setConfirmClearOutbox(true)}
+                >
                   <Trash2 className="w-3.5 h-3.5" />
                   <span>Clear</span>
                 </Button>
@@ -448,7 +493,35 @@ export default function SettingsPage() {
             </div>
           </div>
 
-          {outbox.length === 0 ? (
+          {/* Outbox berisi link verifikasi & reset yang MUNGKIN BELUM DIPAKAI.
+              Menghapusnya membuat user yang belum mengklik tidak bisa
+              menyelesaikan pendaftaran — satu klik ini merusak alur mereka. */}
+          {confirmClearOutbox && (
+            <ConfirmDelete
+              title={`Clear all ${outbox.length} emails from the outbox?`}
+              description="Pending verification and password-reset links inside them will stop working for users who haven't clicked yet. This cannot be undone."
+              confirmLabel="Clear Outbox"
+              busy={clearingOutbox}
+              onConfirm={async () => {
+                setClearingOutbox(true);
+                try {
+                  await clearMailOutbox();
+                  setOutbox([]);
+                  setOutboxError("");
+                  setConfirmClearOutbox(false);
+                } catch (e) {
+                  setOutboxError(errorMessage(e, "Failed to clear outbox"));
+                } finally {
+                  setClearingOutbox(false);
+                }
+              }}
+              onCancel={() => setConfirmClearOutbox(false)}
+            />
+          )}
+
+          {outboxError ? (
+            <LoadError message={outboxError} onRetry={reload} className="my-2" />
+          ) : outbox.length === 0 ? (
             <div className="py-10 text-center text-sm text-muted-foreground">
               Outbox is empty — register a user or request a password reset to see emails here.
             </div>

@@ -64,6 +64,7 @@ export function BackupCard({ projectId }: { projectId: string }) {
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
   const [downloading, setDownloading] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   // edit config state
   const [editing, setEditing] = useState(false);
@@ -86,6 +87,24 @@ export function BackupCard({ projectId }: { projectId: string }) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
+
+  // Refresh manual dari tombol — terpisah dari `load` supaya bisa memberi
+  // spinner tanpa mengganggu state loading awal (yang memakai skeleton besar).
+  const refresh = useCallback(async () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    try {
+      const res = await listBackups(projectId);
+      setConfig(res.config);
+      setBackups(res.backups);
+      setTotalSize(res.totalSize);
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : "Failed to load backups");
+    } finally {
+      setRefreshing(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId, refreshing]);
 
   useEffect(() => {
     load();
@@ -241,9 +260,10 @@ export function BackupCard({ projectId }: { projectId: string }) {
                 ? "No backups yet"
                 : `${backups.length} ${backups.length === 1 ? "backup" : "backups"} · ${formatBytes(totalSize)} total`}
             </span>
-            <Button variant="ghost" size="sm" onClick={load} title="Refresh list">
-              <RefreshCw className="w-3.5 h-3.5" />
-            </Button>
+          <Button variant="ghost" size="sm" onClick={refresh} title="Refresh list" disabled={refreshing}>
+            <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? "animate-spin" : ""}`} />
+          </Button>
+
           </div>
 
           {backups.length === 0 ? (

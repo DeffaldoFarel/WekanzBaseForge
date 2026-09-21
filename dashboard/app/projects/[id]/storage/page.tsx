@@ -113,6 +113,11 @@ export default function StorageExplorerPage() {
     "all" | "images" | "documents" | "media" | "bucket" | "orphaned"
   >("all");
   const [viewMode, setViewMode] = useState<"grid" | "table">("grid");
+  // Paginasi client: me-render SELURUH file sekaligus membuat browser
+  // memproses ribuan node DOM (dan — untuk gambar — ribuan request
+  // thumbnail). Filter & sort tetap atas semua file di memori; yang dibatasi
+  // hanya yang dirender.
+  const [page, setPage] = useState(1);
 
   // Modal Preview
   const [previewFile, setPreviewFile] = useState<StoredFileInfo | null>(null);
@@ -208,6 +213,12 @@ export default function StorageExplorerPage() {
     toastSuccess("File URL copied to clipboard!");
   }
 
+  // Filter berubah → kembali ke halaman 1 (menghindari "terdampar di halaman
+  // kosong" saat hasil menyempit).
+  useEffect(() => {
+    setPage(1);
+  }, [search, typeFilter]);
+
   // Filtered files memo
   const filteredFiles = useMemo(() => {
     return files.filter((f) => {
@@ -234,6 +245,17 @@ export default function StorageExplorerPage() {
 
   const imageCount = useMemo(() => files.filter((f) => f.isImage).length, [files]);
   const bucketCount = useMemo(() => files.filter((f) => f.isBucket).length, [files]);
+
+  // ─── Paginasi atas hasil filter ───────────────────────────────────────────
+  // PerPage dipilih habis dibagi lebar grid (1/2/3/4 kolom) supaya baris
+  // terakhir tidak pernah timpang di semua breakpoint.
+  const PER_PAGE = 24;
+  const totalPages = Math.max(1, Math.ceil(filteredFiles.length / PER_PAGE));
+  const safePage = Math.min(page, totalPages); // filter menyempit → jepit
+  const pagedFiles = useMemo(
+    () => filteredFiles.slice((safePage - 1) * PER_PAGE, safePage * PER_PAGE),
+    [filteredFiles, safePage]
+  );
 
   return (
     <>
@@ -467,7 +489,7 @@ export default function StorageExplorerPage() {
         ) : viewMode === "grid" ? (
           /* Grid View */
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-            {filteredFiles.map((file) => {
+            {pagedFiles.map((file) => {
               const fileDirectUrl = uiFileUrl(file);
               const thumbUrl = file.isImage && fileDirectUrl
                 ? `${fileDirectUrl}?thumb=200x200`
@@ -609,7 +631,8 @@ export default function StorageExplorerPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border font-mono">
-                  {filteredFiles.map((file) => {
+                    {pagedFiles.map((file) => {
+
                     const fileDirectUrl = uiFileUrl(file);
 
                     return (
@@ -698,6 +721,43 @@ export default function StorageExplorerPage() {
               </table>
             </div>
           </Card>
+        )}
+
+        {/* ─── Paginasi ─── */}
+        {totalPages > 1 && (
+          <nav
+            aria-label="Storage pagination"
+            className="flex flex-col sm:flex-row items-center justify-between gap-3 mt-6"
+          >
+            <p className="text-xs text-muted-foreground">
+              Showing{" "}
+              <span className="text-foreground font-medium">
+                {(safePage - 1) * PER_PAGE + 1}–{Math.min(safePage * PER_PAGE, filteredFiles.length)}
+              </span>{" "}
+              of <span className="text-foreground font-medium">{filteredFiles.length}</span> files
+            </p>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                className="h-9 px-3"
+                disabled={safePage <= 1}
+                onClick={() => setPage((p) => Math.max(p - 1, 1))}
+              >
+                <span>Previous</span>
+              </Button>
+              <span className="text-xs text-muted-foreground tabular-nums px-1">
+                Page {safePage} of {totalPages}
+              </span>
+              <Button
+                variant="outline"
+                className="h-9 px-3"
+                disabled={safePage >= totalPages}
+                onClick={() => setPage((p) => Math.min(p + 1, totalPages))}
+              >
+                <span>Next</span>
+              </Button>
+            </div>
+          </nav>
         )}
 
         {/* Modal File Preview with shadcn Dialog */}

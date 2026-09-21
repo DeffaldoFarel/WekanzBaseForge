@@ -1,13 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import { useParams } from "next/navigation";
-import Link from "next/link";
 import {
   listOAuthProviders,
   upsertOAuthProvider,
   deleteOAuthProvider,
-  oauthAuthorizeUrl,
   getToken,
   PUBLIC_API_URL,
   type OAuthProviderInfo,
@@ -26,23 +24,38 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import { ConfirmDelete } from "@/components/ui/confirm-delete";
+import { LoadError, errorMessage } from "@/components/ui/load-error";
+import { useToasts, ToastHost } from "@/components/ui/toast";
 import {
   Globe,
   GitFork,
   MessageCircle,
   Apple,
   KeyRound,
-  Link2,
   Loader2,
   Save,
   Trash2,
   Check,
   AlertTriangle,
   ExternalLink,
-  ArrowRight,
-  Database,
   Users,
   Search,
+  SlidersHorizontal,
+  Code,
+  Settings,
+  Copy,
+  FolderKanban,
+  CheckCircle2,
+  ShieldCheck,
 } from "lucide-react";
 
 interface ProviderFormState {
@@ -99,9 +112,19 @@ const PROVIDER_META: Record<
     label: "Apple",
     icon: Apple,
     docsUrl: "https://developer.apple.com/account/resources/identifiers/list/serviceId",
-    note: "Not yet supported by the server (requires ES256-signed client secret JWT)",
+    note: "Server support in progress (requires ES256-signed client secret JWT)",
   },
 };
+
+const ALL_PROVIDERS = [
+  "google",
+  "github",
+  "microsoft",
+  "discord",
+  "gitlab",
+  "facebook",
+  "apple",
+] as const;
 
 export default function AuthSettingsPage() {
   const params = useParams();
@@ -109,10 +132,14 @@ export default function AuthSettingsPage() {
 
   const [providers, setProviders] = useState<OAuthProviderInfo[]>([]);
   const [loaded, setLoaded] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [notice, setNotice] = useState("");
-  const [error, setError] = useState("");
-  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [savingProvider, setSavingProvider] = useState(false);
+  const [providersError, setProvidersError] = useState("");
+
+  // Modal konfigurasi provider individual
+  const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
+  const [confirmDeleteProvider, setConfirmDeleteProvider] = useState<string | null>(null);
+  const [copiedUri, setCopiedUri] = useState(false);
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // M47: Auth Users state
   const [authUsers, setAuthUsers] = useState<AuthUser[]>([]);
@@ -125,62 +152,81 @@ export default function AuthSettingsPage() {
   const [confirmDeleteUser, setConfirmDeleteUser] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
-  // draft form per provider
+  // Draft form per provider
   const [forms, setForms] = useState<Record<string, ProviderFormState>>({});
+
+  const { toasts, success: toastSuccess, error: toastError, dismiss } = useToasts();
+
+  useEffect(() => {
+    return () => {
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+    };
+  }, []);
+
+  const loadProviders = useCallback(async () => {
+    setProvidersError("");
+    try {
+      const list = await listOAuthProviders(projectId);
+      setProviders(list);
+      const drafts: Record<string, ProviderFormState> = {};
+      for (const p of list) {
+        drafts[p.provider] = {
+          clientId: p.clientId,
+          clientSecret: "",
+          enabled: p.enabled,
+          callbackUrl: p.callbackUrl ?? "",
+          allowedOrigins: p.allowedOrigins.join(", "),
+        };
+      }
+      setForms(drafts);
+    } catch (e) {
+      setProvidersError(errorMessage(e, "Failed to load OAuth providers"));
+    } finally {
+      setLoaded(true);
+    }
+  }, [projectId]);
 
   useEffect(() => {
     if (!getToken()) {
       window.location.href = "/login";
       return;
     }
-    listOAuthProviders(projectId)
-      .then((list) => {
-        setProviders(list);
-        const drafts: Record<string, ProviderFormState> = {};
-        for (const p of list) {
-          drafts[p.provider] = {
-            clientId: p.clientId,
-            clientSecret: "",
-            enabled: p.enabled,
-            callbackUrl: p.callbackUrl ?? "",
-            allowedOrigins: p.allowedOrigins.join(", "),
-          };
-        }
-        setForms(drafts);
-      })
-      .catch((e) => setError(e instanceof Error ? e.message : "Failed to load providers"))
-      .finally(() => setLoaded(true));
-  }, [projectId]);
+    void loadProviders();
+  }, [loadProviders]);
 
   // M47: load auth users
-  const loadAuthUsers = useCallback(async (search?: string, page: number = 1) => {
-    setAuthUsersLoading(true);
-    setAuthUsersError("");
-    try {
-      const result = await listAuthUsers(projectId, page, search);
-      setAuthUsers(result.items);
-      setAuthUsersTotal(result.totalItems);
-      setAuthUsersTotalPages(result.totalPages ?? 1);
-      setAuthUsersPage(result.page ?? page);
-    } catch (e) {
-      setAuthUsersError(e instanceof Error ? e.message : "Failed to load users");
-    } finally {
-      setAuthUsersLoading(false);
-    }
-  }, [projectId]);
+  const loadAuthUsers = useCallback(
+    async (search?: string, page: number = 1) => {
+      setAuthUsersLoading(true);
+      setAuthUsersError("");
+      try {
+        const result = await listAuthUsers(projectId, page, search);
+        setAuthUsers(result.items);
+        setAuthUsersTotal(result.totalItems);
+        setAuthUsersTotalPages(result.totalPages ?? 1);
+        setAuthUsersPage(result.page ?? page);
+      } catch (e) {
+        setAuthUsersError(errorMessage(e, "Failed to load auth users"));
+      } finally {
+        setAuthUsersLoading(false);
+      }
+    },
+    [projectId]
+  );
 
   useEffect(() => {
-    if (loaded) loadAuthUsers();
+    if (loaded) void loadAuthUsers();
   }, [loaded, loadAuthUsers]);
 
-  // M47: auth user actions
+  // M47: auth user actions (optimistik)
   async function handleVerifyUser(userId: string, verified: boolean) {
     setActionLoading(userId + "-verify");
     try {
       await setAuthUserVerified(projectId, userId, verified);
-      await loadAuthUsers(authUsersSearch || undefined, authUsersPage);
+      setAuthUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, verified } : u)));
+      toastSuccess(verified ? "User marked as verified." : "User marked as unverified.");
     } catch (e) {
-      setAuthUsersError(e instanceof Error ? e.message : "Failed to update user");
+      toastError(errorMessage(e, "Failed to update user"));
     } finally {
       setActionLoading(null);
     }
@@ -190,9 +236,10 @@ export default function AuthSettingsPage() {
     setActionLoading(userId + "-disable");
     try {
       await setAuthUserDisabled(projectId, userId, disabled);
-      await loadAuthUsers(authUsersSearch || undefined, authUsersPage);
+      setAuthUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, disabled } : u)));
+      toastSuccess(disabled ? "User disabled." : "User enabled.");
     } catch (e) {
-      setAuthUsersError(e instanceof Error ? e.message : "Failed to update user");
+      toastError(errorMessage(e, "Failed to update user"));
     } finally {
       setActionLoading(null);
     }
@@ -203,17 +250,16 @@ export default function AuthSettingsPage() {
     try {
       await deleteAuthUser(projectId, userId);
       setConfirmDeleteUser(null);
+      toastSuccess("User deleted.");
       await loadAuthUsers(authUsersSearch || undefined, authUsersPage);
     } catch (e) {
-      setAuthUsersError(e instanceof Error ? e.message : "Failed to delete user");
+      toastError(errorMessage(e, "Failed to delete user"));
     } finally {
       setActionLoading(null);
     }
   }
 
   const registerCallbackUrl = (provider: string): string => {
-    // Pakai base URL API publik (env), BUKAN hostname browser + :5100 — yang
-    // salah total di production (port 5100 tidak ter-expose ke publik).
     return `${PUBLIC_API_URL}/api/p/${projectId}/auth/oauth/${provider}/callback`;
   };
 
@@ -224,10 +270,8 @@ export default function AuthSettingsPage() {
     }));
   }, []);
 
-  async function handleSave(provider: string) {
-    setLoading(true);
-    setError("");
-    setNotice("");
+  async function handleSaveProvider(provider: string) {
+    setSavingProvider(true);
     try {
       const form = forms[provider] ?? EMPTY_FORM;
       await upsertOAuthProvider(projectId, provider, {
@@ -237,43 +281,52 @@ export default function AuthSettingsPage() {
         callbackUrl: form.callbackUrl || undefined,
         allowedOrigins: form.allowedOrigins,
       });
-      // reload + kosongkan field secret (aman)
-      const list = await listOAuthProviders(projectId);
-      setProviders(list);
+      await loadProviders();
       updateForm(provider, { clientSecret: "" });
-      setNotice(`${PROVIDER_META[provider]?.label ?? provider} configuration saved.`);
+      setSelectedProvider(null);
+      toastSuccess(`${PROVIDER_META[provider]?.label ?? provider} configuration saved.`);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to save provider");
+      toastError(errorMessage(e, "Failed to save provider"));
     } finally {
-      setLoading(false);
+      setSavingProvider(false);
     }
   }
 
-  async function handleDelete(provider: string) {
-    setLoading(true);
-    setError("");
+  async function handleDeleteProvider(provider: string) {
+    setSavingProvider(true);
     try {
       await deleteOAuthProvider(projectId, provider);
-      const list = await listOAuthProviders(projectId);
-      setProviders(list);
+      await loadProviders();
       setForms((prev) => {
         const next = { ...prev };
         delete next[provider];
         return next;
       });
-      setConfirmDelete(null);
-      setNotice(`${PROVIDER_META[provider]?.label ?? provider} removed.`);
+      setConfirmDeleteProvider(null);
+      setSelectedProvider(null);
+      toastSuccess(`${PROVIDER_META[provider]?.label ?? provider} configuration removed.`);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to delete provider");
+      toastError(errorMessage(e, "Failed to delete provider"));
     } finally {
-      setLoading(false);
+      setSavingProvider(false);
     }
+  }
+
+  function handleCopyUri(url: string) {
+    navigator.clipboard.writeText(url);
+    setCopiedUri(true);
+    if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+    copyTimerRef.current = setTimeout(() => setCopiedUri(false), 1500);
   }
 
   const isConfigured = (provider: string) =>
     providers.some((p) => p.provider === provider);
 
   if (!loaded) return null;
+
+  const activeProviderMeta = selectedProvider ? PROVIDER_META[selectedProvider] : null;
+  const activeForm = selectedProvider ? forms[selectedProvider] ?? EMPTY_FORM : EMPTY_FORM;
+  const activeConfigured = selectedProvider ? isConfigured(selectedProvider) : false;
 
   return (
     <>
@@ -283,408 +336,666 @@ export default function AuthSettingsPage() {
         <ProjectSidebar projectId={projectId} />
 
         <div className="flex-1 min-w-0">
-          <div className="flex justify-between items-center flex-wrap gap-2">
+          {/* Header Section */}
+          <div className="flex justify-between items-center flex-wrap gap-2 mb-6">
             <div>
-              <h2 className="text-2xl font-semibold tracking-tight flex items-center gap-2.5">
+              <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2.5">
                 <KeyRound className="w-6 h-6" />
-                <span>Auth Settings</span>
-              </h2>
+                <span>Authentication &amp; Users</span>
+              </h1>
               <p className="text-sm text-muted-foreground mt-1">
-                Enable social login (OAuth2) for end users of this project.
+                Manage registered end users, social OAuth providers, and custom profile fields.
               </p>
             </div>
           </div>
 
-          {/* Info: user management ada di Database Studio */}
-          <Card className="p-4 mt-4 mb-6">
-            <div className="flex items-start gap-3">
-              <Database className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
-              <div className="text-sm">
-                <span className="text-foreground font-medium">User management</span>{" "}
-                <span className="text-muted-foreground">
-                  follows the unified Auth Collections pattern — manage user records directly in Database Studio.
-                </span>
-                <Link
-                  href={`/projects/${projectId}/database`}
-                  className="ml-1 inline-flex items-center gap-1 text-foreground font-medium hover:underline"
-                >
-                  <span>Open Collections</span>
-                  <ArrowRight className="w-3 h-3" />
-                </Link>
-              </div>
-            </div>
-          </Card>
+          {/* Navigation Tabs (Best Practice Architecture) */}
+          <Tabs defaultValue="users" className="w-full">
+            <TabsList className="mb-6">
+              <TabsTrigger value="users" className="gap-2">
+                <Users className="w-3.5 h-3.5" />
+                <span>Users</span>
+                {authUsersTotal > 0 && (
+                  <Badge variant="secondary" className="px-1.5 py-0 text-[10px] h-4 font-mono">
+                    {authUsersTotal}
+                  </Badge>
+                )}
+              </TabsTrigger>
 
-          {notice && (
-            <Card className="p-3 mb-4 border-emerald-500/40 bg-emerald-500/10 text-emerald-400 text-sm flex items-center gap-2">
-              <Check className="w-4 h-4 shrink-0" />
-              <span>{notice}</span>
-            </Card>
-          )}
-          {error && (
-            <Card className="p-3 mb-4 border-destructive/50 bg-destructive/10 text-destructive text-sm flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4 shrink-0" />
-              <span>{error}</span>
-            </Card>
-          )}
+              <TabsTrigger value="providers" className="gap-2">
+                <Globe className="w-3.5 h-3.5" />
+                <span>OAuth Providers</span>
+                {providers.filter((p) => p.enabled).length > 0 && (
+                  <Badge variant="green" className="px-1.5 py-0 text-[10px] h-4">
+                    {providers.filter((p) => p.enabled).length} active
+                  </Badge>
+                )}
+              </TabsTrigger>
 
-          <div className="grid gap-4">
-            {(["google", "github", "microsoft", "discord", "gitlab", "facebook", "apple"] as const).map((provider) => {
-              const meta = PROVIDER_META[provider];
-              const Icon = meta.icon;
-              const configured = isConfigured(provider);
-              const form = forms[provider] ?? EMPTY_FORM;
-              const isApple = provider === "apple";
+              <TabsTrigger value="fields" className="gap-2">
+                <SlidersHorizontal className="w-3.5 h-3.5" />
+                <span>Profile Fields</span>
+              </TabsTrigger>
 
-              return (
-                <Card key={provider} className={`p-5 ${isApple ? "opacity-60" : ""}`}>
-                  <div className="flex justify-between items-start mb-4">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-md bg-secondary border border-border flex items-center justify-center">
-                        <Icon className="w-5 h-5" />
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <h3 className="text-base font-semibold">{meta.label} OAuth</h3>
-                          {isApple ? (
-                            <Badge variant="secondary" className="text-[11px]">Coming soon</Badge>
-                          ) : configured ? (
-                            form.enabled ? (
-                              <Badge variant="green" className="gap-1 text-[11px]">
-                                <Check className="w-3 h-3" />
-                                <span>Active</span>
-                              </Badge>
-                            ) : (
-                              <Badge variant="secondary" className="text-[11px]">Disabled</Badge>
-                            )
-                          ) : (
-                            <Badge variant="outline" className="text-[11px]">Not configured</Badge>
-                          )}
-                        </div>
-                        <a
-                          href={meta.docsUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1 mt-0.5"
+              <TabsTrigger value="integration" className="gap-2">
+                <Code className="w-3.5 h-3.5" />
+                <span>API &amp; Integration</span>
+              </TabsTrigger>
+            </TabsList>
+
+            {/* ════════════════════════════════════════════════════════════════ */}
+            {/* TAB 1: USERS (Fokus Utama Admin) */}
+            {/* ════════════════════════════════════════════════════════════════ */}
+            <TabsContent value="users">
+              <div className="space-y-4">
+                {/* Search & Action Bar */}
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                  <div>
+                    <h2 className="text-base font-semibold text-foreground">Registered Users</h2>
+                    <p className="text-xs text-muted-foreground">
+                      End-user accounts registered through your app ({authUsersTotal} total).
+                    </p>
+                  </div>
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      void loadAuthUsers(authUsersSearch || undefined, 1);
+                    }}
+                    className="flex items-center gap-2 w-full sm:w-auto"
+                  >
+                    <div className="relative flex-1 sm:w-64">
+                      <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                      <Input
+                        placeholder="Search by email…"
+                        value={authUsersSearch}
+                        onChange={(e) => setAuthUsersSearch(e.target.value)}
+                        className="pl-9 h-9 text-xs"
+                      />
+                      {authUsersSearch && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAuthUsersSearch("");
+                            void loadAuthUsers(undefined, 1);
+                          }}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground hover:text-foreground"
                         >
-                          <span>Get credentials</span>
-                          <ExternalLink className="w-3 h-3" />
-                        </a>
-                        {meta.note && (
-                          <p className="text-[11px] text-amber-400/80 mt-0.5">{meta.note}</p>
-                        )}
+                          &times;
+                        </button>
+                      )}
+                    </div>
+                    <Button
+                      type="submit"
+                      variant="secondary"
+                      size="sm"
+                      className="h-9 px-3 text-xs shrink-0"
+                      disabled={authUsersLoading}
+                    >
+                      {authUsersLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Search"}
+                    </Button>
+                  </form>
+                </div>
+
+                {/* State: Error */}
+                {authUsersError ? (
+                  <LoadError
+                    message={authUsersError}
+                    onRetry={() => void loadAuthUsers(authUsersSearch || undefined, authUsersPage)}
+                    retrying={authUsersLoading}
+                  />
+                ) : authUsers.length === 0 ? (
+                  /* State: Kosong */
+                  authUsersSearch.trim() ? (
+                    <Card className="p-12 text-center border-dashed">
+                      <div className="w-12 h-12 rounded-full bg-secondary border border-border flex items-center justify-center mx-auto mb-3 text-muted-foreground">
+                        <Search className="w-5 h-5" />
                       </div>
+                      <h3 className="text-sm font-semibold text-foreground mb-1">No matching users</h3>
+                      <p className="text-xs text-muted-foreground max-w-sm mx-auto mb-4">
+                        No user account matches <code className="font-mono text-foreground font-medium">&quot;{authUsersSearch}&quot;</code>.
+                      </p>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 px-3 text-xs"
+                        onClick={() => {
+                          setAuthUsersSearch("");
+                          void loadAuthUsers(undefined, 1);
+                        }}
+                      >
+                        Clear search
+                      </Button>
+                    </Card>
+                  ) : (
+                    <Card className="p-12 text-center border-dashed">
+                      <div className="w-12 h-12 rounded-xl bg-secondary border border-border flex items-center justify-center mx-auto mb-3 text-muted-foreground">
+                        <Users className="w-6 h-6" />
+                      </div>
+                      <h3 className="text-base font-semibold text-foreground mb-1">No users yet</h3>
+                      <p className="text-sm text-muted-foreground max-w-md mx-auto">
+                        Your application doesn&apos;t have any registered users yet. Users will appear here after they sign up via your API.
+                      </p>
+                    </Card>
+                  )
+                ) : (
+                  /* State: Tabel User */
+                  <Card className="overflow-hidden border-border">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs text-left">
+                        <thead>
+                          <tr className="border-b border-border bg-secondary/50 text-muted-foreground font-medium uppercase tracking-wider">
+                            <th className="p-3 pl-4">Email</th>
+                            <th className="p-3">Name</th>
+                            <th className="p-3">Status</th>
+                            <th className="p-3">MFA</th>
+                            <th className="p-3">Joined Date</th>
+                            <th className="p-3 pr-4 text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-border">
+                          {authUsers.map((u) => (
+                            <tr key={u.id} className="hover:bg-secondary/30 transition-colors">
+                              <td className="p-3 pl-4 font-mono text-xs text-foreground font-medium">
+                                {u.email}
+                              </td>
+                              <td className="p-3 text-muted-foreground">{u.name || "—"}</td>
+                              <td className="p-3">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  {u.verified ? (
+                                    <Badge variant="green" className="text-[10px] gap-0.5">
+                                      <Check className="w-2.5 h-2.5" />
+                                      Verified
+                                    </Badge>
+                                  ) : (
+                                    <Badge variant="secondary" className="text-[10px]">
+                                      Unverified
+                                    </Badge>
+                                  )}
+                                  {u.disabled && (
+                                    <Badge variant="destructive" className="text-[10px]">
+                                      Disabled
+                                    </Badge>
+                                  )}
+                                </div>
+                              </td>
+                              <td className="p-3">
+                                {u.mfaEnabled ? (
+                                  <Badge variant="green" className="text-[10px]">
+                                    On
+                                  </Badge>
+                                ) : (
+                                  <span className="text-muted-foreground text-xs">Off</span>
+                                )}
+                              </td>
+                              <td className="p-3 text-muted-foreground">
+                                {new Date(u.created).toLocaleDateString("en-US", {
+                                  day: "numeric",
+                                  month: "short",
+                                  year: "numeric",
+                                })}
+                              </td>
+                              <td className="p-3 pr-4 text-right">
+                                <div className="flex items-center justify-end gap-1">
+                                  {!u.verified && (
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-7 px-2 text-xs gap-1"
+                                      disabled={actionLoading === u.id + "-verify"}
+                                      onClick={() => void handleVerifyUser(u.id, true)}
+                                      title="Mark user as verified"
+                                    >
+                                      {actionLoading === u.id + "-verify" ? (
+                                        <Loader2 className="w-3 h-3 animate-spin" />
+                                      ) : (
+                                        <>
+                                          <Check className="w-3 h-3 text-emerald-400" />
+                                          <span>Verify</span>
+                                        </>
+                                      )}
+                                    </Button>
+                                  )}
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 px-2 text-xs"
+                                    disabled={actionLoading === u.id + "-disable"}
+                                    onClick={() => void handleDisableUser(u.id, !u.disabled)}
+                                    title={u.disabled ? "Enable account" : "Disable account"}
+                                  >
+                                    {actionLoading === u.id + "-disable" ? (
+                                      <Loader2 className="w-3 h-3 animate-spin" />
+                                    ) : u.disabled ? (
+                                      <span className="text-emerald-400">Enable</span>
+                                    ) : (
+                                      <span className="text-muted-foreground hover:text-foreground">Disable</span>
+                                    )}
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+                                    onClick={() => setConfirmDeleteUser(u.id)}
+                                    title="Delete user"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </Button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
 
-                    {configured && (
-                      <div className="flex items-center gap-2">
+                    {/* Pagination */}
+                    {authUsersTotalPages > 1 && (
+                      <div className="flex items-center justify-between px-4 py-3 border-t border-border">
                         <Button
-                          variant="secondary"
+                          variant="outline"
                           size="sm"
-                          className="gap-1.5"
-                          onClick={() => window.open(oauthAuthorizeUrl(projectId, provider), "_blank")}
-                          title="Test the authorization flow in a new tab"
+                          className="h-8 px-3 text-xs"
+                          disabled={authUsersPage <= 1 || authUsersLoading}
+                          onClick={() => void loadAuthUsers(authUsersSearch || undefined, authUsersPage - 1)}
                         >
-                          <Users className="w-3.5 h-3.5" />
-                          <span>Test Flow</span>
+                          Previous
                         </Button>
-                        {confirmDelete === provider ? (
-                          <div className="flex items-center gap-1.5">
-                            <Button variant="destructive" size="sm" onClick={() => handleDelete(provider)} disabled={loading}>
-                              Confirm
-                            </Button>
-                            <Button variant="secondary" size="sm" onClick={() => setConfirmDelete(null)}>
-                              Cancel
-                            </Button>
-                          </div>
-                        ) : (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                            onClick={() => setConfirmDelete(provider)}
-                            title={`Remove ${meta.label} provider`}
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
-                        )}
+                        <span className="text-xs text-muted-foreground">
+                          Page {authUsersPage} of {authUsersTotalPages} ({authUsersTotal} users)
+                        </span>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-8 px-3 text-xs"
+                          disabled={authUsersPage >= authUsersTotalPages || authUsersLoading}
+                          onClick={() => void loadAuthUsers(authUsersSearch || undefined, authUsersPage + 1)}
+                        >
+                          Next
+                        </Button>
                       </div>
                     )}
+                  </Card>
+                )}
+
+                {/* Konfirmasi Hapus User */}
+                {confirmDeleteUser && (
+                  <ConfirmDelete
+                    title={`Delete user account?`}
+                    description="The user will be immediately logged out and will no longer be able to sign in. Their session tokens will be permanently revoked."
+                    confirmLabel="Delete User"
+                    busy={actionLoading === confirmDeleteUser + "-delete"}
+                    onConfirm={() => void handleDeleteUser(confirmDeleteUser)}
+                    onCancel={() => setConfirmDeleteUser(null)}
+                  />
+                )}
+              </div>
+            </TabsContent>
+
+            {/* ════════════════════════════════════════════════════════════════ */}
+            {/* TAB 2: OAUTH PROVIDERS (Grid Kompak + Modal Konfigurasi) */}
+            {/* ════════════════════════════════════════════════════════════════ */}
+            <TabsContent value="providers">
+              <div className="space-y-4">
+                <div className="flex justify-between items-center flex-wrap gap-2">
+                  <div>
+                    <h2 className="text-base font-semibold text-foreground">OAuth2 Social Identity Providers</h2>
+                    <p className="text-xs text-muted-foreground">
+                      Enable third-party authentication so end users can sign in with their existing accounts.
+                    </p>
                   </div>
+                </div>
 
-                  <div className="grid gap-4">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="space-y-1.5">
-                        <Label htmlFor={`${provider}-client-id`} className="text-xs">
-                          Client ID
-                        </Label>
-                        <Input
-                          id={`${provider}-client-id`}
-                          value={form.clientId}
-                          onChange={(e) => updateForm(provider, { clientId: e.target.value })}
-                          placeholder={configured ? "Current client ID" : "e.g. 123456789-abc.apps.googleusercontent.com"}
-                          className="font-mono text-sm"
-                          disabled={isApple}
-                        />
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label htmlFor={`${provider}-client-secret`} className="text-xs">
-                          Client Secret
-                        </Label>
-                        <Input
-                          id={`${provider}-client-secret`}
-                          type="password"
-                          value={form.clientSecret}
-                          onChange={(e) => updateForm(provider, { clientSecret: e.target.value })}
-                          placeholder={configured ? "Keep existing (blank = unchanged)" : "Secret from provider console"}
-                          className="font-mono text-sm"
-                          disabled={isApple}
-                        />
-                      </div>
-                    </div>
+                {providersError && (
+                  <LoadError message={providersError} onRetry={() => void loadProviders()} />
+                )}
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="space-y-1.5">
-                        <Label className="text-xs">Redirect URI (register this in {meta.label})</Label>
-                        <div className="h-9 px-3 bg-secondary border border-border rounded-md flex items-center text-xs font-mono text-muted-foreground truncate">
-                          {form.callbackUrl || registerCallbackUrl(provider)}
-                        </div>
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label htmlFor={`${provider}-origins`} className="text-xs">
-                          Allowed redirect origins (optional, comma separated)
-                        </Label>
-                        <Input
-                          id={`${provider}-origins`}
-                          value={form.allowedOrigins}
-                          onChange={(e) => updateForm(provider, { allowedOrigins: e.target.value })}
-                          placeholder="e.g. https://app.mydomain.com"
-                          className="text-xs font-mono"
-                          disabled={isApple}
-                        />
-                      </div>
-                    </div>
+                {/* Grid Provider Ringkas */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+                  {ALL_PROVIDERS.map((provider) => {
+                    const meta = PROVIDER_META[provider];
+                    const Icon = meta.icon;
+                    const configured = isConfigured(provider);
+                    const form = forms[provider] ?? EMPTY_FORM;
+                    const isApple = provider === "apple";
 
-                    <div className="flex items-center justify-between flex-wrap gap-3">
-                      <label className="flex items-center gap-2 text-sm cursor-pointer">
-                        <Checkbox
-                          checked={form.enabled}
-                          onCheckedChange={(c: boolean | 'indeterminate') => updateForm(provider, { enabled: !!c })}
-                          disabled={isApple}
-                        />
-                        <span className="text-muted-foreground">Enable {meta.label} sign-in</span>
-                      </label>
-
-                      <Button
-                        onClick={() => handleSave(provider)}
-                        disabled={loading || !form.clientId.trim() || isApple}
-                        className="gap-1.5"
-                        title={isApple ? "Apple sign-in is not yet supported by the server" : undefined}
+                    return (
+                      <Card
+                        key={provider}
+                        className={`p-4 flex flex-col justify-between hover:border-foreground/20 transition-colors ${
+                          isApple ? "opacity-60" : ""
+                        }`}
                       >
-                        {loading ? (
-                          <>
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                            <span>Saving…</span>
-                          </>
-                        ) : (
-                          <>
-                            <Save className="w-3.5 h-3.5" />
-                            <span>{configured ? "Update" : "Save"} Configuration</span>
-                          </>
-                        )}
-                      </Button>
+                        <div>
+                          {/* Top Row: Icon + Title + Status Badge */}
+                          <div className="flex items-center justify-between gap-2 mb-3">
+                            <div className="flex items-center gap-2.5">
+                              <div className="w-8 h-8 rounded-md bg-secondary border border-border flex items-center justify-center text-foreground">
+                                <Icon className="w-4 h-4" />
+                              </div>
+                              <div>
+                                <span className="font-semibold text-sm text-foreground block">
+                                  {meta.label}
+                                </span>
+                              </div>
+                            </div>
+                            <div>
+                              {isApple ? (
+                                <Badge variant="secondary" className="text-[10px] py-0 px-1.5">
+                                  Coming soon
+                                </Badge>
+                              ) : configured && form.enabled ? (
+                                <Badge variant="green" className="text-[10px] py-0 px-1.5 gap-1">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                                  Active
+                                </Badge>
+                              ) : configured && !form.enabled ? (
+                                <Badge variant="secondary" className="text-[10px] py-0 px-1.5">
+                                  Disabled
+                                </Badge>
+                              ) : (
+                                <Badge variant="secondary" className="text-[10px] py-0 px-1.5 text-muted-foreground">
+                                  Not configured
+                                </Badge>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Subtitle Info */}
+                          <p className="text-xs text-muted-foreground mb-4 line-clamp-2">
+                            {isApple
+                              ? meta.note
+                              : configured
+                              ? `Configured with Client ID (${form.clientId.slice(0, 16)}…)`
+                              : `Authenticate users with their ${meta.label} account.`}
+                          </p>
+                        </div>
+
+                        {/* Action Button */}
+                        <div className="pt-2 border-t border-border flex items-center justify-between gap-2">
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            className="w-full text-xs gap-1.5 h-8"
+                            onClick={() => setSelectedProvider(provider)}
+                            disabled={isApple}
+                          >
+                            <Settings className="w-3.5 h-3.5" />
+                            <span>{configured ? "Configure" : "Set up"}</span>
+                          </Button>
+                        </div>
+                      </Card>
+                    );
+                  })}
+                </div>
+              </div>
+            </TabsContent>
+
+            {/* ════════════════════════════════════════════════════════════════ */}
+            {/* TAB 3: CUSTOM PROFILE FIELDS */}
+            {/* ════════════════════════════════════════════════════════════════ */}
+            <TabsContent value="fields">
+              <AuthFieldsEditor projectId={projectId} />
+            </TabsContent>
+
+            {/* ════════════════════════════════════════════════════════════════ */}
+            {/* TAB 4: API & INTEGRATION */}
+            {/* ════════════════════════════════════════════════════════════════ */}
+            <TabsContent value="integration">
+              <div className="space-y-4">
+                <Card className="p-5">
+                  <h3 className="text-sm font-semibold mb-1 flex items-center gap-2">
+                    <Globe className="w-4 h-4 text-brand" />
+                    <span>OAuth2 Authorization Flow</span>
+                  </h3>
+                  <p className="text-xs text-muted-foreground mb-3 leading-relaxed">
+                    Direct users to this URL from your web or mobile client to start the OAuth2 flow. After consent, BaseForge redirects back to your application with JWT tokens in the URL fragment (<code className="bg-secondary px-1 rounded font-mono">#access_token=…&amp;refresh_token=…</code>).
+                  </p>
+                  <div className="bg-secondary border border-border rounded-md p-3 font-mono text-xs text-foreground overflow-x-auto select-all">
+                    GET {PUBLIC_API_URL}/api/p/{projectId}/auth/oauth/:provider/authorize?redirect_to=https://your-app.com/callback
+                  </div>
+                </Card>
+
+                <Card className="p-5">
+                  <h3 className="text-sm font-semibold mb-1 flex items-center gap-2">
+                    <KeyRound className="w-4 h-4 text-brand" />
+                    <span>Email &amp; Password REST Endpoints</span>
+                  </h3>
+                  <p className="text-xs text-muted-foreground mb-3 leading-relaxed">
+                    Standard JSON authentication endpoints for end-user accounts in this project.
+                  </p>
+                  <div className="space-y-2 font-mono text-xs">
+                    <div className="bg-secondary p-2 rounded border border-border flex items-center justify-between">
+                      <span><strong className="text-emerald-400">POST</strong> /api/p/{projectId}/auth/register</span>
+                      <span className="text-muted-foreground text-[11px] font-sans">Create user account</span>
+                    </div>
+                    <div className="bg-secondary p-2 rounded border border-border flex items-center justify-between">
+                      <span><strong className="text-emerald-400">POST</strong> /api/p/{projectId}/auth/login</span>
+                      <span className="text-muted-foreground text-[11px] font-sans">Obtain access &amp; refresh tokens</span>
+                    </div>
+                    <div className="bg-secondary p-2 rounded border border-border flex items-center justify-between">
+                      <span><strong className="text-emerald-400">POST</strong> /api/p/{projectId}/auth/refresh</span>
+                      <span className="text-muted-foreground text-[11px] font-sans">Rotate refresh token</span>
+                    </div>
+                    <div className="bg-secondary p-2 rounded border border-border flex items-center justify-between">
+                      <span><strong className="text-sky-400">GET</strong> /api/p/{projectId}/auth/me</span>
+                      <span className="text-muted-foreground text-[11px] font-sans">Get authenticated profile</span>
                     </div>
                   </div>
                 </Card>
-              );
-            })}
-          </div>
-
-          {/* Ops-16: custom profile field — didefinisikan admin, tervalidasi server */}
-          <div className="mt-8">
-            <AuthFieldsEditor projectId={projectId} />
-          </div>
-
-          {/* M47: Auth Users */}
-
-          <div className="mt-8 mb-6">
-            <div className="flex justify-between items-center flex-wrap gap-2 mb-4">
-              <div>
-                <h2 className="text-2xl font-semibold tracking-tight flex items-center gap-2.5">
-                  <Users className="w-6 h-6" />
-                  <span>Auth Users</span>
-                </h2>
-                <p className="text-sm text-muted-foreground mt-1">
-                  End users registered in this project ({authUsersTotal} total).
-                </p>
               </div>
-              <div className="flex items-center gap-2">
-                <Input
-                  placeholder="Search by email…"
-                  value={authUsersSearch}
-                  onChange={(e) => setAuthUsersSearch(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') loadAuthUsers(authUsersSearch || undefined, 1); }}
-                  className="w-56 text-sm"
-                />
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => loadAuthUsers(authUsersSearch || undefined, 1)}
-                  disabled={authUsersLoading}
-                >
-                  {authUsersLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
-                </Button>
-              </div>
-            </div>
-
-            {authUsersError && (
-              <Card className="p-3 mb-4 border-destructive/50 bg-destructive/10 text-destructive text-sm flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 shrink-0" />
-                <span>{authUsersError}</span>
-              </Card>
-            )}
-
-            {authUsers.length === 0 && !authUsersLoading ? (
-              <Card className="p-8 text-center text-sm text-muted-foreground">
-                No auth users yet. Users will appear here after they register via your app.
-              </Card>
-            ) : (
-              <Card className="overflow-hidden">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-border bg-secondary/50">
-                      <th className="text-left p-3 font-medium text-muted-foreground">Email</th>
-                      <th className="text-left p-3 font-medium text-muted-foreground">Name</th>
-                      <th className="text-left p-3 font-medium text-muted-foreground">Status</th>
-                      <th className="text-left p-3 font-medium text-muted-foreground">MFA</th>
-                      <th className="text-left p-3 font-medium text-muted-foreground">Created</th>
-                      <th className="text-right p-3 font-medium text-muted-foreground">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {authUsers.map((u) => (
-                      <tr key={u.id} className="border-b border-border/50 hover:bg-secondary/30 transition-colors">
-                        <td className="p-3 font-mono text-xs">{u.email}</td>
-                        <td className="p-3">{u.name || "—"}</td>
-                        <td className="p-3">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            {u.verified ? (
-                              <Badge variant="green" className="text-[10px] gap-0.5"><Check className="w-2.5 h-2.5" />Verified</Badge>
-                            ) : (
-                              <Badge variant="secondary" className="text-[10px]">Unverified</Badge>
-                            )}
-                            {u.disabled && (
-                              <Badge variant="destructive" className="text-[10px]">Disabled</Badge>
-                            )}
-                          </div>
-                        </td>
-                        <td className="p-3">
-                          {u.mfaEnabled ? (
-                            <Badge variant="green" className="text-[10px]">On</Badge>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">Off</span>
-                          )}
-                        </td>
-                        <td className="p-3 text-xs text-muted-foreground">{new Date(u.created).toLocaleDateString()}</td>
-                        <td className="p-3 text-right">
-                          <div className="flex items-center justify-end gap-1">
-                            {!u.verified && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-7 px-2 text-xs"
-                                disabled={actionLoading === u.id + "-verify"}
-                                onClick={() => handleVerifyUser(u.id, true)}
-                                title="Mark as verified"
-                              >
-                                {actionLoading === u.id + "-verify" ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
-                              </Button>
-                            )}
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-7 px-2 text-xs"
-                              disabled={actionLoading === u.id + "-disable"}
-                              onClick={() => handleDisableUser(u.id, !u.disabled)}
-                              title={u.disabled ? "Enable user" : "Disable user"}
-                            >
-                              {actionLoading === u.id + "-disable" ? (
-                                <Loader2 className="w-3 h-3 animate-spin" />
-                              ) : u.disabled ? (
-                                <Check className="w-3 h-3" />
-                              ) : (
-                                <AlertTriangle className="w-3 h-3" />
-                              )}
-                            </Button>
-                            {confirmDeleteUser === u.id ? (
-                              <div className="flex items-center gap-1">
-                                <Button variant="destructive" size="sm" className="h-7 px-2 text-xs" disabled={actionLoading === u.id + "-delete"} onClick={() => handleDeleteUser(u.id)}>
-                                  {actionLoading === u.id + "-delete" ? <Loader2 className="w-3 h-3 animate-spin" /> : "Confirm"}
-                                </Button>
-                                <Button variant="secondary" size="sm" className="h-7 px-2 text-xs" onClick={() => setConfirmDeleteUser(null)}>
-                                  Cancel
-                                </Button>
-                              </div>
-                            ) : (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-7 px-2 text-xs text-muted-foreground hover:text-destructive"
-                                onClick={() => setConfirmDeleteUser(u.id)}
-                                title="Delete user"
-                              >
-                                <Trash2 className="w-3 h-3" />
-                              </Button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                {/* Pagination — tampil bila user lebih dari satu halaman */}
-                {authUsersTotalPages > 1 && (
-                  <div className="flex items-center justify-between px-4 py-3 border-t border-border">
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      disabled={authUsersPage <= 1 || authUsersLoading}
-                      onClick={() => loadAuthUsers(authUsersSearch || undefined, authUsersPage - 1)}
-                    >
-                      ← Previous
-                    </Button>
-                    <span className="text-xs text-muted-foreground">
-                      Page {authUsersPage} of {authUsersTotalPages} ({authUsersTotal} users)
-                    </span>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      disabled={authUsersPage >= authUsersTotalPages || authUsersLoading}
-                      onClick={() => loadAuthUsers(authUsersSearch || undefined, authUsersPage + 1)}
-                    >
-                      Next →
-                    </Button>
-                  </div>
-                )}
-              </Card>
-            )}
-          </div>
-
-          {/* Integrasi untuk developer end-user app */}
-          <Card className="p-5 mt-6">
-            <div className="flex items-center gap-2 mb-3">
-              <Link2 className="w-4 h-4 text-muted-foreground" />
-              <h3 className="text-sm font-semibold">Integrate from your app</h3>
-            </div>
-            <p className="text-xs text-muted-foreground mb-3 leading-relaxed">
-              Send users to the authorize URL — after consent, BaseForge redirects them back with tokens in the URL fragment (<code className="bg-secondary px-1.5 py-0.5 rounded font-mono">#access_token=…&refresh_token=…</code>).
-            </p>
-            <div className="bg-secondary border border-border rounded-md p-3 font-mono text-xs text-foreground overflow-x-auto whitespace-nowrap">
-              GET {PUBLIC_API_URL}/api/p/{projectId}/auth/oauth/{"{google|github}"}/authorize?redirect_to=https://your-app.com/callback
-            </div>
-          </Card>
+            </TabsContent>
+          </Tabs>
         </div>
       </div>
+
+      {/* ─── MODAL KONFIGURASI OAUTH PROVIDER ─── */}
+      {selectedProvider && activeProviderMeta && (
+        <Dialog
+          open={!!selectedProvider}
+          onOpenChange={(open: boolean) => {
+            if (!open) {
+              setSelectedProvider(null);
+              setConfirmDeleteProvider(null);
+            }
+          }}
+        >
+          <DialogContent className="max-w-xl w-full p-6 sm:p-7 overflow-hidden">
+            <DialogHeader className="pr-8 space-y-1.5 text-left">
+              <DialogTitle className="flex items-center gap-2.5 text-base font-semibold text-foreground">
+                <div className="w-8 h-8 rounded-md bg-secondary border border-border flex items-center justify-center shrink-0">
+                  <activeProviderMeta.icon className="w-4 h-4 text-foreground" />
+                </div>
+                <span>{activeProviderMeta.label} Configuration</span>
+              </DialogTitle>
+              <DialogDescription className="text-xs text-muted-foreground flex items-center gap-1.5 flex-wrap pt-0.5">
+                <span>Configure OAuth2 credentials from the</span>
+                <a
+                  href={activeProviderMeta.docsUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-foreground underline hover:text-primary inline-flex items-center gap-1 font-medium transition-colors"
+                >
+                  <span>{activeProviderMeta.label} Developer Console</span>
+                  <ExternalLink className="w-3 h-3" />
+                </a>
+              </DialogDescription>
+            </DialogHeader>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                void handleSaveProvider(selectedProvider);
+              }}
+              className="space-y-4 pt-1 text-left w-full min-w-0 max-w-full"
+            >
+              {/* Client ID — autoComplete="off" + ignore attributes mencegah autofill kredensial admin */}
+              <div className="space-y-1.5 w-full min-w-0">
+                <Label htmlFor="oauth-client-id" className="text-xs font-medium">
+                  Client ID <span className="text-destructive">*</span>
+                </Label>
+                <Input
+                  id="oauth-client-id"
+                  name="oauth_provider_client_id_field"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  spellCheck="false"
+                  data-lpignore="true"
+                  data-1p-ignore="true"
+                  value={activeForm.clientId}
+                  onChange={(e) => updateForm(selectedProvider, { clientId: e.target.value })}
+                  placeholder={`Client ID from ${activeProviderMeta.label} console`}
+                  required
+                  className="h-10 text-sm font-mono w-full min-w-0"
+                />
+              </div>
+
+              {/* Client Secret — autoComplete="new-password" mencegah autofill password admin */}
+              <div className="space-y-1.5 w-full min-w-0">
+                <Label htmlFor="oauth-client-secret" className="text-xs font-medium">
+                  Client Secret {activeConfigured ? <span className="text-muted-foreground font-normal">(leave blank to keep current)</span> : <span className="text-destructive">*</span>}
+                </Label>
+                <Input
+                  id="oauth-client-secret"
+                  name="oauth_provider_client_secret_field"
+                  type="password"
+                  autoComplete="new-password"
+                  data-lpignore="true"
+                  data-1p-ignore="true"
+                  value={activeForm.clientSecret}
+                  onChange={(e) => updateForm(selectedProvider, { clientSecret: e.target.value })}
+                  placeholder={activeConfigured ? "••••••••••••••••" : `Client secret from ${activeProviderMeta.label}`}
+                  required={!activeConfigured}
+                  className="h-10 text-sm font-mono w-full min-w-0"
+                />
+              </div>
+
+              {/* Redirect URI (Copyable) — Tombol Copy di baris label agar URL mendapat 100% lebar container tanpa overflow flex */}
+              <div className="space-y-1.5 w-full min-w-0">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs font-medium">Authorized Redirect URI</Label>
+                  <button
+                    type="button"
+                    onClick={() => handleCopyUri(registerCallbackUrl(selectedProvider))}
+                    className="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1 font-medium transition-colors cursor-pointer"
+                  >
+                    {copiedUri ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span className={copiedUri ? "text-emerald-400" : ""}>{copiedUri ? "Copied" : "Copy URI"}</span>
+                  </button>
+                </div>
+                <div className="h-10 px-3 bg-secondary/80 border border-border rounded-md w-full flex items-center text-xs font-mono text-muted-foreground select-all overflow-hidden min-w-0">
+                  <span className="truncate w-full">{registerCallbackUrl(selectedProvider)}</span>
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  Paste this exact URL into Authorized redirect URIs in your {activeProviderMeta.label} console.
+                </p>
+              </div>
+
+              {/* Allowed Origins */}
+              <div className="space-y-1.5 w-full min-w-0">
+                <Label htmlFor="oauth-allowed-origins" className="text-xs font-medium">
+                  Allowed Redirect Origins <span className="text-muted-foreground font-normal">(optional, comma-separated)</span>
+                </Label>
+                <Input
+                  id="oauth-allowed-origins"
+                  autoComplete="off"
+                  value={activeForm.allowedOrigins}
+                  onChange={(e) => updateForm(selectedProvider, { allowedOrigins: e.target.value })}
+                  placeholder="e.g. https://app.mydomain.com, http://localhost:3000"
+                  className="h-10 font-mono text-xs w-full min-w-0"
+                />
+              </div>
+
+              {/* Toggle Enable Card */}
+              <div className="rounded-lg border border-border bg-secondary/40 p-3 flex items-center justify-between gap-3 w-full min-w-0">
+                <div className="space-y-0.5">
+                  <Label htmlFor="oauth-enable-toggle" className="text-xs font-medium cursor-pointer text-foreground block">
+                    Enable {activeProviderMeta.label} Sign-in
+                  </Label>
+                  <p className="text-[11px] text-muted-foreground">
+                    Allow end users to authenticate with their {activeProviderMeta.label} account.
+                  </p>
+                </div>
+                <Checkbox
+                  id="oauth-enable-toggle"
+                  checked={activeForm.enabled}
+                  onCheckedChange={(c: boolean | "indeterminate") =>
+                    updateForm(selectedProvider, { enabled: !!c })
+                  }
+                />
+              </div>
+
+              {/* Modal Footer */}
+              <div className="flex items-center justify-between pt-4 border-t border-border mt-5 w-full min-w-0">
+                <div>
+                  {activeConfigured && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="text-destructive hover:bg-destructive/10 text-xs gap-1.5 h-9"
+                      onClick={() => setConfirmDeleteProvider(selectedProvider)}
+                      disabled={savingProvider}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Remove Provider</span>
+                    </Button>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    className="h-9 px-4 text-xs"
+                    onClick={() => {
+                      setSelectedProvider(null);
+                      setConfirmDeleteProvider(null);
+                    }}
+                    disabled={savingProvider}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="submit"
+                    size="sm"
+                    className="h-9 px-4 text-xs gap-1.5"
+                    disabled={savingProvider || !activeForm.clientId.trim()}
+                  >
+                    {savingProvider ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <span>Saving…</span>
+                      </>
+                    ) : (
+                      <>
+                        <Save className="w-3.5 h-3.5" />
+                        <span>Save Changes</span>
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+            </form>
+
+            {/* Konfirmasi Hapus Provider */}
+            {confirmDeleteProvider && (
+              <div className="mt-3">
+                <ConfirmDelete
+                  title={`Remove ${activeProviderMeta.label} provider?`}
+                  description="Users will no longer be able to log in using this OAuth provider. Existing linked accounts will be detached."
+                  confirmLabel="Remove"
+                  busy={savingProvider}
+                  onConfirm={() => void handleDeleteProvider(confirmDeleteProvider)}
+                  onCancel={() => setConfirmDeleteProvider(null)}
+                />
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
+      )}
+
+      <ToastHost toasts={toasts} onDismiss={dismiss} />
     </>
   );
 }

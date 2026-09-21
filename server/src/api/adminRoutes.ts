@@ -13,6 +13,7 @@ import {
 } from '../platform/adminAuth.js';
 import {
   listProjects,
+  listProjectsPaged,
   getProject,
   createProject,
   updateProject,
@@ -21,6 +22,7 @@ import {
   destroyProjectStorage,
   DEFAULT_SERVICES,
   type ProjectServices,
+  type ProjectSort,
 } from '../core/platformDb.js';
 import { closeProjectDb } from '../core/projectDbManager.js';
 
@@ -141,9 +143,48 @@ export function createAdminRouter(): Router {
   // ─── Projects CRUD ──────────────────────────────────────────────────────
   // Perhatikan: semua route di bawah ini memakai middleware requireAdmin.
 
+  // M48: paginasi + search + sort DI SERVER.
+  //
+  // Kompatibilitas: tanpa parameter apa pun, respons tetap seperti semula
+  // (seluruh project di `projects`) — CLI dan test lama tidak perlu diubah.
+  // Klien yang mengirim `perPage` mendapat satu halaman + blok `meta`.
+  // Alasan opt-in: memaksa paginasi default akan diam-diam memotong hasil
+  // bagi pemanggil lama, bentuk bug yang paling sulit dilacak.
   router.get('/api/admin/projects', requireAdmin, (req, res) => {
-    const projects = listProjects().map(serializeProject);
-    res.json({ projects });
+    const perPageRaw = req.query.get('perPage');
+    const search = req.query.get('search') ?? '';
+    const sortRaw = req.query.get('sort') ?? 'newest';
+    const sort: ProjectSort =
+      sortRaw === 'oldest' || sortRaw === 'name' ? sortRaw : 'newest';
+
+    if (perPageRaw === null) {
+      const all = listProjects();
+      const projects = search
+        ? listProjectsPaged({ search, sort, limit: 100, offset: 0 }).projects
+        : all;
+      res.json({ projects: projects.map(serializeProject) });
+      return;
+    }
+
+    const perPage = Math.min(Math.max(parseInt(perPageRaw, 10) || 24, 1), 100);
+    const page = Math.max(parseInt(req.query.get('page') ?? '1', 10) || 1, 1);
+
+    const { projects, total } = listProjectsPaged({
+      search,
+      sort,
+      limit: perPage,
+      offset: (page - 1) * perPage,
+    });
+
+    res.json({
+      projects: projects.map(serializeProject),
+      meta: {
+        page,
+        perPage,
+        total,
+        totalPages: Math.max(Math.ceil(total / perPage), 1),
+      },
+    });
   });
 
   router.post('/api/admin/projects', requireAdmin, (req, res) => {

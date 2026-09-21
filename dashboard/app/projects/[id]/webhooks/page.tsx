@@ -12,7 +12,7 @@
 //  - Toggle enable/disable instan, delete via ConfirmDelete
 // ============================================================================
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import {
   listWebhooks,
@@ -36,6 +36,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { ConfirmDelete } from "@/components/ui/confirm-delete";
 import { useToasts, ToastHost } from "@/components/ui/toast";
+import { LoadError, errorMessage } from "@/components/ui/load-error";
 import {
   Webhook,
   Plus,
@@ -51,6 +52,7 @@ import {
   ChevronUp,
   X,
   Clock,
+  Loader2,
 } from "lucide-react";
 
 const EVENT_ACTIONS = ["create", "update", "delete"] as const;
@@ -63,10 +65,31 @@ export default function WebhooksPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  // Timer terlacak: setTimeout yang tidak disimpan akan tetap jalan (dan
+  // memanggil setState) walau komponen sudah unmount atau webhook-nya sudah
+  // dihapus — React memperingatkan "update on unmounted component".
+  const timersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
+  const schedule = useCallback((fn: () => void, ms: number) => {
+    const t = setTimeout(() => {
+      timersRef.current.delete(t);
+      fn();
+    }, ms);
+    timersRef.current.add(t);
+  }, []);
+  // Unmount: batalkan semua yang belum jalan.
+  useEffect(() => {
+    const timers = timersRef.current;
+    return () => {
+      for (const t of timers) clearTimeout(t);
+      timers.clear();
+    };
+  }, []);
+
   // editor state
   const [editing, setEditing] = useState<WebhookDef | null>(null);
   const [creating, setCreating] = useState(false);
   const [collectionNames, setCollectionNames] = useState<string[]>([]);
+  const [collectionsError, setCollectionsError] = useState("");
 
   // secret sekali-lihat setelah create
   const [freshSecret, setFreshSecret] = useState<{ name: string; secret: string } | null>(null);
@@ -75,10 +98,12 @@ export default function WebhooksPage() {
   // deliveries panel per webhook
   const [deliveriesOpen, setDeliveriesOpen] = useState<string | null>(null);
   const [deliveries, setDeliveries] = useState<WebhookDelivery[]>([]);
+  const [deliveriesError, setDeliveriesError] = useState("");
   const [loadingDeliveries, setLoadingDeliveries] = useState(false);
 
   // test send state
   const [testing, setTesting] = useState<string | null>(null);
+  const [toggling, setToggling] = useState<string | null>(null);
 
   // delete confirm
   const [confirmDeleteHook, setConfirmDeleteHook] = useState<WebhookDef | null>(null);
@@ -100,16 +125,29 @@ export default function WebhooksPage() {
   useEffect(() => {
     load();
     listCollectionsForFunctions(projectId)
-      .then((cols) => setCollectionNames(cols.map((c) => c.name)))
-      .catch(() => setCollectionNames([]));
+      .then((cols) => {
+        setCollectionNames(cols.map((c) => c.name));
+        setCollectionsError("");
+      })
+      .catch((e) => {
+        // Dulu `.catch(() => setCollectionNames([]))` — editor event lalu
+        // menampilkan "No collections in this project yet", membuat admin
+        // mengira project-nya memang kosong padahal request yang gagal.
+        setCollectionNames([]);
+        setCollectionsError(errorMessage(e, "Failed to load collections"));
+      });
   }, [load, projectId]);
 
   async function loadDeliveries(hookId: string) {
     setLoadingDeliveries(true);
+    setDeliveriesError("");
     try {
       setDeliveries(await listWebhookDeliveries(projectId, hookId));
-    } catch {
+    } catch (e) {
+      // "No deliveries yet" pada webhook yang sebenarnya gagal dibaca akan
+      // menuntun admin men-debug endpoint yang justru tidak bermasalah.
       setDeliveries([]);
+      setDeliveriesError(errorMessage(e, "Failed to load delivery log"));
     } finally {
       setLoadingDeliveries(false);
     }
@@ -125,11 +163,15 @@ export default function WebhooksPage() {
   }
 
   async function handleToggle(hook: WebhookDef) {
+    if (toggling === hook.id) return;
+    setToggling(hook.id);
     try {
       await updateWebhook(projectId, hook.id, { enabled: !hook.enabled });
       load();
     } catch (e) {
-      toastError(e instanceof Error ? e.message : "Failed to update status");
+      toastError(e instanceof Error ? e.message : "Failed to update webhook");
+    } finally {
+      setToggling(null);
     }
   }
 
@@ -152,7 +194,7 @@ export default function WebhooksPage() {
       toastSuccess(`Test delivery sent to '${hook.name}' — check the log below in a few seconds.`);
       // refresh deliveries kalau panelnya sedang terbuka
       if (deliveriesOpen === hook.id) {
-        setTimeout(() => loadDeliveries(hook.id), 2500);
+        schedule(() => loadDeliveries(hook.id), 2500);
       }
     } catch (e) {
       toastError(e instanceof Error ? e.message : "Failed to send test");
@@ -165,7 +207,7 @@ export default function WebhooksPage() {
     if (!freshSecret) return;
     navigator.clipboard.writeText(freshSecret.secret);
     setSecretCopied(true);
-    setTimeout(() => setSecretCopied(false), 1500);
+    schedule(() => setSecretCopied(false), 1500);
   }
 
   return (
@@ -264,11 +306,13 @@ export default function WebhooksPage() {
                       </Badge>
                     ))}
                     <span className="flex-1" />
-                    <label className="flex items-center gap-1.5 text-sm cursor-pointer">
+                    <label className={`flex items-center gap-1.5 text-sm ${toggling === hook.id ? "opacity-60 cursor-wait" : "cursor-pointer"}`}>
                       <Checkbox
                         checked={hook.enabled}
+                        disabled={toggling === hook.id}
                         onCheckedChange={() => handleToggle(hook)}
                       />
+                      {toggling === hook.id && <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />}
                       {hook.enabled ? "active" : "disabled"}
                     </label>
                     <Button
@@ -338,6 +382,13 @@ export default function WebhooksPage() {
                       </div>
                       {loadingDeliveries ? (
                         <p className="text-muted-foreground text-xs">Loading…</p>
+                      ) : deliveriesError ? (
+                        <LoadError
+                          variant="inline"
+                          message={deliveriesError}
+                          onRetry={() => loadDeliveries(hook.id)}
+                          retrying={loadingDeliveries}
+                        />
                       ) : deliveries.length === 0 ? (
                         <p className="text-muted-foreground text-xs">
                           No deliveries yet. Trigger a matching event (or press Test) and it will appear here.
@@ -387,6 +438,7 @@ export default function WebhooksPage() {
               projectId={projectId}
               existing={editing}
               collectionNames={collectionNames}
+              collectionsError={collectionsError}
               onClose={() => { setCreating(false); setEditing(null); }}
               onSaved={(hook, isNew) => {
                 setCreating(false);
@@ -414,12 +466,15 @@ function WebhookEditor({
   projectId,
   existing,
   collectionNames,
+  collectionsError,
   onClose,
   onSaved,
 }: {
   projectId: string;
   existing: WebhookDef | null;
   collectionNames: string[];
+  /** Diteruskan agar editor tidak menyebut project "kosong" saat fetch gagal. */
+  collectionsError?: string;
   onClose: () => void;
   onSaved: (hook: WebhookDef, isNew: boolean) => void;
 }) {
@@ -518,7 +573,11 @@ function WebhookEditor({
 
           {!listenAll && (
             <div className="space-y-2 pt-1">
-              {collectionNames.length === 0 ? (
+              {collectionsError ? (
+                /* Tanpa ini, gagal-muat tampil sebagai "project belum punya
+                   collection" — admin bisa membuat collection duplikat. */
+                <LoadError variant="inline" message={collectionsError} />
+              ) : collectionNames.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
                   No collections in this project yet. Create one first, or listen to all events.
                 </p>

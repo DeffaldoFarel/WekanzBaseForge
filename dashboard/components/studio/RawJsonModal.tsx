@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useRef, useEffect } from "react";
 import {
   Dialog,
   DialogContent,
@@ -7,7 +8,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Copy } from "lucide-react";
+import { Copy, Check } from "lucide-react";
 
 interface RawJsonModalProps {
   data: Record<string, unknown> | null;
@@ -15,6 +16,27 @@ interface RawJsonModalProps {
 }
 
 export function RawJsonModal({ data, onClose }: RawJsonModalProps) {
+  // Feedback lokal di tombol (menggantikan alert() native). Toast global akan
+  // terasa lepas dari aksinya; ikon centang tepat di tombol yang diklik lebih
+  // jelas dan tidak memblokir apa pun.
+  const [copied, setCopied] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Bersihkan timer saat modal ditutup/unmount — pola yang sama yang sudah
+  // diterapkan di webhooks & toast.
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, []);
+
+  function handleCopy() {
+    navigator.clipboard.writeText(JSON.stringify(data, null, 2));
+    setCopied(true);
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => setCopied(false), 1500);
+  }
+
   return (
     <Dialog open={!!data} onOpenChange={(open: boolean) => !open && onClose()}>
       <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
@@ -25,13 +47,10 @@ export function RawJsonModal({ data, onClose }: RawJsonModalProps) {
               variant="secondary"
               size="sm"
               className="gap-1.5"
-              onClick={() => {
-                navigator.clipboard.writeText(JSON.stringify(data, null, 2));
-                alert("JSON copied to clipboard!");
-              }}
+              onClick={handleCopy}
             >
-              <Copy className="w-3.5 h-3.5" />
-              <span>Copy JSON</span>
+              {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+              <span>{copied ? "Copied" : "Copy JSON"}</span>
             </Button>
           </DialogTitle>
         </DialogHeader>

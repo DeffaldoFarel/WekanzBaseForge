@@ -30,6 +30,8 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { useToasts, ToastHost } from "@/components/ui/toast";
+import { LoadError, errorMessage } from "@/components/ui/load-error";
+import { ConfirmDelete } from "@/components/ui/confirm-delete";
 import {
   Activity,
   AlertTriangle,
@@ -53,6 +55,10 @@ export default function MonitoringPage() {
   const [tab, setTab] = useState<AlertTab>("firing");
   const [loading, setLoading] = useState(true);
   const [loadingAlerts, setLoadingAlerts] = useState(false);
+  // Dibedakan dari "tidak ada alert": daftar kosong karena GAGAL dimuat tidak
+  // boleh tampil sebagai "everything is within thresholds".
+  const [alertsError, setAlertsError] = useState("");
+  const [settingsError, setSettingsError] = useState("");
 
   // edit state per rule: threshold + enabled (keyed by rule name)
   const [ruleDrafts, setRuleDrafts] = useState<Record<string, { threshold: string; enabled: boolean }>>({});
@@ -61,6 +67,8 @@ export default function MonitoringPage() {
   const [savingConfig, setSavingConfig] = useState(false);
   const [testing, setTesting] = useState(false);
   const [actingOn, setActingOn] = useState<string | null>(null);
+  const [togglingEnabled, setTogglingEnabled] = useState(false);
+  const [confirmResolve, setConfirmResolve] = useState<AlertRecord | null>(null);
 
   const { toasts, success: toastSuccess, error: toastError, dismiss } = useToasts();
 
@@ -69,8 +77,12 @@ export default function MonitoringPage() {
       setLoadingAlerts(true);
       try {
         setAlerts(await listAlerts(t === "all" ? undefined : t));
-      } catch {
-        setAlerts([]);
+        setAlertsError("");
+      } catch (e) {
+        // JANGAN setAlerts([]) di sini. Daftar kosong + pesan "no firing
+        // alerts" adalah klaim tentang kesehatan sistem yang tidak kita
+        // miliki dasarnya saat request gagal.
+        setAlertsError(errorMessage(e, "Failed to load alerts"));
       } finally {
         setLoadingAlerts(false);
       }
@@ -82,6 +94,7 @@ export default function MonitoringPage() {
     try {
       const s = await getMonitoringSettings();
       setSettings(s);
+      setSettingsError("");
       setCooldownDraft(String(s.cooldownMinutes));
       setWebhookDraft(s.webhookUrl ?? "");
       const drafts: Record<string, { threshold: string; enabled: boolean }> = {};
@@ -90,7 +103,9 @@ export default function MonitoringPage() {
       }
       setRuleDrafts(drafts);
     } catch (e) {
-      toastError(e instanceof Error ? e.message : "Failed to load monitoring settings");
+      const msg = errorMessage(e, "Failed to load monitoring settings");
+      setSettingsError(msg);
+      toastError(msg);
     } finally {
       setLoading(false);
     }
@@ -105,14 +120,43 @@ export default function MonitoringPage() {
     loadAlerts(tab);
   }, [tab, loadAlerts]);
 
+  // ─── Auto-refresh polling (selaras interval cek server 30 detik) ─────────
+  // Header halaman ini menjanjikan "checked every 30 seconds", tapi sebelumnya
+  // tidak ada polling sama sekali — daftar alert membeku diam-diam sampai user
+  // menekan refresh manual, sehingga alert baru tidak pernah muncul sendiri.
+  // Berhenti saat tab tidak terlihat (jangan polling di background).
+  useEffect(() => {
+    let timer: ReturnType<typeof setInterval> | null = null;
+    const tick = () => {
+      loadAlerts(tab);
+      load();
+    };
+    const start = () => { if (!timer) timer = setInterval(tick, 30_000); };
+    const stop = () => { if (timer) { clearInterval(timer); timer = null; } };
+    const onVisibility = () => (document.hidden ? stop() : start());
+
+    start();
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      stop();
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [tab, loadAlerts, load]);
+
   async function handleToggleEnabled() {
-    if (!settings) return;
+    if (!settings || togglingEnabled) return;
+    // Menyalakan/mematikan monitoring platform-wide. Tanpa guard, klik cepat
+    // beruntun mengirim beberapa toggle yang saling meniadakan dan
+    // meninggalkan state tidak konsisten.
+    setTogglingEnabled(true);
     try {
       await updateMonitoringSettings({ enabled: !settings.enabled });
       toastSuccess(!settings.enabled ? "Monitoring enabled — checks run every 30s." : "Monitoring paused.");
       load();
     } catch (e) {
       toastError(e instanceof Error ? e.message : "Failed to update");
+    } finally {
+      setTogglingEnabled(false);
     }
   }
 
@@ -185,6 +229,7 @@ export default function MonitoringPage() {
     try {
       await resolveAlert(id);
       toastSuccess("Alert resolved.");
+      setConfirmResolve(null);
       loadAlerts(tab);
       load();
     } catch (e) {
@@ -226,22 +271,33 @@ export default function MonitoringPage() {
                     <span>{settings.stats.unresolved} unresolved</span>
                   </Badge>
                 )}
-                <label className="flex items-center gap-2 text-sm cursor-pointer bg-secondary border border-border rounded-md px-3 py-1.5">
+                <label className={`flex items-center gap-2 text-sm bg-secondary border border-border rounded-md px-3 py-1.5 ${togglingEnabled ? "opacity-60 cursor-wait" : "cursor-pointer"}`}>
                   <Checkbox
                     checked={settings.enabled}
+                    disabled={togglingEnabled}
                     onCheckedChange={handleToggleEnabled}
                   />
                   <span>{settings.enabled ? "Monitoring ON" : "Monitoring OFF"}</span>
+                  {togglingEnabled && <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" />}
                 </label>
               </div>
             )}
           </div>
         </div>
 
+
         {loading ? (
           <Card className="p-8 text-center text-muted-foreground text-sm">Loading monitoring…</Card>
         ) : !settings ? (
-          <Card className="p-8 text-center text-muted-foreground text-sm">Failed to load monitoring settings.</Card>
+          /* Dulu hanya kalimat buntu tanpa sebab & tanpa jalan keluar. */
+          <LoadError
+            message={settingsError || "Failed to load monitoring settings."}
+            onRetry={() => {
+              setLoading(true);
+              load();
+            }}
+            retrying={loading}
+          />
         ) : (
           <>
             {/* Alert rules config */}
@@ -360,6 +416,14 @@ export default function MonitoringPage() {
 
               {loadingAlerts ? (
                 <p className="text-sm text-muted-foreground">Loading alerts…</p>
+              ) : alertsError ? (
+                /* Dicek SEBELUM alerts.length — kegagalan tidak boleh
+                   menyamar sebagai "semuanya aman". */
+                <LoadError
+                  message={alertsError}
+                  onRetry={() => loadAlerts(tab)}
+                  retrying={loadingAlerts}
+                />
               ) : alerts.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
                   {tab === "firing"
@@ -420,13 +484,28 @@ export default function MonitoringPage() {
                               size="sm"
                               className="h-6 text-[11px]"
                               disabled={actingOn === a.id}
-                              onClick={() => handleResolve(a.id)}
+                              onClick={() => setConfirmResolve(a)}
                             >
                               Resolve
                             </Button>
                           </div>
                         )}
                       </div>
+                      {/* Menandai alert resolved membuatnya hilang dari tab
+                          "firing" — alert aktif yang belum benar-benar selesai
+                          bisa terkubur permanen tanpa cara membatalkan dari UI. */}
+                      {confirmResolve?.id === a.id && (
+                        <div className="mt-2">
+                          <ConfirmDelete
+                            title={`Resolve "${a.message}"?`}
+                            description="It will leave the firing list. Only do this once the underlying issue is actually fixed — a buried alert means the problem goes unnoticed."
+                            confirmLabel="Resolve Alert"
+                            busy={actingOn === a.id}
+                            onConfirm={() => handleResolve(a.id)}
+                            onCancel={() => setConfirmResolve(null)}
+                          />
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>

@@ -19,7 +19,7 @@ import assert from 'node:assert';
 import fs from 'node:fs';
 import path from 'node:path';
 import nodeHttp from 'node:http';
-import { initPlatformDb } from '../src/core/platformDb.js';
+import { initPlatformDb, closePlatformDb } from '../src/core/platformDb.js';
 import { closeAllProjectDbs } from '../src/core/projectDbManager.js';
 import { Router } from '../src/core/router.js';
 import { createAdminRouter } from '../src/api/adminRoutes.js';
@@ -124,40 +124,42 @@ before(async () => {
 after(async () => {
   await new Promise<void>((r) => server.close(() => r()));
   closeAllProjectDbs();
+  // Windows: rmSync gagal EPERM selama handle platform.db masih terbuka.
+  closePlatformDb();
   fs.rmSync(TEST_DATA_DIR, { recursive: true, force: true });
 });
 
 // ─── Unit: ekstraksi projectId dari path ─────────────────────────────────────
 
-test('extractProjectId: atribusi path → project (public/admin/files)', () => {
+test('extractProjectId: atribusi path → project (public/files, admin diabaikan)', () => {
   assert.equal(extractProjectId('/api/p/abc123/records'), 'abc123');
   assert.equal(extractProjectId('/api/p/abc123/auth/login'), 'abc123');
-  assert.equal(extractProjectId('/api/admin/projects/xyz789/collections'), 'xyz789');
   assert.equal(extractProjectId('/api/files/xyz789/photos/rec/file.png'), 'xyz789');
+  assert.equal(extractProjectId('/api/admin/projects/xyz789/collections'), null); // admin tidak dihitung
   assert.equal(extractProjectId('/api/health'), null);
   assert.equal(extractProjectId('/api/admin/auth/login'), null);
   assert.equal(extractProjectId('/api/p'), null); // terlalu pendek
   assert.equal(extractProjectId('/'), null);
 });
 
-test('metricsProjectId: endpoint stats TIDAK dihitung (observer effect)', () => {
+test('metricsProjectId: endpoint admin & stats TIDAK dihitung', () => {
   assert.equal(metricsProjectId('/api/admin/projects/abc123/stats'), null);
-  // Path lain tetap dihitung
-  assert.equal(metricsProjectId('/api/admin/projects/abc123/collections'), 'abc123');
-  assert.equal(metricsProjectId('/api/p/abc123/stats'), 'abc123'); // collection bernama 'stats' TETAP dihitung
+  assert.equal(metricsProjectId('/api/admin/projects/abc123/collections'), null); // aktivitas admin tidak dihitung
+  assert.equal(metricsProjectId('/api/p/abc123/records'), 'abc123');
+  assert.equal(metricsProjectId('/api/files/abc123/bucket/photo-1'), 'abc123');
 });
 
-// ─── 1+2: request public & admin terhitung dengan bytes ─────────────────────
+// ─── 1+2: request public terhitung dengan bytes, admin diabaikan ────────────
 
-test('request public & admin terhitung (requests + bytesOut)', async () => {
+test('request public terhitung (requests + bytesOut), admin diabaikan', async () => {
   const before = await statsOf(projectIdA);
 
-  // Public API traffic (list records)
+  // Public API traffic (list records) - 3 request
   for (let i = 0; i < 3; i++) {
     const r = await http('GET', `/api/p/${projectIdA}/collections/items/records`);
     assert.equal(r.status, 200);
   }
-  // Admin API traffic (list collections)
+  // Admin API traffic (list collections) - TIDAK boleh menambah metrics statistik
   const admin1 = await http(
     'GET',
     `/api/admin/projects/${projectIdA}/collections`,
@@ -170,7 +172,7 @@ test('request public & admin terhitung (requests + bytesOut)', async () => {
   await new Promise((r) => setTimeout(r, 50));
 
   const after = await statsOf(projectIdA);
-  assert.equal(after.totals.requests, before.totals.requests + 4, '4 request baru harus terhitung');
+  assert.equal(after.totals.requests, before.totals.requests + 3, 'hanya 3 request public yang terhitung (admin diabaikan)');
   assert.ok(after.today.bytesOut > 0, 'bytesOut harus > 0 (response JSON terukur)');
   // Byte bertambah dari sebelumnya
   assert.ok(

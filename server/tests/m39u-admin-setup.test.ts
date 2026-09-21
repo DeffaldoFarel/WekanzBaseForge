@@ -64,14 +64,14 @@ function http(
 }
 
 before(async () => {
+  try { fs.rmSync(TEST_DATA_DIR, { recursive: true, force: true }); } catch {}
+  process.env.DATA_DIR = TEST_DATA_DIR;
   process.env.ADMIN_EMAIL = 'env-fallback@test.local';
   process.env.ADMIN_PASSWORD = 'fallback-pass-123';
 
   const db = initPlatformDb();
   try {
-    // Hapus SEMUA admin, bukan hanya satu email — platform.db bersifat global
-    // dan test lain (Ops-5, auth-collection, dst.) membuat admin dengan email
-    // berbeda. needsSetup:true mengharuskan tabel benar-benar kosong.
+    // Pastikan tabel kosong di direktori test m39u
     db.prepare('DELETE FROM _platform_admins').run();
   } catch {}
 
@@ -87,11 +87,9 @@ after(async () => {
   if (server) {
     await new Promise<void>((r) => server.close(() => r()));
   }
+  closePlatformDb();
   try {
-    const db = initPlatformDb();
-    // Bersihkan semua admin yang dibuat test ini agar tidak mencemari
-    // test berikutnya (platform.db global).
-    db.prepare('DELETE FROM _platform_admins').run();
+    fs.rmSync(TEST_DATA_DIR, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   } catch {}
 });
 

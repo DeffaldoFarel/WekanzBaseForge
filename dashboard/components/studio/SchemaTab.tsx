@@ -14,6 +14,8 @@ import {
 } from "@/components/ui/select";
 import { FieldOptionsEditor } from "@/components/FieldOptionsEditor";
 import { IndexesEditor } from "@/components/IndexesEditor";
+import { ConfirmDelete } from "@/components/ui/confirm-delete";
+import { useState } from "react";
 import { Eye, Save, X, Plus } from "lucide-react";
 import type { CollectionInfo, FieldDef, IndexDef } from "@/lib/api";
 
@@ -51,6 +53,11 @@ export function SchemaTab({
   onIndexesChange,
   onSaveSchema,
 }: SchemaTabProps) {
+  // Konfirmasi hapus kolom (menggantikan confirm() native). Menghapus kolom
+  // dari draft DAN menekan Save menjatuhkan kolom itu beserta isinya — bukan
+  // sekadar menghapus baris editor.
+  const [confirmDropColumn, setConfirmDropColumn] = useState<number | null>(null);
+
   return (
     <Card className="p-6">
       {isView ? (
@@ -185,17 +192,29 @@ export function SchemaTab({
                     type="button"
                     variant="ghost"
                     size="icon"
-                    onClick={() => {
-                      if (confirm(`Delete column "${f.name || "new"}"? This column will be dropped when the schema is saved.`)) {
-                        onFieldsChange(fieldsDraft.filter((_, idx) => idx !== i));
-                      }
-                    }}
+                    onClick={() => setConfirmDropColumn(i)}
                     title="Delete column"
                     className="text-muted-foreground hover:text-destructive"
                   >
                     <X className="w-4 h-4" />
                   </Button>
                 </div>
+
+                {/* Konfirmasi di luar flex row (di dalamnya merusak layout kolom) */}
+                {confirmDropColumn === i && (
+                  <div className="mb-3">
+                    <ConfirmDelete
+                      title={`Delete column "${fieldsDraft[i]?.name || "new"}"?`}
+                      description="This column and all its data will be dropped when the schema is saved."
+                      confirmLabel="Delete Column"
+                      onConfirm={() => {
+                        onFieldsChange(fieldsDraft.filter((_, idx) => idx !== i));
+                        setConfirmDropColumn(null);
+                      }}
+                      onCancel={() => setConfirmDropColumn(null)}
+                    />
+                  </div>
+                )}
 
                 <FieldOptionsEditor
                   field={f}

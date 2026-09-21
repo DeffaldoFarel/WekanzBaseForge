@@ -26,6 +26,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { LoadError, errorMessage } from "@/components/ui/load-error";
 import {
   Trash2,
   CheckCircle2,
@@ -51,6 +52,8 @@ export default function ProjectDetailPage() {
 
   const [project, setProject] = useState<Project | null>(null);
   const [stats, setStats] = useState<ProjectStats | null>(null);
+  const [statsError, setStatsError] = useState("");
+  const [statsRefreshing, setStatsRefreshing] = useState(false);
   const [error, setError] = useState("");
 
   // Delete project: konfirmasi inline + ketik nama (bukan confirm() native)
@@ -67,6 +70,7 @@ export default function ProjectDetailPage() {
 
   // M26: API keys state
   const [apiKeys, setApiKeys] = useState<ProjectApiKey[]>([]);
+  const [keysError, setKeysError] = useState("");
   const [newKeyName, setNewKeyName] = useState("");
   const [newKeyScope, setNewKeyScope] = useState<ApiKeyScope>("write");
   const [creatingKey, setCreatingKey] = useState(false);
@@ -74,9 +78,29 @@ export default function ProjectDetailPage() {
   const [copied, setCopied] = useState(false);
   const [keyError, setKeyError] = useState("");
   const [confirmRevoke, setConfirmRevoke] = useState<string | null>(null);
+  const [revoking, setRevoking] = useState<string | null>(null);
 
   function reloadKeys() {
-    listProjectApiKeys(id).then(setApiKeys).catch(() => {});
+    // Dulu `.catch(() => {})`: create/revoke yang gagal meninggalkan daftar
+    // basi tanpa satu pun petunjuk — admin bisa mengira key sudah dicabut
+    // padahal masih aktif dan bisa dipakai.
+    listProjectApiKeys(id)
+      .then((k) => {
+        setApiKeys(k);
+        setKeysError("");
+      })
+      .catch((e) => setKeysError(errorMessage(e, "Failed to load API keys")));
+  }
+
+  function reloadStats() {
+    setStatsRefreshing(true);
+    return getProjectStats(id)
+      .then((s) => {
+        setStats(s);
+        setStatsError("");
+      })
+      .catch((e) => setStatsError(errorMessage(e, "Failed to load statistics")))
+      .finally(() => setStatsRefreshing(false));
   }
 
   useEffect(() => {
@@ -86,16 +110,25 @@ export default function ProjectDetailPage() {
     }
     getProject(id)
       .then(setProject)
-      .catch(() => setError("Project not found"));
-    getProjectStats(id).then(setStats).catch(() => {});
+      .catch((e) => setError(errorMessage(e, "Project not found")));
+    reloadStats();
     reloadKeys();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, router]);
 
   // M24: refresh statistik tiap 30 detik (selaras interval flush server).
   // Jeda saat tab tidak aktif agar tidak polling di background.
   useEffect(() => {
     let timer: ReturnType<typeof setInterval> | null = null;
-    const refresh = () => getProjectStats(id).then(setStats).catch(() => {});
+    // Polling yang gagal HARUS terlihat: angka yang membeku diam-diam lebih
+    // buruk daripada angka yang jelas ditandai basi.
+    const refresh = () =>
+      getProjectStats(id)
+        .then((s) => {
+          setStats(s);
+          setStatsError("");
+        })
+        .catch((e) => setStatsError(errorMessage(e, "Statistics refresh failed")));
     const start = () => { if (!timer) timer = setInterval(refresh, 30_000); };
     const stop = () => { if (timer) { clearInterval(timer); timer = null; } };
     const onVisibility = () => (document.hidden ? stop() : start());
@@ -125,12 +158,18 @@ export default function ProjectDetailPage() {
   }
 
   async function handleRevoke(keyId: string) {
+    // Anti double-revoke: tanpa disabled, dua klik cepat mengirim dua request —
+    // yang kedua gagal 404 dan menampilkan error palsu untuk aksi yang
+    // sebenarnya sudah berhasil.
+    setRevoking(keyId);
     try {
       await revokeProjectApiKey(id, keyId);
       setConfirmRevoke(null);
       reloadKeys();
     } catch (e) {
       setKeyError(e instanceof Error ? e.message : "Failed to revoke");
+    } finally {
+      setRevoking(null);
     }
   }
 
@@ -357,7 +396,7 @@ export default function ProjectDetailPage() {
                 <span>Usage Statistics</span>
               </h3>
               <p className="text-xs text-muted-foreground mt-0.5">
-                API requests &amp; bandwidth attributed to this project (14-day window).
+                Client API requests &amp; media bandwidth consumed by this project (dashboard admin activity excluded).
               </p>
             </div>
             <Button
@@ -365,13 +404,19 @@ export default function ProjectDetailPage() {
               size="icon"
               className="text-muted-foreground"
               title="Refresh statistics"
-              onClick={() => getProjectStats(id).then(setStats).catch(() => {})}
+              aria-label="Refresh statistics"
+              disabled={statsRefreshing}
+              onClick={reloadStats}
             >
-              <RefreshCw className="w-4 h-4" />
+              <RefreshCw aria-hidden="true" className={`w-4 h-4 ${statsRefreshing ? "animate-spin" : ""}`} />
             </Button>
           </div>
 
-          {stats && stats.totals.requests > 0 ? (
+          {statsError ? (
+            /* Dicek sebelum stats: angka basi / kosong tidak boleh tampil
+               sebagai "belum ada traffic". */
+            <LoadError message={statsError} onRetry={reloadStats} retrying={statsRefreshing} />
+          ) : stats && stats.totals.requests > 0 ? (
             <>
               {/* Stat tiles */}
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
@@ -523,7 +568,11 @@ export default function ProjectDetailPage() {
           </div>
 
           {/* Key list */}
-          {apiKeys.length === 0 ? (
+          {keysError ? (
+            /* Daftar key yang gagal dimuat tidak boleh tampak "belum ada key":
+               admin bisa menyimpulkan akses server-to-server sudah dicabut. */
+            <LoadError message={keysError} onRetry={reloadKeys} className="my-2" />
+          ) : apiKeys.length === 0 ? (
             <div className="py-6 text-center text-sm text-muted-foreground">
               No API keys yet — create one to enable server-to-server access.
             </div>
@@ -546,8 +595,13 @@ export default function ProjectDetailPage() {
                   </div>
                   {confirmRevoke === k.id ? (
                     <div className="flex items-center gap-1.5">
-                      <Button variant="destructive" size="sm" onClick={() => handleRevoke(k.id)}>
-                        Confirm Revoke
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        disabled={revoking === k.id}
+                        onClick={() => handleRevoke(k.id)}
+                      >
+                        {revoking === k.id ? "Revoking…" : "Confirm Revoke"}
                       </Button>
                       <Button variant="secondary" size="sm" onClick={() => setConfirmRevoke(null)}>
                         Cancel

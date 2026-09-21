@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
+import { LoadError, errorMessage } from "@/components/ui/load-error";
 import { AlertTriangle, GitFork, Plus, X, Globe, Clock, Package } from "lucide-react";
 import {
   Select,
@@ -59,6 +60,7 @@ export function FunctionEditor({
   const [timezone, setTimezone] = useState(existing?.timezone ?? "UTC");
   const [dbAccess, setDbAccess] = useState(existing?.dbAccess ?? false);
   const [modulesAvail, setModulesAvail] = useState<ModuleMeta[]>([]);
+  const [modulesError, setModulesError] = useState("");
   const [selectedModules, setSelectedModules] = useState<string[]>(existing?.modules ?? []);
   const [memoryMb, setMemoryMb] = useState(String(existing?.memoryMb ?? 32));
   const [saving, setSaving] = useState(false);
@@ -67,8 +69,17 @@ export function FunctionEditor({
   // M43: daftar modul tersedia untuk dipilih sebagai $lib
   useEffect(() => {
     listModules(projectId)
-      .then(setModulesAvail)
-      .catch(() => setModulesAvail([])); // project tanpa modul / error → kosong
+      .then((m) => {
+        setModulesAvail(m);
+        setModulesError("");
+      })
+      .catch((e) => {
+        // Dulu error dan "project memang tanpa modul" dijadikan satu hasil.
+        // Keduanya berbeda: yang pertama berarti daftar $lib di bawah tidak
+        // bisa dipercaya, yang kedua fakta.
+        setModulesAvail([]);
+        setModulesError(errorMessage(e, "Failed to load shared modules"));
+      });
   }, [projectId]);
 
   function updateTrigger(idx: number, patch: Partial<FunctionTrigger>) {
@@ -260,7 +271,9 @@ export function FunctionEditor({
               <Package className="w-3.5 h-3.5" />
               <span>Modules <span className="text-muted-foreground text-xs font-normal">(<code className="bg-secondary px-1 rounded">$lib</code>, loaded in order)</span></span>
             </Label>
-            {modulesAvail.length === 0 ? (
+            {modulesError ? (
+              <LoadError variant="inline" message={modulesError} />
+            ) : modulesAvail.length === 0 ? (
               <p className="text-sm text-muted-foreground">
                 No modules registered in this project yet.
               </p>

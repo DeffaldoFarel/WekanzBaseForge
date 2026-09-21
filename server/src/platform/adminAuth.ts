@@ -79,16 +79,33 @@ export function createInitialAdmin(
   return { token, admin: { id, email: trimmedEmail } };
 }
 
-// ─── Kredensial admin dari env ───────────────────────────────────────────────
-// M09u: dibaca LAZY (saat dipanggil), bukan saat modul dimuat.
-// Pelajaran dari perubahan ini: module-level const membaca env TERLALU DINI
-// (sebelum test/deploying mengubah env). Lazy = selalu nilai terbaru.
-// M39u: Kredensial di platform.db diutamakan; env ini menjadi fallback untuk test suite.
+// ─── Kredensial admin dari env (KHUSUS TEST) ────────────────────────────────
+//
+// M39u + audit auth: Akun admin platform HARUS disimpan di tabel `_platform_admins`
+// (platform.db) dengan hashing scrypt OWASP. Di dev dan production tidak boleh
+// ada akun default / plaintext backdoor dari env var atau hardcoded fallback.
+//
+// Fallback env di bawah HANYA aktif saat test runner berjalan (`node --test`),
+// agar ~50 file test lama yang menyetel process.env.ADMIN_EMAIL tetap kompatibel
+// tanpa harus ditulis ulang.
+function isTestEnvironment(): boolean {
+  return (
+    process.env.NODE_ENV === 'test' ||
+    Boolean(process.env.NODE_TEST_CONTEXT) ||
+    process.argv.includes('--test')
+  );
+}
 
-function getAdminCredentials(): { email: string; password: string } {
+function getAdminCredentials(): { email: string; password: string } | null {
+  if (!isTestEnvironment()) {
+    return null;
+  }
+  if (!process.env.ADMIN_EMAIL || !process.env.ADMIN_PASSWORD) {
+    return null;
+  }
   return {
-    email: process.env.ADMIN_EMAIL ?? 'admin@baseforge.local',
-    password: process.env.ADMIN_PASSWORD ?? 'admin123',
+    email: process.env.ADMIN_EMAIL,
+    password: process.env.ADMIN_PASSWORD,
   };
 }
 
@@ -124,11 +141,15 @@ export function loginAdmin(
       return null; // Email terdaftar di DB tapi password salah
     }
   } catch {
-    // Abaikan jika DB belum siap, fallback ke env
+    // Abaikan jika DB belum siap
   }
 
-  // 2. Fallback ke env var (untuk kompatibilitas test & legacy dev)
+  // 2. Fallback ke env var (hanya di environment test)
   const creds = getAdminCredentials();
+  if (!creds) {
+    return null;
+  }
+
   const emailMatch = safeEqual(email, creds.email);
   const passwordMatch = safeEqual(password, creds.password);
 

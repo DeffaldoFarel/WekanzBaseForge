@@ -20,8 +20,6 @@
 // ============================================================================
 
 import crypto from 'node:crypto';
-import fs from 'node:fs';
-import path from 'node:path';
 import { getPlatformDb, listProjects } from './platformDb.js';
 import { getProjectStats } from './metrics.js';
 
@@ -259,14 +257,15 @@ function collectMetrics(): CheckContext {
   }
 
   // Disk usage (best-effort, Windows/Linux)
-  let diskUsagePercent = 0;
-  try {
-    const dataDir = process.env.DATA_DIR ?? path.join(process.cwd(), '..', 'data');
-    // Simple approximation: check if we can stat the directory
-    // For production, would use statfs — but node:fs doesn't have statfs sync
-    // This is a placeholder that always returns 0 (no disk monitoring in v1)
-    diskUsagePercent = 0;
-  } catch { diskUsagePercent = 0; }
+  // v1: BELUM diimplementasikan — node:fs tidak punya statfs sinkron, jadi
+  // tidak ada cara murah mengukur sisa disk. Sengaja dilaporkan 0 dan
+  // terdokumentasi, bukan ditebak.
+  //
+  // Catatan: di sini dulu ada `process.env.DATA_DIR ?? '../data'` yang tidak
+  // pernah dipakai — dan defaultnya BERBEDA dari platformDb.ts. Dua sumber
+  // kebenaran untuk satu path adalah bug yang menunggu giliran; saat disk
+  // monitoring benar-benar dibuat, pakai `getDataDir()` dari platformDb.ts.
+  const diskUsagePercent = 0;
 
   return {
     requestsLastMinute: totalRequests, // approximate: total today (not truly per-minute)

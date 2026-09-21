@@ -25,6 +25,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
+import { ConfirmDelete } from "@/components/ui/confirm-delete";
 import {
   Select,
   SelectContent,
@@ -58,6 +59,10 @@ export function AuthFieldsEditor({ projectId }: { projectId: string }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  // Konfirmasi hapus inline (menggantikan confirm() native yang memblokir
+  // thread, berhenti di fast-refresh, dan berbeda gaya dari UI shadcn).
+  const [confirmDeleteField, setConfirmDeleteField] = useState<string | null>(null);
+  const [deletingField, setDeletingField] = useState<string | null>(null);
 
   // form state
   const [name, setName] = useState("");
@@ -113,18 +118,15 @@ export function AuthFieldsEditor({ projectId }: { projectId: string }) {
   }
 
   async function handleDelete(fieldName: string) {
-    if (
-      !confirm(
-        `Delete field "${fieldName}"? Existing values for this field will be removed from all users.`
-      )
-    ) {
-      return;
-    }
+    setDeletingField(fieldName);
     try {
       await deleteAuthField(projectId, fieldName);
+      setConfirmDeleteField(null);
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to delete field");
+    } finally {
+      setDeletingField(null);
     }
   }
 
@@ -187,7 +189,7 @@ export function AuthFieldsEditor({ projectId }: { projectId: string }) {
                   <Button
                     variant="ghost"
                     size="icon"
-                    onClick={() => void handleDelete(f.name)}
+                    onClick={() => setConfirmDeleteField(f.name)}
                     aria-label={`Delete ${f.name}`}
                   >
                     <Trash2 className="h-4 w-4" />
@@ -197,6 +199,19 @@ export function AuthFieldsEditor({ projectId }: { projectId: string }) {
             ))}
           </TableBody>
         </Table>
+      )}
+
+      {/* Konfirmasi hapus field profil — nilai field ini dihapus dari SEMUA
+          user sekaligus, tidak bisa dikembalikan. */}
+      {confirmDeleteField && (
+        <ConfirmDelete
+          title={`Delete field "${confirmDeleteField}"?`}
+          description="Existing values for this field will be removed from every user. This cannot be undone."
+          confirmLabel="Delete Field"
+          busy={deletingField === confirmDeleteField}
+          onConfirm={() => void handleDelete(confirmDeleteField)}
+          onCancel={() => setConfirmDeleteField(null)}
+        />
       )}
 
       {/* Form tambah */}
