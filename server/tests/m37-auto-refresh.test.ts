@@ -98,6 +98,8 @@ before(async () => {
         listRule: 'owner = @request.auth.id',
         viewRule: 'owner = @request.auth.id',
         createRule: 'owner = @request.auth.id',
+        updateRule: 'owner = @request.auth.id',
+        deleteRule: 'owner = @request.auth.id',
       },
     },
     adminToken
@@ -231,4 +233,68 @@ test('refresh endpoint: invalid refresh → error (no infinite loop)', async () 
   assert.ok(error, 'should throw');
   assert.ok(error instanceof Error);
   assert.ok(!isSessionExpired(error), 'refresh error, NOT SESSION_EXPIRED (no loop)');
+});
+
+// ─── Test 6: Collection record operations with expired token → auto-refresh ───
+
+test('auto-refresh: expired token on collection getList & getOne & update → 401 → auto-refresh → succeeds', async () => {
+  const bf = new BaseForge({ baseUrl: baseURL, projectId });
+  await setupUser(bf, 'david@m37.test', 'passwordD-123');
+
+  const userId = bf.authStore.user?.id;
+  assert.ok(userId, 'user id present');
+
+  // Create secret as david
+  const created = await bf.collection('secrets').create({
+    title: 'david secret',
+    owner: userId,
+  });
+  assert.ok(created.id, 'record created');
+
+  // Break access token (simulate 15m expiration), keep valid refresh token
+  const refreshToken = bf.authStore.refreshToken;
+  bf.authStore.save('expired-record-token', refreshToken, bf.authStore.user);
+
+  // 1. getList should NOT return empty or fail — it should get 401, auto-refresh, and return david's secret
+  const list = await bf.collection('secrets').getList();
+  assert.equal(list.items.length, 1, 'getList returned david secret after auto-refresh');
+  assert.equal(list.items[0].title, 'david secret');
+  assert.notEqual(bf.authStore.token, 'expired-record-token', 'token refreshed on getList');
+
+  // Break access token again
+  const refreshedToken = bf.authStore.token;
+  bf.authStore.save('expired-record-token-2', refreshToken, bf.authStore.user);
+
+  // 2. getOne should NOT return 404 — it should get 401, auto-refresh, and return the record
+  const rec = await bf.collection('secrets').getOne(created.id);
+  assert.equal(rec.title, 'david secret', 'getOne returned david secret after auto-refresh');
+  assert.notEqual(bf.authStore.token, 'expired-record-token-2', 'token refreshed on getOne');
+
+  // Break access token again
+  bf.authStore.save('expired-record-token-3', refreshToken, bf.authStore.user);
+
+  // 3. update should NOT return 403 — it should get 401, auto-refresh, and update the record
+  const updated = await bf.collection('secrets').update(created.id, {
+    title: 'david secret updated',
+  });
+  assert.equal(updated.title, 'david secret updated', 'update succeeded after auto-refresh');
+  assert.notEqual(bf.authStore.token, 'expired-record-token-3', 'token refreshed on update');
+
+  // Break access token again
+  bf.authStore.save('expired-record-token-4', refreshToken, bf.authStore.user);
+
+  // 4. create with expired token → auto-refresh → succeeds
+  const created2 = await bf.collection('secrets').create({
+    title: 'david secret 2',
+    owner: userId,
+  });
+  assert.ok(created2.id, 'create succeeded after auto-refresh');
+  assert.notEqual(bf.authStore.token, 'expired-record-token-4', 'token refreshed on create');
+
+  // Break access token again
+  bf.authStore.save('expired-record-token-5', refreshToken, bf.authStore.user);
+
+  // 5. delete with expired token → auto-refresh → succeeds
+  await bf.collection('secrets').delete(created2.id);
+  assert.notEqual(bf.authStore.token, 'expired-record-token-5', 'token refreshed on delete');
 });

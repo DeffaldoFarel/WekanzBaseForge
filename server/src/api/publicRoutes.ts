@@ -79,11 +79,24 @@ function extractBearer(header: string | null | undefined): string | null {
   return header?.startsWith('Bearer ') ? header.slice(7).trim() || null : null;
 }
 
+export class UnauthorizedError extends Error {
+  code: string;
+  constructor(message = 'Invalid or expired token', code = 'UNAUTHORIZED') {
+    super(message);
+    this.name = 'UnauthorizedError';
+    this.code = code;
+  }
+}
+
 function handleErrorPublic(res: {
   status: (code: number) => { json: (body: unknown) => void };
 }, err: unknown): void {
   if (err instanceof ApiKeyError) {
     res.status(err.status).json({ error: { code: err.code, message: err.message } });
+    return;
+  }
+  if (err instanceof UnauthorizedError) {
+    res.status(401).json({ error: { code: err.code, message: err.message } });
     return;
   }
   if (err instanceof ForbiddenError) {
@@ -563,6 +576,8 @@ async function resolveEndUserCtx(
         },
       };
     }
+    const reason = result.reason === 'expired' ? 'Token kedaluwarsa' : 'Invalid token';
+    throw new UnauthorizedError(reason);
   }
   return { auth: null }; // anonymous — rules tetap dievaluasi (rule "" tetap boleh)
 }

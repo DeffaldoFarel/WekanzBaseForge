@@ -81,9 +81,12 @@ export function createStorageRouter(): Router {
             reqCtx = undefined; // admin — bypass
           } else {
             const result = await verifyToken(bearer);
-            reqCtx = result.valid && result.payload
-              ? { auth: { id: String(result.payload.sub ?? ''), email: String(result.payload.email ?? '') } }
-              : { auth: null };
+            if (!result.valid || !result.payload) {
+              const reason = result.reason === 'expired' ? 'Token kedaluwarsa' : 'Invalid token';
+              res.status(401).json({ error: { code: 'UNAUTHORIZED', message: reason } });
+              return;
+            }
+            reqCtx = { auth: { id: String(result.payload.sub ?? ''), email: String(result.payload.email ?? '') } };
           }
         } else {
           reqCtx = { auth: null }; // anonymous
