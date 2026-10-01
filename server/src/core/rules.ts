@@ -79,6 +79,9 @@ export function evaluateRuleOnData(
   data: Record<string, unknown>,
   reqCtx: RequestContext | undefined
 ): boolean {
+  if (reqCtx === undefined) return true;
+  if (rule.trim() === "") return true;
+  if (!reqCtx?.auth && rule.includes("@request")) return false;
   // Substitusi sederhana & aman: setiap IDENT yang cocok dengan nama field
   // data diganti STRING literal-nya. IDENT yang tidak cocok → 1=0 (aman).
   // Catatan: ini evaluator konstanta, bukan SQL builder — kita bandingkan
