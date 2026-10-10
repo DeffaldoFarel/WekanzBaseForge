@@ -120,6 +120,18 @@ describe('M14b: getThumb (lazy generate + cache)', () => {
     assert.ok(fs.existsSync(path.join(process.env.STORAGE_DIR!, 'projC', 'thumbs_avatar.jpg', '32x32_avatar.jpg')));
   });
 
+  test('bucket thumbnails cannot reuse stale pixels after overwrite with same name and fileId', async () => {
+    const red = await makeTestImage(80, 80, { r: 255, g: 0, b: 0 });
+    const blue = await makeTestImage(80, 80, { r: 0, g: 0, b: 255 });
+    const first = await getThumb('projVersion', 'file_with_id', 'shared.png', '32x32', red, 'file_with_id_v1.png');
+    const second = await getThumb('projVersion', 'file_with_id', 'shared.png', '32x32', blue, 'file_with_id_v2.png');
+    assert.ok(!first.equals(second), 'versioned cache must never serve pixels from the earlier owner');
+    const firstColor = await sharp(first).raw().toBuffer({ resolveWithObject: true });
+    const secondColor = await sharp(second).raw().toBuffer({ resolveWithObject: true });
+    assert.ok(firstColor.data[0] > firstColor.data[2]);
+    assert.ok(secondColor.data[2] > secondColor.data[0]);
+  });
+
   test('M14b: file non-gambar → error ramah (bukan crash)', async () => {
     await assert.rejects(
       () => getThumb('projT', 'rec1', 'data.xyz', '40x40', Buffer.from('bukan gambar')),

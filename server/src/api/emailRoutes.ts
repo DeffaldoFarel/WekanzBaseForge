@@ -131,10 +131,10 @@ async function sendActionEmail(
 }
 
 /** Resolve end-user dari Bearer token (untuk request-verification tanpa email). */
-async function resolveAuthUser(db: DatabaseSync, req: { headers: Record<string, unknown> }): Promise<string | null> {
+async function resolveAuthUser(db: DatabaseSync, req: { headers: Record<string, unknown>; params: Record<string, string> }): Promise<string | null> {
   const auth = String(req.headers['authorization'] ?? '');
   if (!auth.startsWith('Bearer ')) return null;
-  const result = await verifyToken(auth.slice(7));
+  const result = await verifyToken(auth.slice(7), req.params.pid);
   if (!result.valid || !result.payload?.sub) return null;
   return result.payload.sub;
 }

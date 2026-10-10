@@ -61,7 +61,7 @@ export async function signToken(
 // ─── VERIFY ──────────────────────────────────────────────────────────────────
 // Kontrak hasil sama dengan M09 — pemanggil tidak berubah.
 
-export async function verifyToken(token: string): Promise<VerifyResult> {
+export async function verifyToken(token: string, expectedProjectId?: string): Promise<VerifyResult> {
   if (typeof token !== 'string' || token.trim() === '') {
     return { valid: false, reason: 'malformed' };
   }
@@ -73,6 +73,9 @@ export async function verifyToken(token: string): Promise<VerifyResult> {
       clockTolerance: 5, // 5 detik toleransi clock skew antar server
     });
 
+    if (expectedProjectId && payload.projectId !== expectedProjectId) {
+      return { valid: false, reason: 'invalid-claims' };
+    }
     return {
       valid: true,
       payload: payload as unknown as TokenPayload,

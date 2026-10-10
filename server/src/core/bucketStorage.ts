@@ -33,6 +33,8 @@ export interface BucketFileInfo {
   contentType: string;
   size: number;
   uploadedAt: string;
+  /** Exact stored object pointer; changes on every overwrite. */
+  storedName: string;
   /** end-user ID yang upload (null kalau admin) */
   uploadedBy: string | null;
 }
@@ -42,6 +44,16 @@ export interface BucketUploadResult {
   filename: string;
   contentType: string;
   size: number;
+}
+
+/** Identity mismatch between a user upload and an existing bucket file. */
+export class BucketOwnershipError extends Error {
+  constructor() { super('File belongs to another user'); }
+}
+
+/** Concurrent writer won the same fileId; caller may re-read and retry. */
+export class BucketConflictError extends Error {
+  constructor() { super('Bucket file changed during this operation'); }
 }
 
 // ─── Tabel _bucket_files (per project DB) ──────────────────────────────────
@@ -73,8 +85,20 @@ function rowToInfo(row: BucketRow): BucketFileInfo {
     contentType: row.content_type,
     size: row.size,
     uploadedAt: row.uploaded_at,
+    storedName: row.stored_name,
     uploadedBy: row.uploaded_by,
   };
+}
+
+function getBucketRow(db: DatabaseSync, fileId: string): BucketRow | null {
+  return (db.prepare('SELECT * FROM _bucket_files WHERE file_id = ?').get(fileId) as unknown as BucketRow | undefined) ?? null;
+}
+
+/** Physical name is versioned; existing rows still use fileId_filename. */
+function storageFilename(row: BucketRow): string {
+  const prefix = `${row.file_id}_`;
+  if (!row.stored_name.startsWith(prefix)) throw new Error('Invalid stored bucket filename');
+  return row.stored_name.slice(prefix.length);
 }
 
 // ─── MIME detection ──────────────────────────────────────────────────────────
@@ -126,39 +150,61 @@ export async function bucketUpload(
 
   const filename = sanitizeFilename(opts.filename);
   const contentType = mimeFor(filename, opts.contentType);
-  let fileId = opts.fileId;
-
-  if (fileId) {
-    // Validate format
-    if (!/^[a-zA-Z0-9_-]{1,64}$/.test(fileId)) {
-      throw new Error(`Invalid file ID '${fileId}': must be 1-64 characters of [a-zA-Z0-9_-]`);
-    }
-    // Overwrite: delete existing file + metadata
-    const existing = getBucketInfo(db, fileId);
-    if (existing) {
-      await bucketDelete(db, projectId, fileId);
-    }
-  } else {
-    fileId = generateId();
+  const fileId = opts.fileId ?? generateId();
+  if (!/^[a-zA-Z0-9_-]{1,64}$/.test(fileId)) {
+    throw new Error(`Invalid file ID '${fileId}': must be 1-64 characters of [a-zA-Z0-9_-]`);
   }
 
-  const storedName = `${fileId}_${filename}`;
+  const existing = getBucketRow(db, fileId);
+  if (existing && opts.uploadedBy != null && existing.uploaded_by !== opts.uploadedBy) {
+    throw new BucketOwnershipError();
+  }
 
-  // Simpan file via storage adapter (local disk atau S3).
-  // recordId = fileId → nama fisik <fileId>_<filename>; bucketRead/bucketDelete
-  // bekerja di namespace ini.
-  // FIX (storage explorer): dulu ada double-save ke namespace '_bucket' — salinan
-  // yang TIDAK PERNAH dibaca (disk terpakai 2x) dan memicu false-positive orphaned
-  // di listProjectStorageFiles. Simpan SEKALI saja, di namespace fileId.
+  // Every upload gets an opaque physical version name: two writers (or a
+  // deletion) may share a logical fileId but never the same physical object.
+  // The metadata pointer alone determines which version the URL resolves to.
+  const physicalName = crypto.randomBytes(16).toString('hex') + path.extname(filename).slice(0, 16);
   const adapter = getStorageAdapter();
-  await adapter.save(projectId, fileId, filename, opts.data, contentType);
+  const savedName = await adapter.save(projectId, fileId, physicalName, opts.data, contentType);
+  const storedName = `${fileId}_${savedName}`;
 
-  // Simpan metadata
-  db.prepare(
-    `INSERT INTO _bucket_files (file_id, filename, content_type, size, uploaded_by, stored_name)
-     VALUES (?, ?, ?, ?, ?, ?)`
-  ).run(fileId, filename, contentType, opts.data.length, opts.uploadedBy ?? null, storedName);
+  try {
+    if (existing) {
+      // Compare-and-swap guards against an intervening delete, owner change,
+      // or second overwrite on a different process / DB connection.
+      const changed = db.prepare(`UPDATE _bucket_files
+        SET filename = ?, content_type = ?, size = ?, stored_name = ?, uploaded_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+        WHERE file_id = ? AND stored_name = ? AND uploaded_by IS ?`)
+        .run(filename, contentType, opts.data.length, storedName,
+          fileId, existing.stored_name, existing.uploaded_by).changes;
+      if (changed !== 1) {
+        const latest = getBucketRow(db, fileId);
+        if (latest && opts.uploadedBy != null && latest.uploaded_by !== opts.uploadedBy) {
+          throw new BucketOwnershipError();
+        }
+        throw new BucketConflictError();
+      }
+    } else {
+      // An INSERT claims the ID atomically. If another writer inserted it
+      // while our physical upload was in flight, discard only OUR version.
+      db.prepare(`INSERT INTO _bucket_files (file_id, filename, content_type, size, uploaded_by, stored_name)
+        VALUES (?, ?, ?, ?, ?, ?)`)
+        .run(fileId, filename, contentType, opts.data.length, opts.uploadedBy ?? null, storedName);
+    }
+  } catch (err) {
+    await adapter.delete(projectId, fileId, savedName).catch(() => undefined);
+    if (err instanceof Error && /UNIQUE constraint failed: _bucket_files\.file_id/.test(err.message)) {
+      throw new BucketConflictError();
+    }
+    throw err;
+  }
 
+  if (existing) {
+    // The new pointer is committed; failure to remove the old physical
+    // version must not make the API report that the new write failed.
+    try { await adapter.delete(projectId, fileId, storageFilename(existing)); }
+    catch { console.warn('[bucket] old physical version cleanup failed'); }
+  }
   return { fileId, filename, contentType, size: opts.data.length };
 }
 
@@ -171,14 +217,23 @@ export async function bucketRead(
 ): Promise<{ data: Buffer; info: BucketFileInfo } | null> {
   initBucketTable(db);
 
-  const info = getBucketInfo(db, fileId);
-  if (!info) return null;
+  const row = getBucketRow(db, fileId);
+  if (!row) return null;
 
   const adapter = getStorageAdapter();
-  const data = await adapter.read(projectId, fileId, info.filename);
-  if (!data) return null;
+  let data = await adapter.read(projectId, fileId, storageFilename(row));
+  if (!data) {
+    // An overwrite may have committed and removed the old physical version
+    // between the metadata lookup and file read. Retry only with the latest
+    // committed metadata; a concurrent deletion still returns null.
+    const latest = getBucketRow(db, fileId);
+    if (!latest || latest.stored_name === row.stored_name) return null;
+    data = await adapter.read(projectId, fileId, storageFilename(latest));
+    if (!data) return null;
+    return { data, info: rowToInfo(latest) };
+  }
 
-  return { data, info };
+  return { data, info: rowToInfo(row) };
 }
 
 // ─── Delete ──────────────────────────────────────────────────────────────────
@@ -186,17 +241,37 @@ export async function bucketRead(
 export async function bucketDelete(
   db: DatabaseSync,
   projectId: string,
-  fileId: string
+  fileId: string,
+  expectedOwner?: string,
+  expectedStoredName?: string
 ): Promise<boolean> {
   initBucketTable(db);
+  const row = getBucketRow(db, fileId);
+  if (!row) return false;
+  if (expectedOwner !== undefined && row.uploaded_by !== expectedOwner) {
+    throw new BucketOwnershipError();
+  }
+  if (expectedStoredName !== undefined && row.stored_name !== expectedStoredName) {
+    throw new BucketConflictError();
+  }
 
-  const info = getBucketInfo(db, fileId);
-  if (!info) return false;
+  // Revoke the ID synchronously, using a compare-and-swap of both owner and
+  // physical version. A new upload may reuse the ID with a distinct object
+  // that this delete cannot touch.
+  const removed = db.prepare(`DELETE FROM _bucket_files
+    WHERE file_id = ? AND stored_name = ? AND uploaded_by IS ?`)
+    .run(fileId, row.stored_name, row.uploaded_by).changes;
+  if (removed !== 1) {
+    const latest = getBucketRow(db, fileId);
+    if (latest && expectedOwner !== undefined && latest.uploaded_by !== expectedOwner) {
+      throw new BucketOwnershipError();
+    }
+    throw new BucketConflictError();
+  }
 
   const adapter = getStorageAdapter();
-  await adapter.delete(projectId, fileId, info.filename);
-
-  db.prepare('DELETE FROM _bucket_files WHERE file_id = ?').run(fileId);
+  try { await adapter.delete(projectId, fileId, storageFilename(row)); }
+  catch { console.warn('[bucket] revoked object cleanup failed'); }
   return true;
 }
 
@@ -204,9 +279,7 @@ export async function bucketDelete(
 
 export function getBucketInfo(db: DatabaseSync, fileId: string): BucketFileInfo | null {
   initBucketTable(db);
-  const row = db
-    .prepare('SELECT * FROM _bucket_files WHERE file_id = ?')
-    .get(fileId) as unknown as BucketRow | undefined;
+  const row = getBucketRow(db, fileId);
   return row ? rowToInfo(row) : null;
 }
 

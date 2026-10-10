@@ -61,10 +61,10 @@ function extractBearer(
   return queryToken ?? null;
 }
 
-async function resolveAuth(bearer: string | null): Promise<AuthResolution> {
+async function resolveAuth(bearer: string | null, pid: string): Promise<AuthResolution> {
   if (!bearer) return { kind: 'none' };
   if (validateToken(bearer)) return { kind: 'admin' };
-  const result = await verifyToken(bearer);
+  const result = await verifyToken(bearer, pid);
   if (result.valid && result.payload) {
     return {
       kind: 'user',
@@ -96,7 +96,7 @@ export function createRealtimeRouter(): Router {
   // M18b: verifyToken ASYNC (jose) — handler jadi async
   router.get('/api/p/:pid/realtime', async (req, res) => {
     const bearer = extractBearer(req.headers.authorization, req.query.get('token'));
-    const resolved = await resolveAuth(bearer);
+    const resolved = await resolveAuth(bearer, req.params.pid);
 
     if (resolved.kind === 'invalid') {
       // Ops-6: gagal KERAS, jangan fallback diam-diam ke anonymous —
@@ -123,7 +123,7 @@ export function createRealtimeRouter(): Router {
       // 401 untuk token invalid SEBELUM validasi lain — SDK M37 auto-refresh
       // menangkap 401 → refresh → retry dengan token segar → upgrade sukses.
       const resolved = await resolveAuth(
-        extractBearer(req.headers.authorization, req.query.get('token'))
+        extractBearer(req.headers.authorization, req.query.get('token')), req.params.pid
       );
       if (resolved.kind === 'invalid') {
         res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'Invalid or expired token' } });
@@ -219,7 +219,7 @@ export function createRealtimeRouter(): Router {
       // Ops-6: upgrade auth koneksi dari Authorization request — klien custom
       // / SDK lama yang memakai route ini juga dapat evaluasi rules yang benar
       const resolved = await resolveAuth(
-        extractBearer(req.headers.authorization, req.query.get('token'))
+        extractBearer(req.headers.authorization, req.query.get('token')), req.params.pid
       );
       if (resolved.kind === 'invalid') {
         res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'Invalid or expired token' } });

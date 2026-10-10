@@ -135,6 +135,91 @@ describe('M11: API Rules', () => {
     }, ForbiddenError);
   });
 
+  test('security: authenticated writer cannot attribute a userId record to another user even under auth-only createRule', () => {
+    const db = freshDb();
+    defineCollection(db, {
+      name: 'overview_notes',
+      fields: [
+        { name: 'userId', type: 'text', required: true },
+        { name: 'title', type: 'text', required: true },
+      ],
+      rules: {
+        listRule: 'userId = @request.auth.id',
+        createRule: '@request.auth.id != ""', // matches the live dashboard rule before repair
+      },
+    });
+
+    assert.throws(
+      () => createRecord(db, 'overview_notes', { userId: userB.id, title: 'forged' }, ctxA),
+      ForbiddenError,
+    );
+    assert.equal(listRecords(db, 'overview_notes').totalItems, 0, 'rejected record must not be written');
+    const own = createRecord(db, 'overview_notes', { userId: userA.id, title: 'mine' }, ctxA);
+    assert.equal(own.userId, userA.id);
+
+    // Explicit service/admin context (undefined) keeps its privileged behavior.
+    const imported = createRecord(db, 'overview_notes', { userId: userB.id, title: 'import' });
+    assert.equal(imported.userId, userB.id);
+    db.close();
+  });
+
+  test('security: owner comparison on either side of the equality is enforced', () => {
+    const db = freshDb();
+    defineCollection(db, {
+      name: 'reverse_owned',
+      fields: [{ name: 'userId', type: 'text', required: true }, { name: 'title', type: 'text' }],
+      rules: { listRule: '@request.auth.id = userId', createRule: '' },
+    });
+    assert.throws(() => createRecord(db, 'reverse_owned', { userId: userB.id }, ctxA), ForbiddenError);
+    assert.equal(createRecord(db, 'reverse_owned', { userId: userA.id }, ctxA).userId, userA.id);
+    db.close();
+  });
+
+  test('security: explicitly public collection with a userId field keeps its public CRUD contract', () => {
+    const db = freshDb();
+    defineCollection(db, {
+      name: 'public_entries',
+      fields: [{ name: 'userId', type: 'text' }, { name: 'title', type: 'text' }],
+      rules: { listRule: '', viewRule: '', createRule: '', updateRule: '', deleteRule: '' },
+    });
+    const rec = createRecord(db, 'public_entries', { userId: 'any-label', title: 'public' }, { auth: null });
+    assert.equal(rec.userId, 'any-label');
+    const changed = updateRecord(db, 'public_entries', rec.id, { userId: 'new-label' }, { auth: null });
+    assert.equal(changed?.userId, 'new-label');
+    db.close();
+  });
+
+  test('security: public collection mixed with a rule mentioning owner text as a quoted literal remains public', () => {
+    const db = freshDb();
+    defineCollection(db, {
+      name: 'public_with_literal',
+      fields: [{ name: 'userId', type: 'text' }, { name: 'title', type: 'text' }],
+      rules: { listRule: '', viewRule: '', createRule: '', updateRule: '', deleteRule: '' },
+    });
+    updateCollectionRules(db, 'public_with_literal', { listRule: 'title = "userId = @request.auth.id"' });
+    const created = createRecord(db, 'public_with_literal', { userId: 'label', title: 'userId = @request.auth.id' }, { auth: null });
+    assert.equal(created.userId, 'label');
+    const updated = updateRecord(db, 'public_with_literal', created.id, { userId: 'new-label' }, { auth: null });
+    assert.equal(updated?.userId, 'new-label');
+    db.close();
+  });
+
+  test('invalid owner rule metadata cannot turn off the create owner guard', () => {
+    const db = freshDb();
+    defineCollection(db, {
+      name: 'bad_owner_rule',
+      fields: [{ name: 'userId', type: 'text', required: true }],
+      rules: { listRule: '', createRule: '@request.auth.id != ""' },
+    });
+    // Simulate old persisted metadata that predates full parser validation.
+    db.prepare('UPDATE _collections SET rules = ? WHERE name = ?').run(JSON.stringify({
+      listRule: 'userId = @request.auth.id #broken',
+      createRule: '@request.auth.id != ""',
+    }), 'bad_owner_rule');
+    assert.throws(() => createRecord(db, 'bad_owner_rule', { userId: userB.id }, ctxA), ForbiddenError);
+    db.close();
+  });
+
   test('M11: updateRule — A tidak bisa mengubah record B', () => {
     const db = freshDb();
     updateCollectionRules(db, 'notes', { updateRule: 'user = @request.auth.id' });
@@ -147,6 +232,32 @@ describe('M11: API Rules', () => {
     // Pemilik bisa mengubah
     const updated = updateRecord(db, 'notes', recB.id, { title: 'B edit sendiri' }, ctxB);
     assert.equal(updated?.title, 'B edit sendiri');
+  });
+
+  test('security: owner cannot transfer a userId record to a different account via PATCH', () => {
+    const db = freshDb();
+    defineCollection(db, {
+      name: 'owned_tasks',
+      fields: [
+        { name: 'userId', type: 'text', required: true },
+        { name: 'title', type: 'text', required: true },
+      ],
+      rules: {
+        viewRule: 'userId = @request.auth.id',
+        updateRule: 'userId = @request.auth.id',
+      },
+    });
+    const rec = createRecord(db, 'owned_tasks', { userId: userA.id, title: 'mine' });
+    assert.throws(
+      () => updateRecord(db, 'owned_tasks', rec.id, { userId: userB.id }, ctxA),
+      ForbiddenError,
+    );
+    assert.equal(getRecord(db, 'owned_tasks', rec.id)?.userId, userA.id);
+    assert.equal(getRecord(db, 'owned_tasks', rec.id, ctxB), null);
+    assert.equal(updateRecord(db, 'owned_tasks', rec.id, { userId: userA.id, title: 'still mine' }, ctxA)?.title, 'still mine');
+    assert.equal(updateRecord(db, 'owned_tasks', rec.id, { title: 'updated again' }, ctxA)?.userId, userA.id);
+    assert.equal(updateRecord(db, 'owned_tasks', rec.id, { userId: userB.id })?.userId, userB.id, 'service/admin migration stays privileged');
+    db.close();
   });
 
   test('M11: deleteRule — A tidak bisa menghapus record B', () => {

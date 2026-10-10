@@ -567,7 +567,7 @@ async function resolveEndUserCtx(
     if (isAdminToken(bearer)) {
       return undefined as unknown as RequestContext; // admin → bypass (jangan dipakai)
     }
-    const result = await verifyToken(bearer);
+    const result = await verifyToken(bearer, opts.pid);
     if (result.valid && result.payload) {
       return {
         auth: {

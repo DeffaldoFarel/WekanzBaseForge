@@ -20,6 +20,7 @@ import { saveFile, deleteFile, deleteRecordFiles, storedFilenames } from './stor
 import { isViewCollection } from './schema.js';
 import { hashPassword, verifyPassword, validatePasswordStrength } from '../auth/password.js';
 import { ftsTableName, sanitizeFtsQuery, ftsFields } from './fts.js';
+import { tokenize } from './query/lexer.js';
 // M19: expand relasi — modul ini sudah lengkap sejak M12/D6 tetapi tidak
 // pernah diimpor oleh lapisan mana pun (modul yatim). M19 menyambungkannya.
 import { expandRecords } from './relations.js';
@@ -376,6 +377,42 @@ function deserializeRow(meta: CollectionMeta, row: Record<string, unknown>): For
 
 // ─── CREATE ──────────────────────────────────────────────────────────────────
 
+/** Treat userId as an ownership boundary only if a rule actually scopes it
+ * to the authenticated principal. Explicitly public collections may use the
+ * same field as ordinary data and must retain their public CRUD contract. */
+const OWNER_RULE_FIELD = 'userId';
+
+/** Parse the rule grammar before treating metadata as an owner boundary. */
+function hasUserIdOwnerRule(meta: CollectionMeta): boolean {
+  if (!meta.fields.some(f => f.name === 'userId')) return false;
+
+  for (const rule of Object.values(meta.rules)) {
+    if (typeof rule !== 'string' || rule.trim() === '') continue;
+    try {
+      const tokens = tokenize(rule);
+      for (let index = 0; index + 2 < tokens.length; index++) {
+        const left = tokens[index];
+        const operator = tokens[index + 1];
+        const right = tokens[index + 2];
+        if (operator.type !== 'OPERATOR' || operator.value !== '=') continue;
+        const direct = left.type === 'IDENT' && left.value === OWNER_RULE_FIELD &&
+          right.type === 'AT_IDENT' && right.value === '@request.auth.id';
+        const reverse = right.type === 'IDENT' && right.value === OWNER_RULE_FIELD &&
+          left.type === 'AT_IDENT' && left.value === '@request.auth.id';
+        if (direct || reverse) return true;
+      }
+    } catch {
+      // Corrupt legacy owner rule metadata must not disable the owner guard.
+      // Tokenize identified a real ownership predicate in the preceding
+      // tokens; refuse writes rather than treating this collection as public.
+      if (/\buserId\s*=\s*@request\.auth\.id\b|@request\.auth\.id\s*=\s*userId\b/.test(rule)) {
+        throw new ForbiddenError('Invalid owner rule metadata; repair rules before writing');
+      }
+    }
+  }
+  return false;
+}
+
 export function createRecord(
   db: DatabaseSync,
   collection: string,
@@ -417,6 +454,16 @@ export function createRecord(
     delete data.id; // Hapus dari data agar tidak divalidasi sebagai field skema
   }
   // M34: tidak dipakai — customId dicek langsung di INSERT di bawah
+
+  // User-owned base records must derive their owner from the authenticated
+  // principal, not from a client-controlled body alone. This guard also covers
+  // collections with an accidentally permissive createRule; service/admin
+  // calls (undefined reqCtx) keep their explicitly privileged import path.
+  if (reqCtx !== undefined && meta.type !== 'auth' && hasUserIdOwnerRule(meta)) {
+    if (!reqCtx.auth?.id || data.userId !== reqCtx.auth.id) {
+      throw new ForbiddenError('Record userId must match the authenticated user');
+    }
+  }
 
   // ── M11: createRule dievaluasi terhadap DATA yang dikirim ──
   // Hanya untuk END USER — admin (reqCtx undefined) selalu bypass.
@@ -600,6 +647,13 @@ export function updateRecord(
     }
     if (uRule.trim() !== '' && !evaluateRuleOnData(uRule, existing as Record<string, unknown>, reqCtx)) {
       throw new ForbiddenError();
+    }
+    // A rule evaluated on the OLD record does not authorize changing its
+    // owner. End users may send an unchanged userId for compatibility, but
+    // transferring ownership is reserved for admin/service (undefined ctx).
+    if (meta.type !== 'auth' && hasUserIdOwnerRule(meta) &&
+        data.userId !== undefined && data.userId !== existing.userId) {
+      throw new ForbiddenError('Record userId cannot be changed by an end user');
     }
   }
 

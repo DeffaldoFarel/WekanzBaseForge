@@ -170,7 +170,7 @@ export default function StorageExplorerPage() {
     try {
       if (file.isBucket) {
         // File bucket: hapus via endpoint bucket (membersihkan metadata + disk)
-        await deleteBucketFile(projectId, file.recordId);
+        await deleteBucketFile(projectId, file.recordId, file.storedName);
       } else {
         await deleteStorageFile(projectId, file.recordId, file.name);
       }

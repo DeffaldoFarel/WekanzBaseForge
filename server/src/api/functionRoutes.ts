@@ -38,11 +38,11 @@ import { validateToken } from '../platform/adminAuth.js';
 
 // Helper: auth end user dari Bearer JWT (anonymous → auth: null)
 // M18b: verifyToken ASYNC (jose) — helper jadi async juga
-async function resolveUserAuth(req: { headers: { authorization?: string } }): Promise<RequestContext['auth']> {
+async function resolveUserAuth(req: { headers: { authorization?: string }; params: Record<string, string> }): Promise<RequestContext['auth']> {
   const auth = req.headers.authorization;
   const bearer = auth?.startsWith('Bearer ') ? auth.slice(7) : null;
   if (!bearer || validateToken(bearer)) return null; // admin token → tidak dipakai sebagai user
-  const result = await verifyToken(bearer);
+  const result = await verifyToken(bearer, req.params.pid);
   if (result.valid && result.payload) {
     return { id: String(result.payload.sub ?? ''), email: String(result.payload.email ?? '') };
   }

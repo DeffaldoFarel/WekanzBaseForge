@@ -80,7 +80,7 @@ export function createStorageRouter(): Router {
           if (validateToken(bearer)) {
             reqCtx = undefined; // admin — bypass
           } else {
-            const result = await verifyToken(bearer);
+            const result = await verifyToken(bearer, pid);
             if (!result.valid || !result.payload) {
               const reason = result.reason === 'expired' ? 'Token kedaluwarsa' : 'Invalid token';
               res.status(401).json({ error: { code: 'UNAUTHORIZED', message: reason } });

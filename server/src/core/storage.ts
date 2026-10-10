@@ -74,8 +74,8 @@ export function storedFilenames(value: unknown): string[] {
   }
   return [];
 }
-
 // ─── STORAGE EXPLORER (perlu db untuk enrichment) ────────────────────────────
+const PENDING_BUCKET_PHYSICAL_RE = /(?:^|_)[a-f0-9]{32}(?:\.[a-zA-Z0-9]{1,16})?$/;
 
 export async function listProjectStorageFiles(
   projectId: string,
@@ -110,26 +110,60 @@ export async function listProjectStorageFiles(
   // BUKAN id record koleksi. Tanpa pengecekan ini SEMUA file bucket salah
   // ditandai orphaned, dan "Clean Orphaned Files" akan menghapus file sah
   // (data loss — termasuk lampiran hasil migrasi).
-  const bucketIds = new Set<string>();
+  const bucketById = new Map<string, { filename: string; contentType: string; storedName: string }>();
   try {
-    const rows = db.prepare('SELECT file_id FROM _bucket_files').all() as { file_id: string }[];
-    for (const r of rows) bucketIds.add(r.file_id);
+    const rows = db.prepare('SELECT file_id, filename, content_type, stored_name FROM _bucket_files').all() as {
+      file_id: string; filename: string; content_type: string; stored_name: string;
+    }[];
+    for (const row of rows) {
+      bucketById.set(row.file_id, {
+        filename: row.filename, contentType: row.content_type, storedName: row.stored_name,
+      });
+    }
   } catch {
     // tabel _bucket_files belum ada → project tanpa file bucket
   }
 
-  return files.map((f) => {
-    const isBucket = bucketIds.has(f.recordId);
-    return {
+  const bucketRows = [...bucketById.entries()].sort((a, b) => b[0].length - a[0].length);
+
+  return files.flatMap((f): StoredFileInfo[] => {
+    // Storage adapters historically split physical names at the FIRST
+    // underscore. Bucket IDs themselves may contain underscores, so recover
+    // identity from the authoritative metadata row and the full stored name.
+    // Longest-prefix matching avoids a short ID shadowing a longer one.
+    const bucketMatch = bucketRows.find(([fileId, row]) =>
+      f.storedName === row.storedName ||
+      (f.storedName.startsWith(`${fileId}_`) && PENDING_BUCKET_PHYSICAL_RE.test(f.storedName))
+    );
+    if (bucketMatch) {
+      const [fileId, bucket] = bucketMatch;
+      if (bucket.storedName !== f.storedName) {
+        // Old/pending physical version: it is not a second logical file, and
+        // must not be offered to generic orphan cleanup.
+        return [];
+      }
+      const mime = bucket.contentType || f.mime;
+      return [{
+        ...f,
+        recordId: fileId,
+        name: bucket.filename,
+        mime,
+        isImage: mime.startsWith('image/'),
+        collectionName: recordMap.get(fileId) ?? null,
+        isBucket: true,
+        isOrphaned: false,
+      }];
+    }
+
+    return [{
       ...f,
       collectionName: recordMap.get(f.recordId) ?? null,
-      isBucket,
-      // Orphaned = record file yang parent record-nya sudah tidak ada.
-      // File bucket tidak pernah orphaned lewat jalur ini. Salinan legacy
-      // namespace '_bucket' (sisa double-save lama) tetap orphaned → aman
-      // dibersihkan karena salinan aslinya (namespace fileId) dilindungi.
-      isOrphaned: !isBucket && !recordMap.has(f.recordId),
-    };
+      isBucket: false,
+      // A first upload can already have a physical object while its metadata
+      // INSERT is still pending. Do not classify version-named objects as
+      // cleanable orphans without a separate, coordinated retention process.
+      isOrphaned: !PENDING_BUCKET_PHYSICAL_RE.test(f.storedName) && !recordMap.has(f.recordId),
+    }];
   });
 }
 

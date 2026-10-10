@@ -207,7 +207,7 @@ export function createProjectAuthRouter(): Router {
         profile,
       });
 
-      const tokens = await issueTokens(db, user);
+      const tokens = await issueTokens(db, user, req.params.pid);
       sendAuthSuccess(db, res, user, tokens, 201);
 
       // M23: kirim email verifikasi otomatis (fire-and-forget —
@@ -288,7 +288,7 @@ export function createProjectAuthRouter(): Router {
       return;
     }
 
-    const tokens = await issueTokens(db, user);
+    const tokens = await issueTokens(db, user, req.params.pid);
     sendAuthSuccess(db, res, user, tokens, 200);
   });
 
@@ -311,7 +311,7 @@ export function createProjectAuthRouter(): Router {
 
     let tokens;
     try {
-      tokens = await refreshAccessToken(db, body.refreshToken);
+      tokens = await refreshAccessToken(db, body.refreshToken, req.params.pid);
     } catch (err) {
       if (err instanceof AuthUserDisabledError) {
         respondUserDisabled(res); // Ops-15
@@ -359,7 +359,7 @@ export function createProjectAuthRouter(): Router {
       return;
     }
 
-    const result = await verifyToken(token);
+    const result = await verifyToken(token, req.params.pid);
     if (!result.valid) {
       const reason = result.reason === 'expired' ? 'Token kedaluwarsa' : 'Invalid token';
       res.status(401).json({ error: { code: 'UNAUTHORIZED', message: reason } });
@@ -401,7 +401,7 @@ export function createProjectAuthRouter(): Router {
       return;
     }
 
-    const result = await verifyToken(token);
+    const result = await verifyToken(token, req.params.pid);
     if (!result.valid || !result.payload) {
       const reason = result.reason === 'expired' ? 'Token kedaluwarsa' : 'Invalid token';
       res.status(401).json({ error: { code: 'UNAUTHORIZED', message: reason } });

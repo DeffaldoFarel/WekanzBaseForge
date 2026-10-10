@@ -8,7 +8,8 @@ import os from 'node:os';
 import { initSchemaTable, defineCollection } from '../src/core/schema.js';
 import { createRecord } from '../src/core/records.js';
 import { saveFile, listProjectStorageFiles, cleanOrphanedFiles, deleteFile } from '../src/core/storage.js';
-import { bucketUpload } from '../src/core/bucketStorage.js';
+import { bucketUpload, bucketRead } from '../src/core/bucketStorage.js';
+import { getStorageAdapter } from '../src/core/storageAdapter.js';
 
 const TEST_DIR = path.join(os.tmpdir(), 'baseforge-storage-explorer-tests');
 process.env.STORAGE_DIR = path.join(TEST_DIR, 'storage');
@@ -77,6 +78,9 @@ describe('Storage Explorer Functions', () => {
     assert.ok(lampiran, 'bucket file harus terlihat di storage explorer');
     assert.equal(lampiran.isBucket, true);
     assert.equal(lampiran.isOrphaned, false);
+    assert.equal(lampiran.mime, 'image/png');
+    assert.equal(lampiran.isImage, true);
+    assert.equal(lampiran.storedName.startsWith('migratedfile123_'), true);
 
     // Clean orphans → file bucket HARUS tetap utuh
     const cleaned = await cleanOrphanedFiles(pid, db);
@@ -87,6 +91,91 @@ describe('Storage Explorer Functions', () => {
     assert.ok(stillThere, 'file bucket harus selamat dari clean orphans');
     assert.equal(stillThere.isBucket, true);
     assert.equal(stillThere.isOrphaned, false);
+  });
+
+  test('bucket overwrite keeps the Storage Explorer display name and pointer in sync', async () => {
+    const overwritten = await bucketUpload(db, pid, {
+      filename: 'updated-lampiran.jpg',
+      data: Buffer.from('new version'),
+      fileId: 'migratedfile123',
+    });
+    assert.equal(overwritten.filename, 'updated-lampiran.jpg');
+    const files = await listProjectStorageFiles(pid, db);
+    const latest = files.filter((f) => f.recordId === 'migratedfile123');
+    assert.equal(latest.length, 1);
+    assert.equal(latest[0].name, 'updated-lampiran.jpg');
+    assert.equal(latest[0].mime, 'image/jpeg');
+    assert.equal(latest[0].isBucket, true);
+    assert.equal(latest[0].isOrphaned, false);
+  });
+
+  test('Storage Explorer identifies current version when a bucket ID contains underscores', async () => {
+    const up = await bucketUpload(db, pid, {
+      filename: 'scanned.pdf', data: Buffer.from('pdf bytes'), fileId: 'id_with_underscores',
+    });
+    const all = await listProjectStorageFiles(pid, db);
+    const matches = all.filter((f) => f.recordId === up.fileId);
+    assert.equal(matches.length, 1);
+    assert.equal(matches[0].name, 'scanned.pdf');
+    assert.equal(matches[0].isBucket, true);
+    assert.equal(matches[0].isOrphaned, false);
+  });
+
+  test('Storage Explorer does not present an older physical bucket version as a second logical file', async () => {
+    const up = await bucketUpload(db, pid, {
+      filename: 'two-versions.png', data: Buffer.from('first'), fileId: 'doubleversionfile',
+    });
+    const saved = db.prepare('SELECT stored_name FROM _bucket_files WHERE file_id = ?').get(up.fileId) as { stored_name: string };
+    // Emulate delayed cleanup of a previous physical version after the CAS.
+    await saveFile(pid, up.fileId, 'b'.repeat(32) + '.png', Buffer.from('uncommitted'));
+    const listed = await listProjectStorageFiles(pid, db);
+    const current = listed.filter((f) => f.recordId === up.fileId);
+    assert.equal(current.length, 1);
+    assert.equal(current[0].storedName, saved.stored_name);
+    assert.equal(current[0].name, 'two-versions.png');
+    assert.equal(await cleanOrphanedFiles(pid, db), 0, 'do not delete an upload still in flight');
+  });
+
+  test('Storage Explorer does not hide an unrelated record file sharing a bucket prefix', async () => {
+    const bucketId = 'sharedprefix';
+    await bucketUpload(db, pid, { filename: 'bucket.png', data: Buffer.from('bucket'), fileId: bucketId });
+    const recordId = 'sharedprefix_record';
+    await saveFile(pid, recordId, 'report.pdf', Buffer.from('report'));
+    const listed = await listProjectStorageFiles(pid, db);
+    const other = listed.find((f) => f.storedName === `${recordId}_report.pdf`);
+    assert.ok(other, 'unrelated record file must remain visible');
+    assert.equal(other.isBucket, false);
+    assert.equal(other.isOrphaned, true);
+  });
+
+  test('Clean Orphans cannot delete a physical bucket upload before metadata commits', async () => {
+    const adapter = getStorageAdapter();
+    const save = adapter.save;
+    let reached!: () => void;
+    let release!: () => void;
+    const atSave = new Promise<void>((resolve) => { reached = resolve; });
+    const resume = new Promise<void>((resolve) => { release = resolve; });
+    const fileId = 'pending_bucket_id';
+    adapter.save = async function (...args) {
+      const result = await save.apply(this, args);
+      if (args[1] === fileId) {
+        reached();
+        await resume;
+      }
+      return result;
+    };
+    try {
+      const uploading = bucketUpload(db, pid, { filename: 'pending.png', data: Buffer.from('keep me'), fileId });
+      await atSave;
+      await cleanOrphanedFiles(pid, db);
+      release();
+      await uploading;
+      const read = await bucketRead(db, pid, fileId);
+      assert.equal(read?.data.toString(), 'keep me');
+    } finally {
+      release();
+      adapter.save = save;
+    }
   });
 
   test('deleteFile: removes specific file from storage', async () => {

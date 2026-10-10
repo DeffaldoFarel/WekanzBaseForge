@@ -17,6 +17,7 @@
 // ============================================================================
 
 import sharp from 'sharp';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -57,7 +58,9 @@ export async function getThumb(
   recordId: string,
   filename: string,
   sizeSpec: string,
-  originalBytes: Buffer
+  originalBytes: Buffer,
+  /** Bucket: exact persisted physical pointer, different on each overwrite. */
+  cacheVersion?: string
 ): Promise<Buffer> {
   const size = parseThumbSize(sizeSpec);
   if (!size) {
@@ -70,7 +73,13 @@ export async function getThumb(
 
   // ── Cache path: <projectDir>/thumbs_<filename>/<sizeSpec>_<filename> ──
   const dir = path.join(process.env.STORAGE_DIR ?? path.join(process.cwd(), 'data', 'storage'), projectId);
-  const thumbDir = path.join(dir, `thumbs_${filename}`);
+  // Record-file legacy cache retains its path; bucket callers supply the
+  // committed stored_name. Hashing ID + version isolates projects/users and
+  // prevents an old same-name thumbnail from crossing an overwrite/reuse.
+  const cacheKey = cacheVersion
+    ? crypto.createHash('sha256').update(`${recordId}\0${cacheVersion}`).digest('hex')
+    : null;
+  const thumbDir = path.join(dir, cacheKey ? `thumbs_bucket_${cacheKey}` : `thumbs_${filename}`);
   const thumbPath = path.join(thumbDir, `${sizeSpec}_${filename}`);
 
   // Cache hit? → langsung balikin (tanpa proses gambar!)

@@ -86,7 +86,7 @@ function isUserDisabled(db: DatabaseSync, userId: string): boolean {
   return row?.disabled === 1;
 }
 
-export async function issueTokens(db: DatabaseSync, user: AuthUser): Promise<TokenPair> {
+export async function issueTokens(db: DatabaseSync, user: AuthUser, projectId?: string): Promise<TokenPair> {
   // Ops-15: gerbang tunggal — akun disabled tidak pernah mendapat token,
   // dari jalur mana pun (password, OAuth, MFA challenge, register).
   if (isUserDisabled(db, user.id)) {
@@ -96,7 +96,7 @@ export async function issueTokens(db: DatabaseSync, user: AuthUser): Promise<Tok
   // Access token: JWT stateless (payload berisi identitas user)
   // M18b: signToken ASYNC (jose)
   const accessToken = await signToken(
-    { sub: user.id, email: user.email, name: user.name ?? undefined },
+    { sub: user.id, email: user.email, name: user.name ?? undefined, ...(projectId ? { projectId } : {}) },
     ACCESS_TOKEN_TTL
   );
 
@@ -126,7 +126,8 @@ export async function issueTokens(db: DatabaseSync, user: AuthUser): Promise<Tok
  */
 export async function refreshAccessToken(
   db: DatabaseSync,
-  refreshToken: string
+  refreshToken: string,
+  projectId?: string
 ): Promise<TokenPair | null> {
   const tokenHash = hashToken(refreshToken);
 
@@ -161,7 +162,7 @@ export async function refreshAccessToken(
     updated: '',
   };
 
-  return issueTokens(db, user);
+  return issueTokens(db, user, projectId);
 }
 
 // ─── REVOKE: logout ──────────────────────────────────────────────────────────

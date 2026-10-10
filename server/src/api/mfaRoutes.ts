@@ -60,11 +60,11 @@ function clientIp(req: { headers: Record<string, unknown>; raw: { socket: { remo
 }
 
 /** Bearer JWT end-user → userId (admin token ditolak — bukan flow user). */
-async function requireUserId(req: { headers: { authorization?: string } }): Promise<string | null> {
+async function requireUserId(req: { headers: { authorization?: string }; params: Record<string, string> }): Promise<string | null> {
   const auth = req.headers.authorization;
   const bearer = auth?.startsWith('Bearer ') ? auth.slice(7) : null;
   if (!bearer || bearer.startsWith('bf_')) return null; // API key ≠ flow user MFA
-  const result = await verifyToken(bearer);
+  const result = await verifyToken(bearer, req.params.pid);
   return result.valid && result.payload?.sub ? String(result.payload.sub) : null;
 }
 
@@ -203,7 +203,7 @@ export function createMfaRouter(): Router {
     // Ops-15: akun disabled tidak boleh menuntaskan MFA menjadi sesi penuh.
     let tokens;
     try {
-      tokens = await issueTokens(db, user);
+      tokens = await issueTokens(db, user, req.params.pid);
     } catch (err) {
       if (err instanceof AuthUserDisabledError) {
         respondUserDisabled(res);

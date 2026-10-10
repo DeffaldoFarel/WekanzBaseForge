@@ -207,7 +207,7 @@ export function createOAuthRouter(): Router {
       // memvalidasinya — gerbangnya di issueTokens, di sini hanya bentuk responsnya.
       let tokens;
       try {
-        tokens = await issueTokens(db, user);
+        tokens = await issueTokens(db, user, pid);
       } catch (err) {
         if (err instanceof AuthUserDisabledError) {
           respondUserDisabled(res);

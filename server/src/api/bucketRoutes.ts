@@ -9,13 +9,17 @@
 // ============================================================================
 
 import fs from 'node:fs';
-import { Router, type ForgeResponse } from '../core/router.js';
+import { Router, type ForgeRequest, type ForgeResponse } from '../core/router.js';
 import { getProjectDb } from '../core/projectDbManager.js';
 import { verifyToken } from '../auth/jwt.js';
-import { requireAdmin } from '../platform/adminAuth.js';
+import { findAuthUserById } from '../auth/users.js';
+import { requireAdmin, validateToken } from '../platform/adminAuth.js';
 import { extractApiKey, resolveApiKey, ApiKeyError } from '../auth/apiKeys.js';
+import type { DatabaseSync } from 'node:sqlite';
 import {
   bucketUpload,
+  BucketOwnershipError,
+  BucketConflictError,
   bucketRead,
   bucketDelete,
   getBucketInfo,
@@ -42,18 +46,66 @@ function mimeFor(filename: string): string {
   return MIME_WHITELIST_OVERRIDES[ext] ?? 'application/octet-stream';
 }
 
-/** Resolve end-user dari Bearer JWT / API key / anonymous. */
-async function resolveUser(req: { headers: Record<string, unknown> }): Promise<string | null> {
+type BucketActor = { kind: 'user'; userId: string } | { kind: 'service' };
+
+class BucketAuthorizationError extends Error {
+  constructor(
+    readonly status: 401 | 403,
+    readonly code: 'UNAUTHORIZED' | 'FORBIDDEN' | 'USER_DISABLED',
+    message: string
+  ) { super(message); }
+}
+
+/** Resolve and validate the actor against THIS project, before any bucket IO. */
+async function resolveBucketActor(
+  req: ForgeRequest,
+  db: DatabaseSync,
+  pid: string,
+  write: boolean
+): Promise<BucketActor> {
   const apiKey = extractApiKey(req.headers);
-  if (apiKey) {
-    // API key → service access, uploadedBy = null (service)
-    return null;
+  if (req.headers['x-api-key'] && !apiKey) {
+    throw new ApiKeyError(401, 'INVALID_API_KEY', 'Invalid API key');
   }
+  if (apiKey) {
+    await resolveApiKey(db, apiKey, { pid, write });
+    return { kind: 'service' };
+  }
+
   const auth = req.headers.authorization;
-  const bearer = typeof auth === 'string' && auth.startsWith('Bearer ') ? auth.slice(7) : null;
-  if (!bearer) return null;
-  const result = await verifyToken(bearer);
-  return result.valid && result.payload?.sub ? String(result.payload.sub) : null;
+  const bearer = typeof auth === 'string' && auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
+  if (!bearer) {
+    throw new BucketAuthorizationError(401, 'UNAUTHORIZED', 'Authentication required');
+  }
+  if (validateToken(bearer)) return { kind: 'service' }; // platform admin
+  const result = await verifyToken(bearer, pid);
+  if (!result.valid || !result.payload?.sub) {
+    throw new BucketAuthorizationError(401, 'UNAUTHORIZED', 'Invalid or expired token');
+  }
+  const user = findAuthUserById(db, String(result.payload.sub));
+  if (!user) {
+    throw new BucketAuthorizationError(401, 'UNAUTHORIZED', 'User not found in project');
+  }
+  if (user.disabled) {
+    throw new BucketAuthorizationError(403, 'USER_DISABLED', 'This account has been disabled');
+  }
+  return { kind: 'user', userId: user.id };
+}
+
+function respondBucketAuthError(res: ForgeResponse, err: unknown): boolean {
+  if (err instanceof BucketConflictError) {
+    res.status(409).json({ error: { code: 'CONFLICT', message: err.message } });
+    return true;
+  }
+  if (err instanceof BucketOwnershipError) {
+    res.status(403).json({ error: { code: 'FORBIDDEN', message: err.message } });
+    return true;
+  }
+  if (err instanceof ApiKeyError || err instanceof BucketAuthorizationError) {
+    res.status(err.status).json({ error: { code: err.code, message: err.message } });
+    return true;
+  }
+  return false;
 }
 
 function clientIp(req: { headers: Record<string, unknown>; raw: { socket: { remoteAddress?: string } } }): string {
@@ -70,7 +122,7 @@ export function createBucketRouter(): Router {
   router.post('/api/p/:pid/storage/upload', async (req, res) => {
     try {
       const db = getProjectDb(req.params.pid);
-      const uploadedBy = await resolveUser(req);
+      const actor = await resolveBucketActor(req, db, req.params.pid, true);
 
       // Parse multipart
       const reqExt = req as { isMultipart?: boolean; rawBody?: Buffer; headers: { 'content-type'?: string } };
@@ -98,12 +150,21 @@ export function createBucketRouter(): Router {
       // Optional fileId dari form field
       const requestedFileId = parsed.fields.fileId || parsed.fields.id || undefined;
 
+      // A known ID is not permission to replace another user's (or a legacy
+      // service-owned) file. Service/admin writes are explicitly privileged.
+      if (requestedFileId && actor.kind === 'user') {
+        const existing = getBucketInfo(db, requestedFileId);
+        if (existing && existing.uploadedBy !== actor.userId) {
+          throw new BucketAuthorizationError(403, 'FORBIDDEN', 'File belongs to another user');
+        }
+      }
+
       const result = await bucketUpload(db, req.params.pid, {
         filename: file.filename,
         data: file.data,
         contentType: file.contentType,
         fileId: requestedFileId,
-        uploadedBy,
+        uploadedBy: actor.kind === 'user' ? actor.userId : null,
       });
 
       const url = bucketFileUrl(
@@ -120,6 +181,7 @@ export function createBucketRouter(): Router {
         url,
       });
     } catch (err) {
+      if (respondBucketAuthError(res, err)) return;
       const message = err instanceof Error ? err.message : 'Upload failed';
       res.status(400).json({ error: { code: 'UPLOAD_FAILED', message } });
     }
@@ -154,7 +216,8 @@ export function createBucketRouter(): Router {
           return;
         }
         try {
-          serveData = await getThumb(req.params.pid, result.info.fileId, result.info.filename, thumbSpec, result.data);
+          serveData = await getThumb(req.params.pid, result.info.fileId, result.info.filename,
+            thumbSpec, result.data, result.info.storedName);
         } catch (err) {
           const message = err instanceof Error ? err.message : 'Failed to generate thumbnail';
           res.status(400).json({ error: { code: 'BAD_REQUEST', message } });
@@ -181,10 +244,11 @@ export function createBucketRouter(): Router {
   router.get('/api/p/:pid/storage/bucket', async (req, res) => {
     try {
       const db = getProjectDb(req.params.pid);
-      const userId = await resolveUser(req);
-      const files = listBucketFiles(db, userId ? { uploadedBy: userId } : { limit: 100 });
+      const actor = await resolveBucketActor(req, db, req.params.pid, false);
+      const files = listBucketFiles(db, actor.kind === 'user' ? { uploadedBy: actor.userId } : { limit: 100 });
       res.json({ files });
     } catch (err) {
+      if (respondBucketAuthError(res, err)) return;
       const message = err instanceof Error ? err.message : 'Internal error';
       res.status(400).json({ error: { code: 'BAD_REQUEST', message } });
     }
@@ -195,26 +259,24 @@ export function createBucketRouter(): Router {
   router.delete('/api/p/:pid/storage/bucket/:fileId', async (req, res) => {
     try {
       const db = getProjectDb(req.params.pid);
+      const actor = await resolveBucketActor(req, db, req.params.pid, true);
       const info = getBucketInfo(db, req.params.fileId);
       if (!info) {
         res.status(404).json({ error: { code: 'NOT_FOUND', message: 'File not found' } });
         return;
       }
 
-      // Cek ownership: anonymous tidak boleh hapus, user hanya file miliknya
-      const userId = await resolveUser(req);
-      if (!userId) {
-        res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'Authentication required' } });
-        return;
-      }
-      if (info.uploadedBy && info.uploadedBy !== userId) {
+      // A legacy unowned file belongs to the service, not every user.
+      if (actor.kind === 'user' && info.uploadedBy !== actor.userId) {
         res.status(403).json({ error: { code: 'FORBIDDEN', message: 'File belongs to another user' } });
         return;
       }
 
-      const deleted = await bucketDelete(db, req.params.pid, req.params.fileId);
+      const deleted = await bucketDelete(db, req.params.pid, req.params.fileId,
+        actor.kind === 'user' ? actor.userId : undefined);
       res.json({ ok: deleted });
     } catch (err) {
+      if (respondBucketAuthError(res, err)) return;
       const message = err instanceof Error ? err.message : 'Internal error';
       res.status(400).json({ error: { code: 'BAD_REQUEST', message } });
     }
@@ -225,13 +287,19 @@ export function createBucketRouter(): Router {
   router.delete('/api/admin/projects/:pid/storage/bucket/:fileId', requireAdmin, async (req, res) => {
     try {
       const db = getProjectDb(req.params.pid);
-      const deleted = await bucketDelete(db, req.params.pid, req.params.fileId);
+      const expected = req.headers['x-expected-stored-name'];
+      if (typeof expected !== 'string' || !expected.startsWith(`${req.params.fileId}_`) || expected.length > 300) {
+        res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'Expected stored version is required' } });
+        return;
+      }
+      const deleted = await bucketDelete(db, req.params.pid, req.params.fileId, undefined, expected);
       if (!deleted) {
         res.status(404).json({ error: { code: 'NOT_FOUND', message: 'File not found' } });
         return;
       }
       res.json({ ok: true });
     } catch (err) {
+      if (respondBucketAuthError(res, err)) return;
       const message = err instanceof Error ? err.message : 'Internal error';
       res.status(400).json({ error: { code: 'BAD_REQUEST', message } });
     }

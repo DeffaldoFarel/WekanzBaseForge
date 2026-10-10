@@ -120,6 +120,59 @@ after(async () => {
   fs.rmSync(TEST_DATA_DIR, { recursive: true, force: true });
 });
 
+// End-to-end guard for legacy owner-scoped collections that still have the
+// older auth-only createRule in their project metadata. No live data touched.
+test('Ops-security: HTTP create/PATCH cannot forge or transfer an owner despite auth-only createRule', async () => {
+  const ownerRule = '@request.auth.id != "" && userId = @request.auth.id';
+  const createdCollection = await http('POST', `/api/admin/projects/${pid}/collections`, {
+    name: 'owner_guard_probe',
+    fields: [
+      { name: 'userId', type: 'text', required: true },
+      { name: 'title', type: 'text', required: true },
+    ],
+    rules: {
+      listRule: ownerRule,
+      viewRule: ownerRule,
+      createRule: '@request.auth.id != ""',
+      updateRule: ownerRule,
+      deleteRule: ownerRule,
+    },
+  }, adminToken);
+  assert.equal(createdCollection.status, 201, JSON.stringify(createdCollection.data));
+  const db = getProjectDb(pid);
+  const actor = (db.prepare('SELECT id FROM _auth_users LIMIT 1').get() as { id: string }).id;
+  const foreign = 'some-other-user-id';
+  const endpoint = `/api/p/${pid}/collections/owner_guard_probe/records`;
+
+  const forged = await http('POST', endpoint, { userId: foreign, title: 'forged' }, userToken);
+  assert.equal(forged.status, 403, JSON.stringify(forged.data));
+  assert.equal((db.prepare('SELECT COUNT(*) AS n FROM owner_guard_probe').get() as { n: number }).n, 0);
+
+  const own = await http('POST', endpoint, { userId: actor, title: 'real' }, userToken);
+  assert.equal(own.status, 201, JSON.stringify(own.data));
+  const id = own.data.record.id as string;
+  const transferred = await http('PATCH', `${endpoint}/${id}`, { userId: foreign }, userToken);
+  assert.equal(transferred.status, 403, JSON.stringify(transferred.data));
+  const current = await http('GET', `${endpoint}/${id}`, undefined, userToken);
+  assert.equal(current.status, 200);
+  assert.equal(current.data.record.userId, actor);
+  const ownEdit = await http('PATCH', `${endpoint}/${id}`, { title: 'updated' }, userToken);
+  assert.equal(ownEdit.status, 200, JSON.stringify(ownEdit.data));
+  assert.equal(ownEdit.data.record.title, 'updated');
+});
+
+test('Ops-security: record API rejects a signed token for a different project with identical sub', async () => {
+  const { signToken, verifyToken } = await import('../src/auth/jwt.js');
+  const own = await verifyToken(userToken);
+  assert.equal(own.payload?.projectId, pid);
+  const other = await signToken({ sub: String(own.payload?.sub), projectId: 'another-project' }, 60);
+  const endpoint = `/api/p/${pid}/collections/items/records`;
+  assert.equal((await http('GET', endpoint, undefined, other)).status, 401);
+  assert.equal((await http('POST', endpoint, {
+    userId: own.payload?.sub, title: 'must not write',
+  }, other)).status, 401);
+});
+
 // ═══ Ops-1: busy_timeout ═══════════════════════════════════════════════════
 
 test('Ops-1: busy_timeout membuat writer menunggu lock dari thread lain (bukan gagal seketika)', async () => {

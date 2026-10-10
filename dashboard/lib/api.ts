@@ -1383,10 +1383,12 @@ export async function deleteStorageFile(
  * DELETE /api/admin/projects/:pid/storage/bucket/:fileId — juga membersihkan
  * metadata _bucket_files (beda dengan deleteStorageFile yang hanya unlink file).
  */
-export async function deleteBucketFile(projectId: string, fileId: string): Promise<{ ok: boolean }> {
+export async function deleteBucketFile(
+  projectId: string, fileId: string, expectedStoredName: string
+): Promise<{ ok: boolean }> {
   return request<{ ok: boolean }>(
     `/api/admin/projects/${projectId}/storage/bucket/${encodeURIComponent(fileId)}`,
-    { method: 'DELETE' }
+    { method: 'DELETE', headers: { 'X-Expected-Stored-Name': expectedStoredName } }
   );
 }
 
