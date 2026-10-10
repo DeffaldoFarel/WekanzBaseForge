@@ -110,7 +110,9 @@ export function createRealtimeRouter(): Router {
     else if (resolved.kind === 'none') reqCtx = { auth: null }; // anonymous
 
     // Koneksi terbuka — jangan res.json()! hub mengambil alih response.
-    realtimeHub.connect(res.raw, reqCtx);
+    // Scope project ikut tercatat di hub: event project lain tak pernah
+    // dikirim ke koneksi ini.
+    realtimeHub.connect(res.raw, reqCtx, req.params.pid);
   });
 
   // ── Ops-6: bulk sync ala PocketBase (contract SDK) ──────────────────────────

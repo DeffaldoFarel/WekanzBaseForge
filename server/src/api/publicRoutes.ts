@@ -366,7 +366,7 @@ export function createPublicRouter(): Router {
 
       const record = createRecord(db, req.params.name, body, reqCtx, preId);
       // M13: broadcast ke realtime subscribers (setelah DB sukses)
-      realtimeHub.publish(db, meta, 'create', record as Record<string, unknown>);
+      realtimeHub.publish(db, meta, 'create', record as Record<string, unknown>, req.params.pid);
       // M15b: jalankan functions yang ter-trigger (setelah realtime)
       // M28: webhook outbound (fire-and-forget)
       fireWebhooks(db, {
@@ -412,7 +412,7 @@ export function createPublicRouter(): Router {
 
       // Side effects SETELAH commit (pola yang sama dengan single create)
       for (const record of created) {
-        realtimeHub.publish(db, meta, 'create', record as Record<string, unknown>);
+        realtimeHub.publish(db, meta, 'create', record as Record<string, unknown>, req.params.pid);
         fireWebhooks(db, {
           projectId: req.params.pid,
           action: 'create',
@@ -451,7 +451,7 @@ export function createPublicRouter(): Router {
       }
 
       // M13: broadcast ke realtime subscribers
-      realtimeHub.publish(db, meta, 'update', record as Record<string, unknown>);
+      realtimeHub.publish(db, meta, 'update', record as Record<string, unknown>, req.params.pid);
       // M28: webhook outbound (fire-and-forget, dengan previous)
       fireWebhooks(db, {
         projectId: req.params.pid,
@@ -497,7 +497,7 @@ export function createPublicRouter(): Router {
         // M38: broadcast delete dengan FULL record snapshot (bukan hanya {id})
         // → subscriber bisa filter by userId, webhook punya context lengkap
         const deletePayload = (snapshot ?? { id: req.params.id }) as Record<string, unknown>;
-        realtimeHub.publish(db, meta, 'delete', deletePayload);
+        realtimeHub.publish(db, meta, 'delete', deletePayload, req.params.pid);
         // M28: webhook outbound (dengan full snapshot)
         fireWebhooks(db, {
           projectId: req.params.pid,

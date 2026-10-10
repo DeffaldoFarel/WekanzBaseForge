@@ -31,6 +31,8 @@ export interface RealtimeClient {
   id: string;
   res: ServerResponse;
   auth: RequestContext | undefined; // undefined = admin; {auth:null} = anonymous
+  /** Project scope of the connection — events from other projects never reach this client. */
+  projectId: string;
   subs: Map<string, Subscription>;
   connectedAt: number;
 }
@@ -49,7 +51,10 @@ class RealtimeHub {
   private clients = new Map<string, RealtimeClient>();
 
   // ── Connect: client SSE baru ──
-  connect(res: ServerResponse, auth: RequestContext | undefined): RealtimeClient {
+  // projectId WAJIB: koneksi hanya boleh menerima event dari project-nya
+  // sendiri. Tanpa ini, client dari project X bisa menerima event project Y
+  // (temuan audit: hub lama broadcast ke SEMUA client tanpa scope project).
+  connect(res: ServerResponse, auth: RequestContext | undefined, projectId: string): RealtimeClient {
     const id = randomUUID().replace(/-/g, '').slice(0, 15);
 
     // SSE headers — INILAH yang membuat koneksi jadi "event stream"
@@ -61,7 +66,7 @@ class RealtimeHub {
     });
     res.flushHeaders?.();
 
-    const client: RealtimeClient = { id, res, auth, subs: new Map(), connectedAt: Date.now() };
+    const client: RealtimeClient = { id, res, auth, projectId, subs: new Map(), connectedAt: Date.now() };
     this.clients.set(id, client);
 
     // Kirim PB_CONNECT — client akan pakai id ini untuk subscribe
@@ -143,12 +148,15 @@ class RealtimeHub {
 
   // ── Publish: broadcast ke subscriber yang BERHAK ──
   // dipanggil dari API layer SETELAH CRUD sukses (bukan di core — core
-  // tidak tahu projectId; di sini kita butuh meta + db untuk cek rules)
+  // tidak tahu projectId; di sini kita butuh meta + db untuk cek rules).
+  // projectId WAJIB: event hanya dikirim ke client yang terhubung melalui
+  // project yang sama — client project lain di-proses ini di-skip total.
   publish(
     db: DatabaseSync,
     meta: CollectionMeta,
     action: RealtimeAction,
-    record: Record<string, unknown>
+    record: Record<string, unknown>,
+    projectId: string
   ): void {
     if (this.clients.size === 0) return;
 
@@ -156,6 +164,9 @@ class RealtimeHub {
     let payload: string | null = null;
 
     for (const client of this.clients.values()) {
+      // Project scope — koneksi project lain tidak berhak atas event ini.
+      if (client.projectId !== projectId) continue;
+
       for (const sub of client.subs.values()) {
         if (sub.collection !== meta.name) continue;
 
