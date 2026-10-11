@@ -60,6 +60,12 @@ export interface FieldDefinition {
     cost?: number;
     // vector (M29)
     dimensions?: number;
+    /** JSON-in-text field whose payload must PARSE as an array (e.g.
+     *  missions.subtasks). Enforced by validateValue for text/json fields. */
+    jsonArray?: boolean;
+    /** Field owned by backend functions/admin — end-user writes carrying it
+     *  are rejected in records.ts (service context still allowed). */
+    backendManaged?: boolean;
   };
 }
 
@@ -214,6 +220,18 @@ export function validateValue(field: FieldDefinition, value: unknown): string | 
   switch (field.type) {
     case 'text': {
       if (typeof value !== 'string') return `Field '${field.name}' must be a string`;
+      // JSON-in-text with jsonArray contract: the stored string must parse
+      // to an array (audit: missions.subtasks accepted non-array payloads).
+      if (field.options?.jsonArray) {
+        try {
+          const parsed = JSON.parse(value);
+          if (!Array.isArray(parsed)) {
+            return `Field '${field.name}' must be a JSON array string`;
+          }
+        } catch {
+          return `Field '${field.name}' must be valid JSON (array)`;
+        }
+      }
       const min = field.options?.min;
       if (typeof min === 'number' && value.length < min) {
         return `Field '${field.name}' must be at least ${min} characters (got ${value.length})`;
@@ -237,13 +255,37 @@ export function validateValue(field: FieldDefinition, value: unknown): string | 
     }
     case 'date': {
       if (typeof value !== 'string') return `Field '${field.name}' must be a date string`;
+      // Shape-only dates let 'not-a-date' and '2026-02-30' through. Accept
+      // the two forms the clients actually write: calendar dates
+      // (YYYY-MM-DD, optionally with time/zone) — and verify the calendar
+      // really contains that day (round-trips through Date).
+      const dateOnly = value.split('T')[0];
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(dateOnly)) {
+        return `Field '${field.name}' must be an ISO date (YYYY-MM-DD or ISO 8601)`;
+      }
+      const parsed = new Date(`${dateOnly}T00:00:00Z`);
+      if (Number.isNaN(parsed.getTime()) ||
+          parsed.getUTCFullYear() !== Number(dateOnly.slice(0, 4)) ||
+          parsed.getUTCMonth() !== Number(dateOnly.slice(5, 7)) - 1 ||
+          parsed.getUTCDate() !== Number(dateOnly.slice(8, 10))) {
+        return `Field '${field.name}' is not a valid calendar date (${dateOnly})`;
+      }
+      if (value.includes('T')) {
+        // Full timestamp — the whole value must parse as ISO 8601.
+        if (Number.isNaN(new Date(value).getTime())) {
+          return `Field '${field.name}' must be a valid ISO 8601 date string`;
+        }
+      }
       return null;
     }
     case 'number': {
       if (typeof value !== 'number' || !Number.isFinite(value))
         return `Field '${field.name}' must be a finite number`;
-      const min = field.options?.min;
-      if (typeof min === 'number' && value < min) {
+      // Floor: an explicit min always wins (a real negative range stays
+      // allowed); without one, quantities like amounts/limits/prices must
+      // not go negative (audit: negative cash_advance.amount accepted).
+      const min = typeof field.options?.min === 'number' ? field.options.min : 0;
+      if (value < min) {
         return `Field '${field.name}' must be >= ${min} (got ${value})`;
       }
       const max = field.options?.max;
@@ -329,7 +371,7 @@ export function validateValue(field: FieldDefinition, value: unknown): string | 
       // (di-handle records.ts). Di sini kita hanya terima string atau null.
       if (typeof value !== 'string') return `Field '${field.name}' must be a date string`;
       return null;
-    case 'json':
+    case 'json': {
       // Apapun boleh, asal bisa di-serialize
       try {
         JSON.stringify(value);
@@ -337,6 +379,7 @@ export function validateValue(field: FieldDefinition, value: unknown): string | 
       } catch {
         return `Field '${field.name}' must be JSON-serializable`;
       }
+    }
     case 'relation': {
       // D2: bedakan single (string) vs multi (array of strings)
       const maxSelect = field.options?.maxSelect ?? 1;

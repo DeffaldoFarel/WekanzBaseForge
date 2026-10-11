@@ -475,6 +475,14 @@ export function createRecord(
     if (cRule.trim() !== '' && !evaluateRuleOnData(cRule, data, reqCtx)) {
       throw new ForbiddenError();
     }
+    // Backend-managed fields (options.backendManaged) are owned by functions
+    // /admin — an end user must not forge them (audit: missions.generalStatus).
+    for (const [key, value] of Object.entries(data)) {
+      const field = fmap.get(key);
+      if (field?.options?.backendManaged && value !== undefined && value !== null) {
+        throw new ForbiddenError(`Field '${key}' is managed by the backend and cannot be set by an end user`);
+      }
+    }
   }
 
   // ── Validasi setiap field yang dikirim user ──
@@ -654,6 +662,14 @@ export function updateRecord(
     if (meta.type !== 'auth' && hasUserIdOwnerRule(meta) &&
         data.userId !== undefined && data.userId !== existing.userId) {
       throw new ForbiddenError('Record userId cannot be changed by an end user');
+    }
+    // Backend-managed fields are function/admin-owned — reject end-user
+    // attempts to move them (audit: forging missions.generalStatus).
+    for (const [key, value] of Object.entries(data)) {
+      const field = fmap.get(key);
+      if (field?.options?.backendManaged && value !== undefined && value !== null) {
+        throw new ForbiddenError(`Field '${key}' is managed by the backend and cannot be changed by an end user`);
+      }
     }
   }
 
