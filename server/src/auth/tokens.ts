@@ -150,6 +150,16 @@ export async function refreshAccessToken(
   // agar route bisa membedakan "token tidak valid" (401) dari "akun dinonaktifkan" (403).
   if (row.disabled === 1) throw new AuthUserDisabledError(row.user_id);
 
+  // Audit #22: ONE-TIME ROTATION — revoke the presented token atomically
+  // BEFORE issuing the replacement. `revoked = 0` in the WHERE clause makes
+  // the UPDATE a compare-and-swap: two racing refreshes presenting the same
+  // token cannot both win (the loser sees 0 changes → treated as invalid).
+  // The pre-rotation token therefore dies the moment its successor exists.
+  const rotated = db
+    .prepare('UPDATE _auth_tokens SET revoked = 1 WHERE id = ? AND revoked = 0')
+    .run(row.id);
+  if (rotated.changes === 0) return null; // lost the race — token already rotated
+
   // Ambil user untuk payload access token
   const user: AuthUser = {
     id: row.user_id,

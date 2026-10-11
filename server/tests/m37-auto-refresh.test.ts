@@ -261,17 +261,20 @@ test('auto-refresh: expired token on collection getList & getOne & update → 40
   assert.equal(list.items[0].title, 'david secret');
   assert.notEqual(bf.authStore.token, 'expired-record-token', 'token refreshed on getList');
 
+  // Audit #22: refresh tokens are now ONE-TIME — each rotation revokes the
+  // previous one, and the SDK persists the newest refreshToken in authStore.
+  // Reuse the CURRENT (rotated) token, exactly like a real client does.
   // Break access token again
-  const refreshedToken = bf.authStore.token;
-  bf.authStore.save('expired-record-token-2', refreshToken, bf.authStore.user);
+  const refreshToken2 = bf.authStore.refreshToken;
+  bf.authStore.save('expired-record-token-2', refreshToken2, bf.authStore.user);
 
   // 2. getOne should NOT return 404 — it should get 401, auto-refresh, and return the record
   const rec = await bf.collection('secrets').getOne(created.id);
   assert.equal(rec.title, 'david secret', 'getOne returned david secret after auto-refresh');
   assert.notEqual(bf.authStore.token, 'expired-record-token-2', 'token refreshed on getOne');
 
-  // Break access token again
-  bf.authStore.save('expired-record-token-3', refreshToken, bf.authStore.user);
+  // Break access token again (rotation: use the newest refresh token)
+  bf.authStore.save('expired-record-token-3', bf.authStore.refreshToken, bf.authStore.user);
 
   // 3. update should NOT return 403 — it should get 401, auto-refresh, and update the record
   const updated = await bf.collection('secrets').update(created.id, {
@@ -280,8 +283,8 @@ test('auto-refresh: expired token on collection getList & getOne & update → 40
   assert.equal(updated.title, 'david secret updated', 'update succeeded after auto-refresh');
   assert.notEqual(bf.authStore.token, 'expired-record-token-3', 'token refreshed on update');
 
-  // Break access token again
-  bf.authStore.save('expired-record-token-4', refreshToken, bf.authStore.user);
+  // Break access token again (rotation: use the newest refresh token)
+  bf.authStore.save('expired-record-token-4', bf.authStore.refreshToken, bf.authStore.user);
 
   // 4. create with expired token → auto-refresh → succeeds
   const created2 = await bf.collection('secrets').create({
@@ -291,8 +294,8 @@ test('auto-refresh: expired token on collection getList & getOne & update → 40
   assert.ok(created2.id, 'create succeeded after auto-refresh');
   assert.notEqual(bf.authStore.token, 'expired-record-token-4', 'token refreshed on create');
 
-  // Break access token again
-  bf.authStore.save('expired-record-token-5', refreshToken, bf.authStore.user);
+  // Break access token again (rotation: use the newest refresh token)
+  bf.authStore.save('expired-record-token-5', bf.authStore.refreshToken, bf.authStore.user);
 
   // 5. delete with expired token → auto-refresh → succeeds
   await bf.collection('secrets').delete(created2.id);
