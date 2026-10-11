@@ -82,9 +82,11 @@ async function resolveAuth(bearer: string | null, pid: string): Promise<AuthReso
 // Upgrade auth koneksi SSE di hub — dipanggil route POST (sync/subscribe).
 // 'none' → tidak mengubah (koneksi tetap apa adanya — anonymous tetap
 // anonymous; admin tetap admin). clientId hanya diketahui pemilik koneksi.
-function upgradeClientAuth(clientId: string, resolved: AuthResolution): void {
-  if (resolved.kind === 'admin') realtimeHub.setClientAuth(clientId, undefined);
-  else if (resolved.kind === 'user') realtimeHub.setClientAuth(clientId, resolved.reqCtx);
+// Audit F-05: pid route WAJIB cocok dengan project koneksi — koneksi milik
+// project lain tidak boleh di-upgrade dari sini.
+function upgradeClientAuth(clientId: string, resolved: AuthResolution, pid: string): void {
+  if (resolved.kind === 'admin') realtimeHub.setClientAuth(clientId, undefined, pid);
+  else if (resolved.kind === 'user') realtimeHub.setClientAuth(clientId, resolved.reqCtx, pid);
 }
 
 export function createRealtimeRouter(): Router {
@@ -138,7 +140,10 @@ export function createRealtimeRouter(): Router {
         res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'clientId is required' } });
         return;
       }
-      if (!realtimeHub.getClient(body.clientId)) {
+      // Audit F-05: clientId harus milik project route INI. Koneksi project
+      // lain diperlakukan sebagai unknown (404) — tidak bisa di-sync/upgraded
+      // auth dari route project asing.
+      if (!realtimeHub.getClientForProject(body.clientId, req.params.pid)) {
         res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Unknown clientId — connect first' } });
         return;
       }
@@ -186,7 +191,7 @@ export function createRealtimeRouter(): Router {
       }
 
       // Upgrade auth koneksi ('none' → tidak berubah)
-      upgradeClientAuth(body.clientId, resolved);
+      upgradeClientAuth(body.clientId, resolved, req.params.pid);
 
       const subs = realtimeHub.syncSubscriptions(body.clientId, parsed);
       res.json({ subscriptions: subs });
@@ -212,7 +217,7 @@ export function createRealtimeRouter(): Router {
         return;
       }
 
-      const client = realtimeHub.getClient(clientId);
+      const client = realtimeHub.getClientForProject(clientId, req.params.pid);
       if (!client) {
         res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Unknown clientId — connect first' } });
         return;
@@ -227,7 +232,7 @@ export function createRealtimeRouter(): Router {
         res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'Invalid or expired token' } });
         return;
       }
-      upgradeClientAuth(clientId, resolved);
+      upgradeClientAuth(clientId, resolved, req.params.pid);
 
       // Validasi collection ada (biar typo tidak diam-diam tanpa event)
       const db = getProjectDb(req.params.pid);

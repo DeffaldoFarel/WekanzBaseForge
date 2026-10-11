@@ -29,6 +29,9 @@ export interface StoredFunction {
   httpAllow: string[]; // M25: allowlist host utk $http (kosong = $http off)
   timezone: string; // M39: IANA timezone utk schedule (default "UTC")
   dbAccess: boolean; // M41: izin akses $db in-process (default false = off)
+  /** Audit F-01: explicit opt-in to expose a function through the PUBLIC
+   *  execute route. dbAccess=true functions default to admin-only. */
+  callable: boolean;
   modules: string[]; // M43: nama modul $lib yang di-load (urutan = urutan eval)
   memoryMb: number; // M44: plafon memori isolate (16–256 MB, default 32)
   created: string;
@@ -46,6 +49,7 @@ interface FunctionRow {
   http_allow: string | null; // JSON string — M25
   timezone: string | null; // M39
   db_access: number | null; // M41 (0/1)
+  callable: number | null; // Audit F-01 (0/1, default 0)
   modules: string | null; // M43: JSON array nama modul
   memory_mb: number | null; // M44
   created: string;
@@ -99,6 +103,13 @@ export function initFunctionsTable(db: DatabaseSync): void {
     db.exec(`ALTER TABLE _functions ADD COLUMN db_access INTEGER NOT NULL DEFAULT 0`);
   }
 
+  // Audit F-01: kolom callable (0/1) — default 0 (tidak diekspos via route
+  // publik). Migrasi ringan: function lama dengan db_access=0 tetap callable
+  // karena guard hanya menolak dbAccess && !callable.
+  if (!cols.some((c) => c.name === 'callable')) {
+    db.exec(`ALTER TABLE _functions ADD COLUMN callable INTEGER NOT NULL DEFAULT 0`);
+  }
+
   // M43: kolom modules (JSON array nama modul $lib)
   if (!cols.some((c) => c.name === 'modules')) {
     db.exec(`ALTER TABLE _functions ADD COLUMN modules TEXT NOT NULL DEFAULT '[]'`);
@@ -143,6 +154,7 @@ function rowToFunction(row: FunctionRow): StoredFunction {
     httpAllow,
     timezone: row.timezone ?? 'UTC',
     dbAccess: row.db_access === 1,
+    callable: row.callable === 1,
     modules,
     memoryMb: row.memory_mb ?? 32,
     created: row.created,
@@ -230,7 +242,7 @@ function validateMemoryMb(value: number | undefined | null): number {
 
 export function createFunction(
   db: DatabaseSync,
-  def: { name: string; code: string; enabled?: boolean; timeoutMs?: number; triggers?: FunctionTrigger[]; schedule?: string | null; httpAllow?: string[]; timezone?: string; dbAccess?: boolean; modules?: string[]; memoryMb?: number }
+  def: { name: string; code: string; enabled?: boolean; timeoutMs?: number; triggers?: FunctionTrigger[]; schedule?: string | null; httpAllow?: string[]; timezone?: string; dbAccess?: boolean; callable?: boolean; modules?: string[]; memoryMb?: number }
 ): StoredFunction {
   if (!isValidFunctionName(def.name)) {
     throw new Error(
@@ -276,8 +288,8 @@ export function createFunction(
 
   const id = generateId();
   db.prepare(
-    `INSERT INTO _functions (id, name, code, enabled, timeout_ms, triggers, schedule, http_allow, timezone, db_access, modules, memory_mb) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(id, def.name, def.code, def.enabled === false ? 0 : 1, timeoutMs, JSON.stringify(triggers), schedule, JSON.stringify(httpAllow), timezone, def.dbAccess === true ? 1 : 0, JSON.stringify(modules), memoryMb);
+    `INSERT INTO _functions (id, name, code, enabled, timeout_ms, triggers, schedule, http_allow, timezone, db_access, callable, modules, memory_mb) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(id, def.name, def.code, def.enabled === false ? 0 : 1, timeoutMs, JSON.stringify(triggers), schedule, JSON.stringify(httpAllow), timezone, def.dbAccess === true ? 1 : 0, def.callable === true ? 1 : 0, JSON.stringify(modules), memoryMb);
 
   return getFunctionByName(db, def.name)!;
 }
@@ -322,7 +334,7 @@ export function getFunctionByName(db: DatabaseSync, name: string): StoredFunctio
 export function updateFunction(
   db: DatabaseSync,
   name: string,
-  updates: { code?: string; enabled?: boolean; timeoutMs?: number; triggers?: FunctionTrigger[]; schedule?: string | null; httpAllow?: string[]; timezone?: string; dbAccess?: boolean; modules?: string[]; memoryMb?: number }
+  updates: { code?: string; enabled?: boolean; timeoutMs?: number; triggers?: FunctionTrigger[]; schedule?: string | null; httpAllow?: string[]; timezone?: string; dbAccess?: boolean; callable?: boolean; modules?: string[]; memoryMb?: number }
 ): StoredFunction | undefined {
   const existing = getFunctionByName(db, name);
   if (!existing) return undefined;
@@ -384,6 +396,7 @@ export function updateFunction(
        http_allow = COALESCE(?, http_allow),
        timezone = COALESCE(?, timezone),
        db_access = COALESCE(?, db_access),
+       callable = COALESCE(?, callable),
        modules = COALESCE(?, modules),
        memory_mb = COALESCE(?, memory_mb),
        updated = strftime('%Y-%m-%dT%H:%M:%fZ','now')
@@ -397,6 +410,7 @@ export function updateFunction(
     httpAllowJson,
     timezoneValue ?? null,
     updates.dbAccess === undefined ? null : updates.dbAccess ? 1 : 0,
+    updates.callable === undefined ? null : updates.callable ? 1 : 0,
     modulesJson,
     memoryMbValue,
     name

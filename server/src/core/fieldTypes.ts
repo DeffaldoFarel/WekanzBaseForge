@@ -66,6 +66,10 @@ export interface FieldDefinition {
     /** Field owned by backend functions/admin — end-user writes carrying it
      *  are rejected in records.ts (service context still allowed). */
     backendManaged?: boolean;
+    /** Audit F-03: this numeric field legitimately holds NEGATIVE values
+     *  (e.g. investment_activities.amount/idr for Sell/Loss). Opt out of the
+     *  default >= 0 floor. (An explicit options.min still wins.) */
+    signed?: boolean;
   };
 }
 
@@ -284,7 +288,13 @@ export function validateValue(field: FieldDefinition, value: unknown): string | 
       // Floor: an explicit min always wins (a real negative range stays
       // allowed); without one, quantities like amounts/limits/prices must
       // not go negative (audit: negative cash_advance.amount accepted).
-      const min = typeof field.options?.min === 'number' ? field.options.min : 0;
+      // Audit F-03: options.signed opts OUT of the floor entirely — signed
+      // cash-flow fields (Sell/Loss) legitimately hold negative values.
+      const min = typeof field.options?.min === 'number'
+        ? field.options.min
+        : field.options?.signed === true
+          ? -Infinity
+          : 0;
       if (value < min) {
         return `Field '${field.name}' must be >= ${min} (got ${value})`;
       }

@@ -69,6 +69,7 @@ export function createFunctionRouter(): Router {
         httpAllow?: string[];
         timezone?: string;
         dbAccess?: boolean;
+        callable?: boolean;
         modules?: string[];
         memoryMb?: number;
       };
@@ -103,6 +104,7 @@ export function createFunctionRouter(): Router {
         httpAllow: body.httpAllow, // M25
         timezone: body.timezone, // M39
         dbAccess: body.dbAccess, // M41
+        callable: body.callable, // Audit F-01
         modules: body.modules, // M43
         memoryMb: body.memoryMb, // M44
       });
@@ -151,6 +153,7 @@ export function createFunctionRouter(): Router {
         httpAllow?: string[];
         timezone?: string;
         dbAccess?: boolean;
+        callable?: boolean;
         modules?: string[];
         memoryMb?: number;
       };
@@ -180,6 +183,7 @@ export function createFunctionRouter(): Router {
         httpAllow: body.httpAllow, // M25: undefined = tidak disentuh
         timezone: body.timezone, // M39: undefined = tidak disentuh
         dbAccess: body.dbAccess, // M41: undefined = tidak disentuh
+        callable: body.callable, // Audit F-01: undefined = tidak disentuh
         modules: body.modules, // M43: undefined = tidak disentuh
         memoryMb: body.memoryMb, // M44: undefined = tidak disentuh
       });
@@ -446,6 +450,23 @@ export function createFunctionRouter(): Router {
       }
       if (!fn.enabled) {
         res.status(403).json({ error: { code: 'FORBIDDEN', message: 'Function is disabled' } });
+        return;
+      }
+      // Audit F-01 (SEC-01): $db runs as a privileged context (dbSandbox calls
+      // records.ts without reqCtx — API rules are bypassed by design). A
+      // function with dbAccess=true must therefore NEVER be invocable by end
+      // users or anonymous callers through the public route: it could read or
+      // write ANY user's rows using a body-supplied userId. Only the admin
+      // route may execute it. Explicit callable=true is the deliberate
+      // opt-in for genuinely public functions (documented in the manifest).
+      if (fn.dbAccess && !fn.callable) {
+        res.status(403).json({
+          error: {
+            code: 'FORBIDDEN',
+            message:
+              'This function has database access and is not callable by end users (set callable: true to expose it explicitly)',
+          },
+        });
         return;
       }
 

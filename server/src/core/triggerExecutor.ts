@@ -28,6 +28,14 @@ import { getCollectionByName, CollectionMeta } from './schema.js';
 import { listFunctions, StoredFunction } from './functionsStore.js';
 import { getSecretsForFunction } from './secretsStore.js';
 import { runFunctionCode, FunctionRunResult } from './functionRunner.js';
+import { createKeyedTaskQueue } from './keyedTaskQueue.js';
+
+// Audit F-04: full-recompute triggers (e.g. investments-aggregates) must not
+// interleave for the same user — an older snapshot finishing late would
+// revert the aggregate to stale values. Triggers of the SAME function for
+// the SAME user are serialized in submission order; everything else stays
+// concurrent.
+const perUserFunctionQueue = createKeyedTaskQueue();
 
 export interface TriggerOutcome {
   functionName: string;
@@ -62,25 +70,31 @@ export function fireTriggers(
 
     // M18a: isolated-vm ASYNC — trigger jalan di background (fire-and-forget).
     // Operasi CRUD asli sudah selesai; hasil trigger dicatat via .then.
-    void runFunctionCode(fn.code, {
-      timeoutMs: fn.timeoutMs,
-      memoryLimitMb: fn.memoryMb, // M44
-      httpAllow: fn.httpAllow, // M25
-      // M41: $db in-process. depth+1 = tulisan $db TIDAK memicu trigger lagi
-      // (anti-rekursi: trigger → function → tulis → trigger → ... tak hingga).
-      projectDb: db,
-      dbAccess: fn.dbAccess,
-      depth: depth + 1,
-      secrets: getSecretsForFunction(db, fn.name), // M42
-      modules: fn.modules, // M43
-      executionLog: { functionName: fn.name, source: 'trigger' }, // M46
-      triggerContext: {
-        action,
-        collection,
-        record,
-        previous: previous ?? null,
-      },
-    })
+    // Audit F-04: jalankan lewat per-user queue agar recompute untuk user
+    // yang sama tidak saling menimpa out-of-order.
+    const queueKey = `${fn.name}|${String(record.userId ?? '')}`;
+    void perUserFunctionQueue
+      .run(queueKey, () =>
+        runFunctionCode(fn.code, {
+          timeoutMs: fn.timeoutMs,
+          memoryLimitMb: fn.memoryMb, // M44
+          httpAllow: fn.httpAllow, // M25
+          // M41: $db in-process. depth+1 = tulisan $db TIDAK memicu trigger lagi
+          // (anti-rekursi: trigger → function → tulis → trigger → ... tak hingga).
+          projectDb: db,
+          dbAccess: fn.dbAccess,
+          depth: depth + 1,
+          secrets: getSecretsForFunction(db, fn.name), // M42
+          modules: fn.modules, // M43
+          executionLog: { functionName: fn.name, source: 'trigger' }, // M46
+          triggerContext: {
+            action,
+            collection,
+            record,
+            previous: previous ?? null,
+          },
+        }),
+      )
       .then((result: FunctionRunResult) => {
         if (!result.ok) {
           console.error(

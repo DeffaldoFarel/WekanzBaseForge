@@ -94,6 +94,16 @@ class RealtimeHub {
     return this.clients.get(id);
   }
 
+  // Audit F-05: clientId hanya boleh dioperasikan lewat route project yang
+  // SAMA dengan koneksi aslinya. Tanpa cek ini, POST /realtime project B
+  // bisa meng-upgrade auth koneksi milik project A (client ID diketahui/
+  // bocor) — koneksi A lalu dievaluasi rules dengan subject project B.
+  getClientForProject(id: string, projectId: string): RealtimeClient | undefined {
+    const client = this.clients.get(id);
+    if (!client || client.projectId !== projectId) return undefined;
+    return client;
+  }
+
   // ── Subscribe: client minta event dari collection ──
   subscribe(clientId: string, collection: string, filter?: string): string | null {
     const client = this.clients.get(clientId);
@@ -117,9 +127,16 @@ class RealtimeHub {
   // belakangan via POST sync/subscribe yang membawa Authorization.
   // clientId hanya diketahui pemilik koneksi (dikirim via stream SSE),
   // jadi upgrade tidak bisa disalahgunakan lintas klien.
-  setClientAuth(clientId: string, auth: RequestContext | undefined): boolean {
+  // Audit F-05: expectedProjectId WAJIB — auth hanya boleh di-upgrade oleh
+  // route project yang sama dengan koneksi; mismatch = tolak.
+  setClientAuth(
+    clientId: string,
+    auth: RequestContext | undefined,
+    expectedProjectId?: string
+  ): boolean {
     const client = this.clients.get(clientId);
     if (!client) return false;
+    if (expectedProjectId !== undefined && client.projectId !== expectedProjectId) return false;
     client.auth = auth;
     return true;
   }
