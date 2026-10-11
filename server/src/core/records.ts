@@ -375,6 +375,70 @@ function deserializeRow(meta: CollectionMeta, row: Record<string, unknown>): For
   return result as ForgeRecord;
 }
 
+// ─── Audit #18: validasi relasi (existence + ownership) ─────────────────────
+// End-user writes may not point a relation at a nonexistent record or at
+// ANOTHER user's row. Admin/service (reqCtx undefined) keeps the privileged
+// import path — bulk imports legitimately cross-reference existing rows.
+
+class InvalidRelationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'InvalidRelationError';
+  }
+}
+
+function assertRelationsResolvable(
+  db: DatabaseSync,
+  collection: string,
+  data: Record<string, unknown>,
+  fields: Map<string, FieldDefinition>,
+  reqCtx: RequestContext | undefined,
+): void {
+  // Admin/service context: no ownership restriction (privileged import path).
+  if (reqCtx === undefined) return;
+
+  for (const [key, value] of Object.entries(data)) {
+    if (value === null || value === undefined) continue; // clearing a relation is allowed
+    const field = fields.get(key);
+    if (!field || field.type !== 'relation') continue;
+
+    const targetCollection = field.options?.collectionId;
+    if (!targetCollection) continue;
+
+    const targetMeta = getCollectionByName(db, targetCollection);
+    if (!targetMeta) {
+      throw new InvalidRelationError(
+        `Field '${key}' references collection '${targetCollection}' which does not exist`
+      );
+    }
+
+    // When the TARGET is user-scoped (has a userId owner rule), the related
+    // row must belong to the SAME authenticated user.
+    const targetOwnerScoped = hasUserIdOwnerRule(targetMeta);
+
+    const ids = Array.isArray(value) ? value : [value];
+    for (const rawId of ids) {
+      if (typeof rawId !== 'string' || rawId === '') {
+        throw new InvalidRelationError(`Field '${key}' must contain record id(s)`);
+      }
+      const row = db
+        .prepare(`SELECT id${targetOwnerScoped ? ', "userId"' : ''} FROM "${targetCollection}" WHERE id = ?`)
+        .get(rawId) as { id: string; userId?: unknown } | undefined;
+      if (!row) {
+        throw new InvalidRelationError(
+          `Field '${key}' references record '${rawId}' which does not exist in '${targetCollection}'`
+        );
+      }
+      if (targetOwnerScoped && row.userId !== reqCtx.auth?.id) {
+        throw new ForbiddenError(
+          `Field '${key}' references a record in '${targetCollection}' that is not owned by the authenticated user`
+        );
+      }
+    }
+  }
+}
+
+
 // ─── CREATE ──────────────────────────────────────────────────────────────────
 
 /** Treat userId as an ownership boundary only if a rule actually scopes it
@@ -505,6 +569,9 @@ export function createRecord(
       throw new Error(`Field '${field.name}' is required`);
     }
   }
+
+  // ── Audit #18: relasi harus resolve ke record milik user yang sama ──
+  assertRelationsResolvable(db, collection, data, fmap, reqCtx);
 
   if (isAuth) {
     const pwd = data.password;
@@ -672,6 +739,10 @@ export function updateRecord(
       }
     }
   }
+
+  // ── Audit #18: relasi yang di-repoint harus resolve ke record milik user
+  //    yang sama (nilai null dibiarkan — mengosongkan relasi sah). ──
+  assertRelationsResolvable(db, collection, data, fmap, reqCtx);
 
   // ── M14: simpan file baru yang di-upload via multipart & hapus yang diganti ──
   // data di sini bisa mengandung nama file tersimpan (dari multipartToRecordData)
