@@ -31,14 +31,15 @@
 import { Router } from '../core/router.js';
 import { getProjectDb } from '../core/projectDbManager.js';
 import { getCollectionByName } from '../core/schema.js';
-import { realtimeHub } from '../core/realtime.js';
+import { realtimeHub, MAX_REALTIME_SUBSCRIPTIONS } from '../core/realtime.js';
 import { verifyToken } from '../auth/jwt.js';
 import { validateToken } from '../platform/adminAuth.js';
+import { clientIpFromRequest } from '../auth/clientIp.js';
 import type { RequestContext } from '../core/query/sqlBuilder.js';
 
 // Topik SDK PocketBase-style: "collection" | "collection/*" | "collection/<recordId>"
+// (Cap jumlah topik kini MAX_REALTIME_SUBSCRIPTIONS di core/realtime.ts — AUD-5-04)
 const TOPIC_RE = /^([A-Za-z0-9_-]+)(?:\/([A-Za-z0-9_-]+|\*))?$/;
-const MAX_TOPICS = 100;
 
 // ── Ops-6: resolusi auth ────────────────────────────────────────────────────
 // none    = tanpa token (SSE anonymous; POST tidak mengubah auth koneksi)
@@ -114,7 +115,15 @@ export function createRealtimeRouter(): Router {
     // Koneksi terbuka — jangan res.json()! hub mengambil alih response.
     // Scope project ikut tercatat di hub: event project lain tak pernah
     // dikirim ke koneksi ini.
-    realtimeHub.connect(res.raw, reqCtx, req.params.pid);
+    // AUD-5-03: hub menolak koneksi melebihi limit (per-project/per-IP/global)
+    // → 429 SEBELUM header SSE ditulis.
+    const client = realtimeHub.connect(res.raw, reqCtx, req.params.pid, clientIpFromRequest(req));
+    if (!client) {
+      res.status(429).json({
+        error: { code: 'TOO_MANY_CONNECTIONS', message: 'Too many realtime connections (project/IP/global limit reached)' },
+      });
+      return;
+    }
   });
 
   // ── Ops-6: bulk sync ala PocketBase (contract SDK) ──────────────────────────
@@ -126,8 +135,9 @@ export function createRealtimeRouter(): Router {
     try {
       // 401 untuk token invalid SEBELUM validasi lain — SDK M37 auto-refresh
       // menangkap 401 → refresh → retry dengan token segar → upgrade sukses.
+      // AUD-5-05: POST hanya header Authorization (tanpa ?token=).
       const resolved = await resolveAuth(
-        extractBearer(req.headers.authorization, req.query.get('token')), req.params.pid
+        extractBearer(req.headers.authorization, null), req.params.pid
       );
       if (resolved.kind === 'invalid') {
         res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'Invalid or expired token' } });
@@ -151,8 +161,8 @@ export function createRealtimeRouter(): Router {
         res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'subscriptions must be an array of topics' } });
         return;
       }
-      if (body.subscriptions.length > MAX_TOPICS) {
-        res.status(400).json({ error: { code: 'BAD_REQUEST', message: `Too many subscriptions (max ${MAX_TOPICS})` } });
+      if (body.subscriptions.length > MAX_REALTIME_SUBSCRIPTIONS) {
+        res.status(400).json({ error: { code: 'BAD_REQUEST', message: `Too many subscriptions (max ${MAX_REALTIME_SUBSCRIPTIONS})` } });
         return;
       }
 
@@ -217,6 +227,14 @@ export function createRealtimeRouter(): Router {
         return;
       }
 
+      // AUD-5-04: panjang filter dibatasi — filter disimpan per subscription
+      // dan di-parse ulang filterToSql pada SETIAP publish; filter raksasa
+      // (probe: 100KB diterima) = memori + CPU amplification per event.
+      if (body.filter && body.filter.length > 1000) {
+        res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'filter is too long (max 1000 characters)' } });
+        return;
+      }
+
       const client = realtimeHub.getClientForProject(clientId, req.params.pid);
       if (!client) {
         res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Unknown clientId — connect first' } });
@@ -224,9 +242,13 @@ export function createRealtimeRouter(): Router {
       }
 
       // Ops-6: upgrade auth koneksi dari Authorization request — klien custom
-      // / SDK lama yang memakai route ini juga dapat evaluasi rules yang benar
+      // / SDK lama yang memakai route ini juga dapat evaluasi rules yang benar.
+      // AUD-5-05: POST TIDAK lagi menerima ?token= — POST bisa mengirim header
+      // Authorization; token di URL bocor ke log proxy/akses & browser history.
+      // (Query token tetap dihargai HANYA di GET SSE — EventSource browser
+      // memang tidak bisa mengirim header.)
       const resolved = await resolveAuth(
-        extractBearer(req.headers.authorization, req.query.get('token')), req.params.pid
+        extractBearer(req.headers.authorization, null), req.params.pid
       );
       if (resolved.kind === 'invalid') {
         res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'Invalid or expired token' } });
@@ -291,8 +313,10 @@ export function createRealtimeRouter(): Router {
   // client/subscription GLOBAL lintas project ke siapa pun. Endpoint tidak
   // punya konsumen resmi (dashboard/SDK/tests), jadi kini: platform-admin
   // only + angka scoped ke project route ini.
+  // AUD-5-05: GET biasa (bukan EventSource) — auth WAJIB via header, bukan
+  // ?token= (token di URL bocor ke log proxy/akses).
   router.get('/api/p/:pid/realtime/stats', (req, res) => {
-    const bearer = extractBearer(req.headers.authorization, req.query.get('token'));
+    const bearer = extractBearer(req.headers.authorization, null);
     if (!bearer || !validateToken(bearer)) {
       res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'Admin token required' } });
       return;

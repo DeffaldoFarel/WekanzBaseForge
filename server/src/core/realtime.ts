@@ -16,7 +16,28 @@ import type { CollectionMeta } from './schema.js';
 import type { RequestContext } from './query/sqlBuilder.js';
 import { decideRule } from './rules.js';
 import { filterToSql } from './query/sqlBuilder.js';
+import { isPrivateIp } from './httpSandbox.js'; // AUD-5-03: deteksi IP proxy
 import { DatabaseSync } from 'node:sqlite';
+
+// ─── Batas (AUD-5-01/03/04) ─────────────────────────────────────────────────
+
+/** AUD-5-04: jumlah subscription maksimum per koneksi — berlaku untuk SEMUA
+ *  jalur (bulk sync MAUPUN subscribe inkremental; dulu hanya sync yang dibatasi
+ *  sehingga 120 POST subscribe menghasilkan 120 subscription). */
+export const MAX_REALTIME_SUBSCRIPTIONS = 100;
+
+/** AUD-5-01: plafon byte yang boleh menumpuk di buffer tulis satu koneksi.
+ *  Subscriber yang tidak membaca (jaringan lambat / pause malicious) membuat
+ *  buffer tumbuh tanpa batas kalau return res.write() diabaikan (probe:
+ *  805 KB dari 100 event kecil saja). Melewati plafon = koneksi DIPUTUS —
+ *  pola PocketBase: satu subscriber mati lebih aman daripada OOM server. */
+const MAX_SSE_BUFFERED_BYTES = 5 * 1024 * 1024; // 5 MB
+
+/** AUD-5-03: limit koneksi — env-override untuk operator (dibaca per connect). */
+function envLimit(name: string, def: number): number {
+  const v = parseInt(process.env[name] ?? '', 10);
+  return Number.isFinite(v) && v > 0 ? v : def;
+}
 
 // ─── Tipe ────────────────────────────────────────────────────────────────────
 
@@ -33,6 +54,8 @@ export interface RealtimeClient {
   auth: RequestContext | undefined; // undefined = admin; {auth:null} = anonymous
   /** Project scope of the connection — events from other projects never reach this client. */
   projectId: string;
+  /** AUD-5-03: IP asal koneksi (untuk limit per-IP; IP privat = skenario proxy). */
+  ip?: string;
   subs: Map<string, Subscription>;
   connectedAt: number;
 }
@@ -54,7 +77,42 @@ class RealtimeHub {
   // projectId WAJIB: koneksi hanya boleh menerima event dari project-nya
   // sendiri. Tanpa ini, client dari project X bisa menerima event project Y
   // (temuan audit: hub lama broadcast ke SEMUA client tanpa scope project).
-  connect(res: ServerResponse, auth: RequestContext | undefined, projectId: string): RealtimeClient {
+  //
+  // AUD-5-03: return null = koneksi DITOLAK (limit terlampaui) — route wajib
+  // menjawab 429. Sebelumnya tidak ada limit sama sekali: 60 koneksi anonim
+  // berurutan diterima semua (probe) → fd & memory exhaustion.
+  // Per-IP hanya dihitung untuk IP PUBLIK: di belakang reverse proxy tanpa
+  // TRUST_PROXY semua koneksi tampak berasal dari IP privat proxy tunggal —
+  // membatasinya = memutus seluruh produksi. Per-project & global tetap
+  // melindungi skenario itu.
+  connect(res: ServerResponse, auth: RequestContext | undefined, projectId: string, ip?: string): RealtimeClient | null {
+    const maxGlobal = envLimit('REALTIME_MAX_CONN_GLOBAL', 1000);
+    if (this.clients.size >= maxGlobal) return null;
+
+    const maxProject = envLimit('REALTIME_MAX_CONN_PER_PROJECT', 200);
+    let projectCount = 0;
+    for (const c of this.clients.values()) {
+      if (c.projectId === projectId) projectCount++;
+    }
+    if (projectCount >= maxProject) return null;
+
+    if (ip) {
+      const maxIp = envLimit('REALTIME_MAX_CONN_PER_IP', 10);
+      let isPublicIp = true;
+      try {
+        isPublicIp = !isPrivateIp(ip.replace(/^\[|\]$/g, ''));
+      } catch {
+        isPublicIp = true; // IP aneh → perlakukan publik (batasi)
+      }
+      if (isPublicIp) {
+        let ipCount = 0;
+        for (const c of this.clients.values()) {
+          if (c.ip === ip) ipCount++;
+        }
+        if (ipCount >= maxIp) return null;
+      }
+    }
+
     const id = randomUUID().replace(/-/g, '').slice(0, 15);
 
     // SSE headers — INILAH yang membuat koneksi jadi "event stream"
@@ -66,15 +124,22 @@ class RealtimeHub {
     });
     res.flushHeaders?.();
 
-    const client: RealtimeClient = { id, res, auth, projectId, subs: new Map(), connectedAt: Date.now() };
+    const client: RealtimeClient = { id, res, auth, projectId, ip, subs: new Map(), connectedAt: Date.now() };
     this.clients.set(id, client);
 
     // Kirim PB_CONNECT — client akan pakai id ini untuk subscribe
     this.send(client, 'PB_CONNECT', { clientId: id });
 
-    // Ping tiap 30 detik agar proxy tidak memutus koneksi idle
+    // Ping tiap 30 detik agar proxy tidak memutus koneksi idle.
+    // AUD-5-01: ping pun menulis tanpa cek dulu — subscriber yang tidak pernah
+    // membaca tetap menumpuk buffer pelan-pelan; cek plafon juga di sini.
     const ping = setInterval(() => {
       try {
+        if (res.writableLength > MAX_SSE_BUFFERED_BYTES) {
+          res.destroy();
+          clearInterval(ping);
+          return;
+        }
         res.write(': ping\n\n');
       } catch {
         clearInterval(ping);
@@ -108,6 +173,11 @@ class RealtimeHub {
   subscribe(clientId: string, collection: string, filter?: string): string | null {
     const client = this.clients.get(clientId);
     if (!client) return null;
+
+    // AUD-5-04: cap TOTAL subscription per koneksi — bulk sync sudah dibatasi
+    // route (MAX_TOPICS), tapi subscribe inkremental TIDAK: 120 POST berturut
+    // menghasilkan 120 subscription → biaya publish O(subs) membesar tanpa batas.
+    if (client.subs.size >= MAX_REALTIME_SUBSCRIPTIONS) return null;
 
     const subId = randomUUID().replace(/-/g, '').slice(0, 12);
     client.subs.set(subId, { id: subId, collection, filter });
@@ -307,10 +377,19 @@ class RealtimeHub {
   }
 
   // ── Kirim SSE. parsed=true berarti payload sudah JSON string ──
+  // AUD-5-01: return res.write() TIDAK diabaikan lagi. write() mengembalikan
+  // false saat buffer internal penuh; data yang terus ditulis ke subscriber
+  // yang tidak membaca menumpuk TANPA BATAS (probe: 805 KB dari 100 event).
+  // Melewati plafon buffer = koneksi stalled → PUTUSKAN; close handler
+  // membersihkan state. (Tidak hanya men-skip event: buffer lama tetap
+  // menempati memori — putus adalah satu-satunya pemulihan.)
   private send(client: RealtimeClient, event: string, data: unknown, parsed = false): void {
     try {
       const body = parsed ? (data as string) : JSON.stringify(data);
       client.res.write(`event: ${event}\ndata: ${body}\n\n`);
+      if (client.res.writableLength > MAX_SSE_BUFFERED_BYTES) {
+        client.res.destroy();
+      }
     } catch {
       // koneksi mati — close handler akan membersihkan
     }

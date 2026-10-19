@@ -28,8 +28,80 @@
 // ============================================================================
 
 import crypto from 'node:crypto';
+import net from 'node:net';
+import dns from 'node:dns/promises';
 import { DatabaseSync } from 'node:sqlite';
 import { generateId } from './router.js';
+import { isPrivateIp } from './httpSandbox.js'; // AUD-5-02: deteksi IP privat lengkap (incl. IPv6 hex-mapped)
+
+// ─── AUD-5-02: guard SSRF webhook ────────────────────────────────────────────
+// Guard lama hanya ada di create, hanya cek literal hostname (bentuk [::1]
+// lolos), dan default mengizinkan target privat. Kini:
+//   - SATU helper dipanggil di create DAN update (update dulu tanpa cek).
+//   - Default TIDAK mengizinkan target privat; hanya test environment
+//     (node --test) yang diizinkan — 127.0.0.1 adalah kasus test utama.
+//     WEBHOOK_ALLOW_PRIVATE=true|false meng-override apa pun (dev eksplisit).
+//   - Delivery mengecek ulang target (DNS bisa berubah sejak create) dan
+//     TIDAK mengikuti redirect (public URL yang 302 ke internal = SSRF).
+
+function webhookAllowPrivate(): boolean {
+  const raw = process.env.WEBHOOK_ALLOW_PRIVATE;
+  if (raw !== undefined) return raw === 'true';
+  // AUD-1-11 lesson: NODE_ENV=production selalu menang atas flag test.
+  if (process.env.NODE_ENV === 'production') return false;
+  return Boolean(process.env.NODE_TEST_CONTEXT) || process.argv.includes('--test');
+}
+
+function hostnameOf(rawUrl: string): string {
+  // URL.hostname menyertakan kurung untuk IPv6 — buang agar isPrivateIp benar.
+  return new URL(rawUrl).hostname.replace(/^\[|\]$/g, '').toLowerCase();
+}
+
+function assertWebhookUrlAllowed(rawUrl: string): void {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    throw new Error(`Invalid webhook URL: '${rawUrl}'`);
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw new Error('Webhook URL must be http:// or https://');
+  }
+  const host = url.hostname.replace(/^\[|\]$/g, '').toLowerCase();
+  const privateHost =
+    host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.internal') ||
+    (net.isIP(host) > 0 && isPrivateIp(host)); // mencakup ::1, ::ffff:7f00:1, dsb.
+  if (privateHost && !webhookAllowPrivate()) {
+    throw new Error(
+      `Webhook URL host '${host}' is a private/loopback address (set WEBHOOK_ALLOW_PRIVATE=true to allow internal targets in development)`
+    );
+  }
+}
+
+/**
+ * AUD-5-02: cek ulang tujuan SAAT DELIVERY — DNS bisa berubah sejak create
+ * (rebinding: nama publik resolve ke IP privat), dan hostname bentuk non-
+ * literal baru ketahuan di sini. Literal privat hanya lolos bila
+ * WEBHOOK_ALLOW_PRIVATE=true.
+ */
+async function assertDeliveryTargetAllowed(rawUrl: string): Promise<void> {
+  const host = hostnameOf(rawUrl);
+  const allowPrivate = webhookAllowPrivate();
+  if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.internal')) {
+    if (!allowPrivate) throw new Error(`webhook target '${host}' is private (blocked at delivery)`);
+    return;
+  }
+  if (net.isIP(host) > 0) {
+    if (isPrivateIp(host) && !allowPrivate) throw new Error(`webhook target '${host}' is a private address (blocked at delivery)`);
+    return;
+  }
+  const records = await dns.lookup(host, { all: true });
+  for (const r of records) {
+    if (isPrivateIp(r.address) && !allowPrivate) {
+      throw new Error(`webhook target '${host}' resolves to private IP ${r.address} (blocked at delivery)`);
+    }
+  }
+}
 
 export interface WebhookDef {
   id: string;
@@ -117,31 +189,8 @@ export function createWebhook(
   if (!def.name?.trim()) throw new Error('Webhook name is required');
   if (!def.url?.trim()) throw new Error('Webhook URL is required');
 
-  let url: URL;
-  try {
-    url = new URL(def.url);
-  } catch {
-    throw new Error(`Invalid webhook URL: '${def.url}'`);
-  }
-  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-    throw new Error('Webhook URL must be http:// or https://');
-  }
-
-  // SSRF guard: host privat tidak boleh jadi tujuan webhook (data exfil ke
-  // dalam network tidak masalah — justru berbahaya: SSRF dari webhook admin)
-  const host = url.hostname;
-  if (
-    host === 'localhost' || host.endsWith('.localhost') ||
-    host === '169.254.169.254' || // metadata cloud
-    /^127\./.test(host) || /^10\./.test(host) ||
-    /^192\.168\./.test(host) || /^172\.(1[6-9]|2\d|3[01])\./.test(host)
-  ) {
-    // IZINKAN eksplisit untuk development/test (127.0.0.1 adalah kasus test
-    // utama). Produksi bisa menonaktifkan via env WEBHOOK_ALLOW_PRIVATE=false
-    if ((process.env.WEBHOOK_ALLOW_PRIVATE ?? 'true') !== 'true') {
-      throw new Error(`Webhook URL host '${host}' is a private/loopback address (blocked in production mode)`);
-    }
-  }
+  // AUD-5-02: guard tunggal (protokol + host privat) — dipakai create & update.
+  assertWebhookUrlAllowed(def.url.trim());
 
   const secret = def.secret?.trim() || `whsec_${crypto.randomBytes(24).toString('hex')}`;
   const events = validateEvents(def.events ?? ['*']);
@@ -190,13 +239,9 @@ export function updateWebhook(
   if (!existing) return undefined;
 
   if (updates.url !== undefined) {
-    let url: URL;
-    try { url = new URL(updates.url); } catch {
-      throw new Error(`Invalid webhook URL: '${updates.url}'`);
-    }
-    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-      throw new Error('Webhook URL must be http:// or https://');
-    }
+    // AUD-5-02: update dulu TANPA guard SSRF — PATCH ke 127.0.0.1 diterima
+    // (probe) padahal create diblokir. Guard yang sama untuk kedua pintu.
+    assertWebhookUrlAllowed(updates.url.trim());
   }
 
   const events = updates.events !== undefined ? JSON.stringify(validateEvents(updates.events)) : null;
@@ -344,12 +389,38 @@ async function deliverWithRetry(db: DatabaseSync, hook: WebhookDef, payload: str
   const started = Date.now();
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    // AUD-5-02: cek tujuan ulang SEBELUM fetch — DNS bisa berubah sejak create
+    // (nama publik resolve ke IP privat). Target yang diblokir = kegagalan
+    // permanen (bukan transient) → catat & berhenti tanpa retry.
+    try {
+      await assertDeliveryTargetAllowed(hook.url);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      recordDelivery(db, {
+        webhookId: hook.id,
+        event,
+        statusCode: null,
+        ok: false,
+        attempt,
+        error: message,
+        durationMs: Date.now() - started,
+        deliveredAt: new Date().toISOString(),
+      });
+      console.error(`[webhook:${hook.name}] ${event} → ${message} (blocked at delivery)`);
+      return;
+    }
+
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), WEBHOOK_TIMEOUT_MS);
 
     try {
+      // AUD-5-02: redirect TIDAK diikuti — tujuan redirect tidak divalidasi
+      // guard; public URL yang 302 ke endpoint internal adalah SSRF klasik.
+      // 3xx dicatat sebagai kegagalan HTTP (penerima webhook harus memakai
+      // URL final yang teregistrasi, bukan chain).
       const res = await fetch(hook.url, {
         method: 'POST',
+        redirect: 'manual',
         headers: {
           'Content-Type': 'application/json',
           'User-Agent': 'BaseForge-Webhook/1.0',

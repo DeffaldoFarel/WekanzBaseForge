@@ -68,7 +68,9 @@ function isExplicitEntry(hostname: string, allowList: string[]): boolean {
 
 // ─── 2. SSRF guard ────────────────────────────────────────────────────────────
 
-function isPrivateIp(ip: string): boolean {
+/** AUD-3-04/5-02: dipakai bersama httpSandbox, realtime (limit koneksi), dan
+ *  webhooks (guard SSRF) — semua bentuk IPv4/IPv6 privat termasuk hex-mapped. */
+export function isPrivateIp(ip: string): boolean {
   if (net.isIPv4(ip)) {
     const [a, b] = ip.split('.').map(Number);
     if (a === 0 || a === 10 || a === 127) return true; // this-host, private, loopback
