@@ -13,7 +13,7 @@
 
 import crypto from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
-import { verifyTotp, generateTotpSecret, generateRecoveryCodes, hashRecoveryCode, base32Decode } from './totp.js';
+import { verifyTotp, verifyTotpCounter, generateTotpSecret, generateRecoveryCodes, hashRecoveryCode, base32Decode } from './totp.js';
 
 // ─── Tabel ────────────────────────────────────────────────────────────────────
 
@@ -25,10 +25,16 @@ export function initMfaTable(db: DatabaseSync): void {
       recovery_codes TEXT NOT NULL DEFAULT '[]', -- JSON array SHA-256 hash
       enabled        INTEGER NOT NULL DEFAULT 0,
       pending        INTEGER NOT NULL DEFAULT 0,
+      last_totp_counter INTEGER,             -- AUD-1-08: replay guard
       created        TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
       updated        TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
   `);
+  // AUD-1-08: migrasi idempotent untuk DB lama (pola PRAGMA ala users.ts M47)
+  const cols = db.prepare('PRAGMA table_info(_auth_mfa)').all() as unknown as { name: string }[];
+  if (cols.length > 0 && !cols.some((c) => c.name === 'last_totp_counter')) {
+    db.exec('ALTER TABLE _auth_mfa ADD COLUMN last_totp_counter INTEGER');
+  }
 }
 
 interface MfaRow {
@@ -37,6 +43,8 @@ interface MfaRow {
   recovery_codes: string;
   enabled: number;
   pending: number;
+  /** AUD-1-08: counter keberhasilan TOTP terakhir (null = belum pernah). */
+  last_totp_counter: number | null;
 }
 
 // ─── Enkripsi secret (pola M10/M23, salt unik MFA) ────────────────────────────
@@ -109,7 +117,22 @@ export function startEnrollment(db: DatabaseSync, userId: string): EnrollResult 
 export function verifyUserTotp(db: DatabaseSync, userId: string, token: string): boolean {
   const row = getMfaRow(db, userId);
   if (!row) return false;
-  return verifyTotp(base32Decode(dec(row.secret_enc)), token);
+  const secretBytes = base32Decode(dec(row.secret_enc));
+  const matched = verifyTotpCounter(secretBytes, token);
+  if (matched === null) return false;
+  // AUD-1-08 (replay guard, mode LENIENT): kode dari window yang LEBIH LAMA
+  // dari keberhasilan terakhir ditolak — kode phished/tereks yang dipakai
+  // tertunda tidak bisa dipakai ulang di window berikutnya. Kode window SAAT
+  // INI tetap boleh dipakai ulang (re-login cepat setelah enroll/confirm —
+  // kontrak test m27; sisa risiko ±30-90 detik disengaja diterima).
+  const last = row.last_totp_counter;
+  if (last !== null && matched < last) return false;
+  if (last === null || matched > last) {
+    db.prepare(
+      "UPDATE _auth_mfa SET last_totp_counter = ?, updated = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE user_id = ?"
+    ).run(matched, userId);
+  }
+  return true;
 }
 
 /**

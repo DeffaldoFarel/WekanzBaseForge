@@ -99,6 +99,9 @@ before(async () => {
   process.env.ADMIN_EMAIL = 'admin@m23.test';
   process.env.ADMIN_PASSWORD = 'm23-secret-pass';
   process.env.JWT_SECRET = 'm23-test-jwt-secret-key-long-enough';
+  // AUD-1-01: test memalsukan XFF untuk isolasi rate limit antar-scenario —
+  // jalankan server test dalam mode proxy tepercaya (hop terakhir XFF dihitung).
+  process.env.TRUST_PROXY = 'true';
   // SMTP_HOST sengaja TIDAK diset → mailer otomatis mode OUTBOX
   delete process.env.SMTP_HOST;
   initPlatformDb();

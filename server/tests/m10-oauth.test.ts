@@ -164,6 +164,9 @@ before(async () => {
   process.env.ADMIN_EMAIL = 'admin@m10.test';
   process.env.ADMIN_PASSWORD = 'm10-secret-pass';
   process.env.JWT_SECRET = 'm10-test-jwt-secret-key-long-enough';
+  // AUD-1-01: test memalsukan XFF untuk isolasi rate limit antar-scenario —
+  // jalankan server test dalam mode proxy tepercaya (hop terakhir XFF dihitung).
+  process.env.TRUST_PROXY = 'true';
   process.env.OAUTH_SECRET = 'm10-test-oauth-encryption-key';
   initPlatformDb();
 

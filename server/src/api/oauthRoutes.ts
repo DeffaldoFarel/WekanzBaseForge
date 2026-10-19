@@ -18,6 +18,8 @@ import { Router, type ForgeResponse } from '../core/router.js';
 import { requireAdmin } from '../platform/adminAuth.js';
 import { getProjectDb } from '../core/projectDbManager.js';
 import { checkRateLimit } from '../auth/rateLimiter.js';
+import { clientIpFromRequest as clientIp } from '../auth/clientIp.js';
+import { validateRedirectTarget } from '../core/redirects.js';
 import { issueTokens, initAuthTokensTable, AuthUserDisabledError } from '../auth/tokens.js';
 import { respondUserDisabled } from './authRoutes.js';
 import { initAuthUsersTable } from '../auth/users.js';
@@ -56,16 +58,16 @@ function getOAuthDb(projectId: string): DatabaseSync | null {
   }
 }
 
-function clientIp(req: { headers: Record<string, unknown>; raw: { socket: { remoteAddress?: string } } }): string {
-  const fwd = req.headers['x-forwarded-for'];
-  if (typeof fwd === 'string' && fwd.length > 0) {
-    return fwd.split(',')[0].trim();
-  }
-  return req.raw.socket.remoteAddress ?? 'unknown';
-}
 
-/** Validasi redirect_to: harus URL http(s); origin harus cocok allow-list (jika diisi). */
-function validateRedirectTo(raw: string | null, allowedOrigins: string[]): string | null {
+
+/**
+ * Validasi redirect_to: URL http(s) + origin diizinkan.
+ * AUD-1-04: allow-list provider KOSONG (default) bukan lagi "semua origin" —
+ * sebelumnya access+refresh token dikirim via fragment ke domain mana pun.
+ * Kini fallback ke aturan global yang aman (same-origin / AUTH_REDIRECT_ORIGINS
+ * / PUBLIC_BASE_URL) — konsisten dengan email flow (AUD-1-03).
+ */
+function validateRedirectTo(raw: string | null, allowedOrigins: string[], headers: Record<string, unknown>): string | null {
   if (!raw) return null;
   let url: URL;
   try {
@@ -75,10 +77,10 @@ function validateRedirectTo(raw: string | null, allowedOrigins: string[]): strin
   }
   if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
   if (allowedOrigins.length > 0) {
-    const origin = url.origin;
-    if (!allowedOrigins.includes(origin)) return null;
+    return allowedOrigins.includes(url.origin) ? url.toString() : null;
   }
-  return url.toString();
+  // allow-list kosong → aturan global aman (lihat core/redirects.ts)
+  return validateRedirectTarget(raw, headers);
 }
 
 function sendRedirect(res: ForgeResponse, location: string): void {
@@ -125,7 +127,8 @@ export function createOAuthRouter(): Router {
     // redirect_to opsional — kirim user + tokens ke sini setelah sukses
     const redirectTo = validateRedirectTo(
       req.query.get('redirect_to'),
-      cfg.allowedOrigins
+      cfg.allowedOrigins,
+      req.headers
     );
 
     const state = createOAuthState(db, provider, redirectTo);

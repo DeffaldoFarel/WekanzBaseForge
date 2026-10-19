@@ -108,11 +108,7 @@ function respondBucketAuthError(res: ForgeResponse, err: unknown): boolean {
   return false;
 }
 
-function clientIp(req: { headers: Record<string, unknown>; raw: { socket: { remoteAddress?: string } } }): string {
-  const fwd = req.headers['x-forwarded-for'];
-  if (typeof fwd === 'string' && fwd.length > 0) return fwd.split(',')[0].trim();
-  return req.raw.socket.remoteAddress ?? 'unknown';
-}
+
 
 export function createBucketRouter(): Router {
   const router = new Router();

@@ -14,7 +14,7 @@
 
 import { DatabaseSync } from 'node:sqlite';
 import { generateId } from '../core/router.js';
-import { hashPassword, verifyPassword, validatePasswordStrength } from './password.js';
+import { hashPassword, verifyPassword, validatePasswordStrength, TIMING_EQUALIZER_HASH } from './password.js';
 import {
   listAuthFields,
   extractProfile,
@@ -288,9 +288,13 @@ export function verifyAuthCredentials(
 ): AuthUser | null {
   const row = getAuthUserRowByEmail(db, email);
   if (!row) {
+    // AUD-1-10: timing equalizer — email tak dikenal tetap membayar biaya
+    // scrypt penuh; timing respons tidak membedakan "email ada" vs "password salah".
+    verifyPassword(password, TIMING_EQUALIZER_HASH);
     return null;
   }
   if (!row.password_hash) {
+    verifyPassword(password, TIMING_EQUALIZER_HASH); // AUD-1-10: biaya setara
     return null; // user OAuth-only — tidak punya password
   }
   if (!verifyPassword(password, row.password_hash)) {

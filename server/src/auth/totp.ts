@@ -110,7 +110,21 @@ export function verifyTotp(
   unixTime = Math.floor(Date.now() / 1000),
   window = TOTP_WINDOW
 ): boolean {
-  if (!/^\d{6}$/.test(token)) return false;
+  return verifyTotpCounter(secret, token, unixTime, window) !== null;
+}
+
+/**
+ * AUD-1-08: varian verifyTotp yang mengembalikan COUNTER yang cocok —
+ * dipakai mfa.ts untuk replay guard (tolak counter lebih lama dari
+ * keberhasilan terakhir). null = kode tidak cocok window mana pun.
+ */
+export function verifyTotpCounter(
+  secret: Buffer,
+  token: string,
+  unixTime = Math.floor(Date.now() / 1000),
+  window = TOTP_WINDOW
+): number | null {
+  if (!/^\d{6}$/.test(token)) return null;
 
   const counter = Math.floor(unixTime / TOTP_PERIOD);
   const a = Buffer.from(token);
@@ -118,10 +132,10 @@ export function verifyTotp(
     for (const c of [counter + w, counter - w]) {
       if (c < 0) continue;
       const b = Buffer.from(hotp(secret, c));
-      if (crypto.timingSafeEqual(a, b)) return true;
+      if (crypto.timingSafeEqual(a, b)) return c;
     }
   }
-  return false;
+  return null;
 }
 
 // ─── Secret & URI ─────────────────────────────────────────────────────────────

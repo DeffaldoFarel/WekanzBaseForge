@@ -17,6 +17,7 @@
 
 import crypto from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
+import { publicBaseUrl } from '../core/redirects.js';
 
 // ─── Definisi provider (mutable — lihat header) ──────────────────────────────
 
@@ -247,8 +248,11 @@ export const OAUTH_PROVIDER_DEFS: Record<OAuthProviderId, OAuthProviderDef> = {
     userEmailsUrl: '',
     scope: 'email public_profile',
     fetchProfile: async (accessToken) => {
+      // AUD-1-11: kirim token via Authorization header — query param bisa
+      // tercatat di log akses proxy/server; header tidak.
       const res = await fetch(
-        `${OAUTH_PROVIDER_DEFS.facebook.profileUrl}?fields=id,name,email,picture.type(large)&access_token=${accessToken}`
+        `${OAUTH_PROVIDER_DEFS.facebook.profileUrl}?fields=id,name,email,picture.type(large)`,
+        { headers: { Authorization: `Bearer ${accessToken}` } }
       );
       if (!res.ok) throw new OAuthError('PROFILE_FAILED', `Facebook /me failed: ${res.status}`);
       const j = (await res.json()) as {
@@ -595,6 +599,11 @@ export function callbackUrlFromRequest(
   override: string | null
 ): string {
   if (override) return override;
+  // AUD-1-03/04: PUBLIC_BASE_URL (ditulis operator) mengalahkan header Host
+  // yang bisa dipalsukan client — callback URL tidak boleh bergantung pada
+  // input client saat produksi punya origin publik yang tetap.
+  const base = publicBaseUrl();
+  if (base) return `${base}/api/p/${projectId}/auth/oauth/${provider}/callback`;
   const host = String(headers['x-forwarded-host'] ?? headers['host'] ?? 'localhost');
   const proto = String(headers['x-forwarded-proto'] ?? 'http').split(',')[0].trim();
   return `${proto}://${host}/api/p/${projectId}/auth/oauth/${provider}/callback`;

@@ -119,3 +119,10 @@ export function verifyPassword(password: string, storedHash: string): boolean {
   }
   return crypto.timingSafeEqual(actualHash, expectedHash);
 }
+
+// ─── AUD-1-10: timing equalizer ──────────────────────────────────────────────
+// Hash dari password acak yang tidak diketahui siapa pun. Dipakai jalur login
+// saat email TIDAK ditemukan — biaya scrypt tetap dibayar penuh supaya timing
+// respons tidak membedakan "email ada" dari "password salah" (anti oracle).
+export const TIMING_EQUALIZER_HASH =
+  'scrypt:16384:8:1:ca73cd95dc00155feda568ff172a719f:d60ab38fa0fd9d4be68582d97a280b1c4b3cb2c6b31ac6e8b0fead1f3be004c3268bafb8c93ad3bb1f4fbabab1ea12d205b4d9eb079d379d7ba1035f69e4da34';

@@ -25,6 +25,8 @@ import {
   type ProjectSort,
 } from '../core/platformDb.js';
 import { closeProjectDb, getProjectResourceCounts } from '../core/projectDbManager.js';
+import { checkRateLimit, secondsUntilReset } from '../auth/rateLimiter.js';
+import { clientIpFromRequest as clientIp } from '../auth/clientIp.js';
 
 export function createAdminRouter(): Router {
   const router = new Router();
@@ -70,12 +72,33 @@ export function createAdminRouter(): Router {
   });
 
   // ─── Auth ───────────────────────────────────────────────────────────────
-  router.post('/api/admin/auth/login', (req, res) => {
+  router.post('/api/admin/auth/login', async (req, res) => {
     const body = req.body as { email?: string; password?: string } | undefined;
 
     if (!body?.email || !body?.password) {
       res.status(400).json({
         error: { code: 'BAD_REQUEST', message: 'email and password are required' },
+      });
+      return;
+    }
+
+    // AUD-1-02: brute-force guard — per-IP DAN per-email (10/15 menit).
+    // Sebelumnya endpoint ini TIDAK punya rate limit sama sekali; satu-satunya
+    // rem adalah biaya scrypt. Bucket ganda menutup rotasi IP (botnet).
+    // Trade-off yang diterima: penyerang bisa sengaja mengunci email admin
+    // selama 15 menit (DoS login) — itu lebih murah daripada brute force
+    // tanpa batas terhadap akun yang mengendalikan SELURUH platform.
+    const ip = clientIp(req);
+    const emailKey = String(body.email).trim().toLowerCase();
+    const ipOk = await checkRateLimit(`admin-login:${ip}`, 10, 15 * 60_000);
+    const emailOk = ipOk
+      ? await checkRateLimit(`admin-login-email:${emailKey}`, 10, 15 * 60_000)
+      : false;
+    if (!ipOk || !emailOk) {
+      const retryAfter = await secondsUntilReset(`admin-login:${ip}`);
+      res.raw.setHeader('Retry-After', String(retryAfter));
+      res.status(429).json({
+        error: { code: 'RATE_LIMITED', message: 'Too many attempts. Please try again later.' },
       });
       return;
     }

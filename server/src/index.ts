@@ -36,6 +36,7 @@ import { scheduler } from './core/scheduler.js';
 import { getProjectDb } from './core/projectDbManager.js';
 import { tokenCleanupScheduler } from './core/tokenCleanup.js';
 import { registerShutdownHandlers } from './core/lifecycle.js';
+import { productionSecretGate } from './platform/prodSecrets.js';
 import { Router, type Middleware } from './core/router.js';
 
 const PORT = parseInt(process.env.PORT ?? '5100', 10);
@@ -68,6 +69,19 @@ const corsMiddleware: Middleware = (req, res) => {
 };
 
 async function main(): Promise<void> {
+  // AUD-1-06: fail-loud — produksi tanpa JWT_SECRET jangan pernah menyala
+  // dengan fallback senyap (dulu: ditandatangani password admin/dev-constant).
+  const gate = productionSecretGate();
+  if (gate.fatal) {
+    console.error('');
+    console.error(`🛑 FATAL: ${gate.fatal}`);
+    console.error('');
+    process.exit(1);
+  }
+  if (gate.warn) {
+    console.warn(`[security] ${gate.warn}`);
+  }
+
   // Inisialisasi database platform
   initPlatformDb();
   console.log('📦 Platform DB ready');

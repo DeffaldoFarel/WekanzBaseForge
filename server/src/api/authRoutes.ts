@@ -33,6 +33,8 @@ import {
 } from '../auth/tokens.js';
 import { verifyToken } from '../auth/jwt.js';
 import { checkRateLimit, secondsUntilReset } from '../auth/rateLimiter.js';
+import { clientIpFromRequest as clientIp } from '../auth/clientIp.js';
+import { apiBaseUrl } from '../core/redirects.js';
 import { createEmailToken, initEmailTokensTable } from '../auth/emailTokens.js';
 import { isMfaEnabled, initMfaTable } from '../auth/mfa.js';
 import { listAuthFields, validateProfileValues, type ProfileValues } from '../auth/authFields.js';
@@ -77,9 +79,9 @@ async function sendVerificationEmailQuietly(
     if (user.verified) return; // user OAuth verified — skip
     initEmailTokensTable(db);
     const token = createEmailToken(db, user.id, 'verify');
-    const host = String(headers['x-forwarded-host'] ?? headers['host'] ?? 'localhost');
-    const proto = String(headers['x-forwarded-proto'] ?? 'http').split(',')[0].trim();
-    const url = `${proto}://${host}/api/p/${projectId}/auth/verify-email?token=${token}`;
+    // AUD-1-03: apiBaseUrl() menghormati PUBLIC_BASE_URL (operator) — link
+    // email tidak lagi murni dari header Host yang bisa dipalsukan.
+    const url = `${apiBaseUrl(headers)}/api/p/${projectId}/auth/verify-email?token=${token}`;
     const tpl = verificationEmail(getProject(projectId)?.name ?? 'BaseForge', url);
     await sendMail({ to: user.email, subject: tpl.subject, text: tpl.text, html: tpl.html });
   } catch (err) {
@@ -87,14 +89,8 @@ async function sendVerificationEmailQuietly(
   }
 }
 
-// Helper: ambil IP client (dari X-Forwarded-For kalau ada proxy, atau remote address)
-function clientIp(req: { headers: Record<string, unknown>; raw: { socket: { remoteAddress?: string } } }): string {
-  const fwd = req.headers['x-forwarded-for'];
-  if (typeof fwd === 'string' && fwd.length > 0) {
-    return fwd.split(',')[0].trim();
-  }
-  return req.raw.socket.remoteAddress ?? 'unknown';
-}
+// Helper: ambil IP client — kini lewat auth/clientIp.ts (audit AUD-1-01:
+// X-Forwarded-For mentah tidak lagi dipercaya; lihat TRUST_PROXY di .env).
 
 // Helper: kirim response auth sukses (user + tokens)
 function sendAuthSuccess(

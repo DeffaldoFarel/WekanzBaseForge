@@ -23,6 +23,7 @@ import { Router } from '../core/router.js';
 import { requireAdmin } from '../platform/adminAuth.js';
 import { getProjectDb } from '../core/projectDbManager.js';
 import { checkRateLimit } from '../auth/rateLimiter.js';
+import { clientIpFromRequest as clientIp } from '../auth/clientIp.js';
 import { verifyToken } from '../auth/jwt.js';
 import { issueTokens, AuthUserDisabledError } from '../auth/tokens.js';
 import { respondUserDisabled } from './authRoutes.js';
@@ -53,11 +54,7 @@ function getMfaDb(projectId: string) {
   }
 }
 
-function clientIp(req: { headers: Record<string, unknown>; raw: { socket: { remoteAddress?: string } } }): string {
-  const fwd = req.headers['x-forwarded-for'];
-  if (typeof fwd === 'string' && fwd.length > 0) return fwd.split(',')[0].trim();
-  return req.raw.socket.remoteAddress ?? 'unknown';
-}
+
 
 /** Bearer JWT end-user → userId (admin token ditolak — bukan flow user). */
 async function requireUserId(req: { headers: { authorization?: string }; params: Record<string, string> }): Promise<string | null> {
@@ -237,6 +234,14 @@ export function createMfaRouter(): Router {
     const userId = await requireUserId(req);
     if (!userId) {
       res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'Authentication token is required' } });
+      return;
+    }
+
+    // AUD-1-05: brute guard 6-digit — pemegang access token curian tidak boleh
+    // bisa menebak TOTP untuk mematikan MFA permanen (verifikasi HMAC ~µs;
+    // tanpa limit, 1 juta kombinasi selesai dalam hitungan menit).
+    if (!(await checkRateLimit(`mfa-disable:${userId}`, 5, 15 * 60_000))) {
+      res.status(429).json({ error: { code: 'RATE_LIMITED', message: 'Too many attempts. Please try again in 15 minutes.' } });
       return;
     }
 

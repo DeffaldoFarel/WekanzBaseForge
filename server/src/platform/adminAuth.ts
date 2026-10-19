@@ -18,7 +18,7 @@ import crypto from 'node:crypto';
 import type { Middleware, ForgeRequest, ForgeResponse } from '../core/router.js';
 import { generateToken, generateId } from '../core/router.js';
 import { initPlatformDb } from '../core/platformDb.js';
-import { hashPassword, verifyPassword, validatePasswordStrength } from '../auth/password.js';
+import { hashPassword, verifyPassword, validatePasswordStrength, TIMING_EQUALIZER_HASH } from '../auth/password.js';
 
 export interface PlatformAdminRow {
   id: string;
@@ -89,6 +89,10 @@ export function createInitialAdmin(
 // agar ~50 file test lama yang menyetel process.env.ADMIN_EMAIL tetap kompatibel
 // tanpa harus ditulis ulang.
 function isTestEnvironment(): boolean {
+  // AUD-1-11: flag --test TIDAK boleh membuka backdoor kredensial env di
+  // produksi — kalau operator menjalankan server dengan argumen --test,
+  // fallback env harus tetap mati selama NODE_ENV=production.
+  if (process.env.NODE_ENV === 'production') return false;
   return (
     process.env.NODE_ENV === 'test' ||
     Boolean(process.env.NODE_TEST_CONTEXT) ||
@@ -145,6 +149,9 @@ export function loginAdmin(
   }
 
   // 2. Fallback ke env var (hanya di environment test)
+  // AUD-1-10: timing equalizer — jalur "email tidak dikenal" tetap membayar
+  // biaya scrypt penuh agar timing tidak membocorkan keberadaan akun admin.
+  verifyPassword(password, TIMING_EQUALIZER_HASH);
   const creds = getAdminCredentials();
   if (!creds) {
     return null;

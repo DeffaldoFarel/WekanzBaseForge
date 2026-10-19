@@ -27,6 +27,8 @@ import { requireAdmin } from '../platform/adminAuth.js';
 import { getProjectDb } from '../core/projectDbManager.js';
 import { getProject } from '../core/platformDb.js';
 import { checkRateLimit } from '../auth/rateLimiter.js';
+import { clientIpFromRequest as clientIp } from '../auth/clientIp.js';
+import { apiBaseUrl, validateRedirectTarget } from '../core/redirects.js';
 import { verifyToken } from '../auth/jwt.js';
 import { revokeAllUserTokens } from '../auth/tokens.js';
 import { initAuthUsersTable, findAuthUserByEmail, findAuthUserById, changeAuthUserPassword } from '../auth/users.js';
@@ -37,20 +39,9 @@ import type { DatabaseSync } from 'node:sqlite';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function clientIp(req: { headers: Record<string, unknown>; raw: { socket: { remoteAddress?: string } } }): string {
-  const fwd = req.headers['x-forwarded-for'];
-  if (typeof fwd === 'string' && fwd.length > 0) {
-    return fwd.split(',')[0].trim();
-  }
-  return req.raw.socket.remoteAddress ?? 'unknown';
-}
 
-/** Base URL API dari request (proxy-aware) — dipakai untuk membangun link email. */
-function apiBaseUrl(headers: Record<string, unknown>): string {
-  const host = String(headers['x-forwarded-host'] ?? headers['host'] ?? 'localhost');
-  const proto = String(headers['x-forwarded-proto'] ?? 'http').split(',')[0].trim();
-  return `${proto}://${host}`;
-}
+
+
 
 function getAuthDb(projectId: string): DatabaseSync | null {
   try {
@@ -67,19 +58,21 @@ function projectName(pid: string): string {
   return getProject(pid)?.name ?? 'BaseForge';
 }
 
-function validateHttpUrl(raw: string | null): string | null {
-  if (!raw) return null;
-  try {
-    const u = new URL(raw);
-    return u.protocol === 'http:' || u.protocol === 'https:' ? u.toString() : null;
-  } catch {
-    return null;
-  }
-}
+
 
 function sendRedirect(res: ForgeResponse, location: string): void {
   res.raw.writeHead(302, { Location: location });
   res.raw.end();
+}
+
+/** AUD-1-09: escape interpolasi user-data di halaman HTML (anti self-XSS). */
+function esc(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 function htmlPage(res: ForgeResponse, status: number, title: string, messageHtml: string): void {
@@ -173,7 +166,8 @@ export function createEmailRouter(): Router {
       }
     }
 
-    const redirectTo = validateHttpUrl(body.redirectTo ?? null);
+    // AUD-1-03: redirect_to divalidasi origin-nya (same-origin / allow-list)
+    const redirectTo = validateRedirectTarget(body.redirectTo ?? null, req.headers);
 
     // SELalu 200 — email tidak ada pun respons sama (anti user enumeration)
     try {
@@ -213,7 +207,7 @@ export function createEmailRouter(): Router {
     const user = findAuthUserById(db, consumed.userId);
 
     // redirect ke aplikasi bila disertakan
-    const redirectTo = validateHttpUrl(req.query.get('redirect_to'));
+    const redirectTo = validateRedirectTarget(req.query.get('redirect_to'), req.headers);
     if (redirectTo) {
       const sep = redirectTo.includes('?') ? '&' : '?';
       sendRedirect(res, `${redirectTo}${sep}verified=true`);
@@ -221,7 +215,7 @@ export function createEmailRouter(): Router {
     }
 
     htmlPage(res, 200, 'Email verified',
-      `Your email <strong style="color:#ededed;">${user?.email ?? ''}</strong> has been verified. You can return to the application.`);
+      `Your email <strong style="color:#ededed;">${esc(user?.email ?? '')}</strong> has been verified. You can return to the application.`);
   });
 
   // POST /api/p/:pid/auth/verify-email { token } — untuk SDK
@@ -267,7 +261,8 @@ export function createEmailRouter(): Router {
 
     const body = (req.body ?? {}) as { email?: string; redirectTo?: string };
     const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
-    const redirectTo = validateHttpUrl(body.redirectTo ?? null);
+    // AUD-1-03: redirect_to divalidasi origin-nya (same-origin / allow-list)
+    const redirectTo = validateRedirectTarget(body.redirectTo ?? null, req.headers);
 
     try {
       await sendActionEmail('reset', req.params.pid, email, req.headers, redirectTo);
@@ -302,7 +297,7 @@ export function createEmailRouter(): Router {
     }
 
     // Redirect ke halaman form aplikasi (token via fragment)
-    const redirectTo = validateHttpUrl(req.query.get('redirect_to'));
+    const redirectTo = validateRedirectTarget(req.query.get('redirect_to'), req.headers);
     if (redirectTo) {
       const sep = redirectTo.includes('#') ? '&' : '#';
       sendRedirect(res, `${redirectTo}${sep}reset_token=${token}`);
