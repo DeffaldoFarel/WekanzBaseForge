@@ -324,7 +324,7 @@ export function createDatabaseRouter(): Router {
         collection: req.params.name,
         record: record as Record<string, unknown>,
       });
-      fireTriggersSafe(db, req.params.name, 'create', record as Record<string, unknown>);
+      fireTriggersSafe(db, req.params.name, 'create', record as Record<string, unknown>, undefined, 0, req.params.pid);
       res.status(201).json({ record });
     } catch (err) {
       handleError(res, err);
@@ -349,7 +349,7 @@ export function createDatabaseRouter(): Router {
         record: record as Record<string, unknown>,
         previous: (oldRecord ?? null) as Record<string, unknown> | null,
       });
-      fireTriggersSafe(db, req.params.name, 'update', record as Record<string, unknown>, oldRecord ?? undefined);
+      fireTriggersSafe(db, req.params.name, 'update', record as Record<string, unknown>, oldRecord ?? undefined, 0, req.params.pid);
       res.json({ record });
     } catch (err) {
       handleError(res, err);
@@ -378,7 +378,7 @@ export function createDatabaseRouter(): Router {
         collection: req.params.name,
         record: deletePayload,
       });
-      fireTriggersSafe(db, req.params.name, 'delete', deletePayload);
+      fireTriggersSafe(db, req.params.name, 'delete', deletePayload, undefined, 0, req.params.pid);
       res.json({ success: true });
     } catch (err) {
       handleError(res, err);
@@ -437,7 +437,7 @@ export function createDatabaseRouter(): Router {
             collection: req.params.name,
             record: payload,
           });
-          fireTriggersSafe(db, req.params.name, 'delete', payload);
+          fireTriggersSafe(db, req.params.name, 'delete', payload, undefined, 0, req.params.pid);
           deleted.push(id);
         } catch (err) {
           failed.push({ id, reason: err instanceof Error ? err.message : 'delete failed' });

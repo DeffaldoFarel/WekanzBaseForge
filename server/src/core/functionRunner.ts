@@ -66,6 +66,13 @@ export interface FunctionRunOptions {
    */
   onDbWrite?: DbSandboxContext['onWrite'];
   /**
+   * M13-fix: dipanggil setelah tulis $db sukses pada SEMUA depth (realtime
+   * broadcast tidak digerbang anti-rekursi). Disuntik oleh pemanggil
+   * (API/trigger/scheduler) dengan closure yang membawa projectId —
+   * functionRunner/dbSandbox tidak tahu projectId (konvensi core).
+   */
+  onDbRealtimeWrite?: DbSandboxContext['onRealtimeWrite'];
+  /**
    * M42: rahasia function (KEY → plaintext), disuntik sebagai `$env` frozen
    * read-only. Didekripsi di HOST sebelum isolate dibuat (getSecretsForFunction),
    * BUKAN di dalam sandbox. Function tidak bisa menulisnya balik.
@@ -356,6 +363,7 @@ export async function runFunctionCode(
       callCounter: { count: 0 },
       maxDbCalls: opts.maxDbCalls ?? DEFAULT_MAX_DB_CALLS,
       onWrite: opts.onDbWrite,
+      onRealtimeWrite: opts.onDbRealtimeWrite,
     };
 
     const dbSend = new ivm.Reference(

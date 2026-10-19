@@ -19,6 +19,8 @@ import { cronMatches, cronMatchesInTimezone } from './cronParser.js';
 import { runFunctionCode, FunctionRunResult } from './functionRunner.js';
 import { listProjects } from './platformDb.js';
 import { getProjectDb } from './projectDbManager.js';
+import { getCollectionByName } from './schema.js';
+import { realtimeHub } from './realtime.js';
 import type { DatabaseSync } from 'node:sqlite';
 
 const CHECK_INTERVAL_MS = 30_000;
@@ -63,11 +65,14 @@ class Scheduler {
     const now = new Date();
     const minuteKey = this.minuteKey(now);
 
-    const dbs: DatabaseSync[] = [];
+    // M13-fix: bawa projectId bersama db — tulisan $db dari function cron
+    // harus bisa di-broadcast ke subscriber SSE project yang benar.
+    // Provider test (customProviders) tidak punya pid → realtime skip.
+    const dbs: { db: DatabaseSync; projectId?: string }[] = [];
     if (this.customProviders) {
       for (const provider of this.customProviders) {
         try {
-          dbs.push(provider());
+          dbs.push({ db: provider() });
         } catch {
           // DB belum siap
         }
@@ -81,7 +86,7 @@ class Scheduler {
       }
       for (const project of projects) {
         try {
-          dbs.push(getProjectDb(project.id));
+          dbs.push({ db: getProjectDb(project.id), projectId: project.id });
         } catch {
           // DB project belum siap atau file belum ada
         }
@@ -91,7 +96,7 @@ class Scheduler {
     for (const providerDb of dbs) {
       let functions: StoredFunction[];
       try {
-        functions = listFunctions(providerDb);
+        functions = listFunctions(providerDb.db);
       } catch {
         continue; // DB project belum siap — coba menit depan
       }
@@ -114,7 +119,7 @@ class Scheduler {
 
         // Tandai SEBELUM run — kalau crash, tetap tidak diulang menit ini
         this.lastRunMinute.set(runKey, minuteKey);
-        this.runScheduled(fn, now, providerDb);
+        this.runScheduled(fn, now, providerDb.db, providerDb.projectId);
 
         // Cegah Map tumbuh tanpa batas: buang run key lama (> 2 menit)
         if (this.lastRunMinute.size > 1000) {
@@ -126,7 +131,7 @@ class Scheduler {
     }
   }
 
-  private runScheduled(fn: StoredFunction, now: Date, db?: DatabaseSync): void {
+  private runScheduled(fn: StoredFunction, now: Date, db?: DatabaseSync, projectId?: string): void {
     // M18a: isolated-vm runner ASYNC — run di-background (scheduler tidak
     // menunggu; anti double-fire sudah menandai SEBELUM run)
     void runFunctionCode(fn.code, {
@@ -144,6 +149,21 @@ class Scheduler {
       modules: fn.modules, // M43
       executionLog: { functionName: fn.name, source: 'schedule' }, // M46
       scheduledContext: { time: now.toISOString() },
+      // M13-fix: tulisan $db dari function cron di-broadcast ke subscriber
+      // SSE project yang sama (best-effort — gagal publish tidak menggagalkan run).
+      onDbRealtimeWrite: db && projectId
+        ? (action, collection, record) => {
+            try {
+              const meta = getCollectionByName(db, collection);
+              if (meta) realtimeHub.publish(db, meta, action, record, projectId);
+            } catch (err) {
+              console.error(
+                `[schedule:${fn.name}] realtime publish ${collection}.${action} failed:`,
+                err instanceof Error ? err.message : err
+              );
+            }
+          }
+        : undefined,
     })
       .then((result: FunctionRunResult) => {
         this.lastRuns.set(fn.name, {

@@ -16,6 +16,11 @@
 //                    Default off: function lama tidak berubah perilaku.
 //   2. ANTI-REKURSI— tulis via $db pada depth>=1 TIDAK memicu trigger, supaya
 //                    trigger→function→tulis→trigger tidak tak hingga.
+//                    REALTIME TIDAK ikut ditekan: SSE hanya mengirim event ke
+//                    subscriber (tidak mengeksekusi kode), jadi broadcast
+//                    tulisan function tidak bisa membentuk loop — subscriber
+//                    realtime tetap melihat field turunan (streak, agregat)
+//                    tanpa refresh (perbaikan 2026-10-19).
 //   3. BUDGET      — maksimum N panggilan per eksekusi (proses tunggal: satu
 //                    function tidak boleh memonopoli event loop).
 //   4. SISTEM      — collection berawalan '_' (_auth_users, _functions, ...)
@@ -80,6 +85,19 @@ export interface DbSandboxContext {
     collection: string,
     record: Record<string, unknown>,
     previous: Record<string, unknown> | null
+  ) => void;
+  /**
+   * M13-fix: dipanggil SETELAH tulis sukses pada SEMUA depth (tidak
+   * digerbang anti-rekursi). Realtime hanya mengirim event SSE — tidak
+   * mengeksekusi kode subscriber — jadi tidak ada risiko loop. Dipisah
+   * dari onWrite supaya tulisan $db dari function hasil trigger
+   * (depth>=1, trigger ditekan) tetap ter-broadcast ke subscriber SSE.
+   * Urutan panggil: realtime DULU, lalu trigger (pola M13 API layer).
+   */
+  onRealtimeWrite?: (
+    action: 'create' | 'update' | 'delete',
+    collection: string,
+    record: Record<string, unknown>
   ) => void;
 }
 
@@ -177,6 +195,11 @@ export async function sandboxedDbCall(
     case 'create': {
       if (!opts.data || typeof opts.data !== 'object') block('create requires a data object');
       const record = createRecord(ctx.db, opts.collection, { ...opts.data });
+      if (record) {
+        // M13-fix: realtime broadcast di SEMUA depth (rules tetap dievaluasi
+        // per subscriber saat publish — lihat realtimeHub.publish).
+        ctx.onRealtimeWrite?.('create', opts.collection, record as unknown as Record<string, unknown>);
+      }
       if (!suppressTriggers) {
         ctx.onWrite?.('create', opts.collection, record as unknown as Record<string, unknown>, null);
       }
@@ -191,6 +214,9 @@ export async function sandboxedDbCall(
         ? null
         : (getRecord(ctx.db, opts.collection, opts.id) as unknown as Record<string, unknown> | null);
       const record = updateRecord(ctx.db, opts.collection, opts.id, { ...opts.data });
+      if (record) {
+        ctx.onRealtimeWrite?.('update', opts.collection, record as unknown as Record<string, unknown>);
+      }
       if (record && !suppressTriggers) {
         ctx.onWrite?.('update', opts.collection, record as unknown as Record<string, unknown>, previous);
       }
@@ -199,10 +225,18 @@ export async function sandboxedDbCall(
 
     case 'delete': {
       if (typeof opts.id !== 'string' || opts.id === '') block('delete requires an id');
-      const previous = suppressTriggers
-        ? null
-        : (getRecord(ctx.db, opts.collection, opts.id) as unknown as Record<string, unknown> | null);
+      // Snapshot pre-delete dibutuhkan trigger (previous) DAN realtime delete
+      // (record sudah terhapus — rules/filter dievaluasi in-memory, pola M38).
+      const needSnapshot = !suppressTriggers || ctx.onRealtimeWrite !== undefined;
+      const previous = needSnapshot
+        ? (getRecord(ctx.db, opts.collection, opts.id) as unknown as Record<string, unknown> | null)
+        : null;
       const deleted = deleteRecord(ctx.db, opts.collection, opts.id);
+      if (deleted && previous) {
+        // Tanpa snapshot, rules delete tak bisa dievaluasi — fail-safe: skip
+        // broadcast (konsisten dengan recordMatchesInMemory yang gagal → skip).
+        ctx.onRealtimeWrite?.('delete', opts.collection, previous);
+      }
       if (deleted && !suppressTriggers) {
         ctx.onWrite?.(
           'delete',

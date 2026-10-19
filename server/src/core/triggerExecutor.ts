@@ -29,6 +29,7 @@ import { listFunctions, StoredFunction } from './functionsStore.js';
 import { getSecretsForFunction } from './secretsStore.js';
 import { runFunctionCode, FunctionRunResult } from './functionRunner.js';
 import { createKeyedTaskQueue } from './keyedTaskQueue.js';
+import { realtimeHub } from './realtime.js';
 
 // Audit F-04: full-recompute triggers (e.g. investments-aggregates) must not
 // interleave for the same user — an older snapshot finishing late would
@@ -51,7 +52,8 @@ export function fireTriggers(
   action: 'create' | 'update' | 'delete',
   record: Record<string, unknown>,
   previous?: Record<string, unknown> | null,
-  depth = 0 // M41: kedalaman pemanggil (0 = dari HTTP/cron langsung)
+  depth = 0, // M41: kedalaman pemanggil (0 = dari HTTP/cron langsung)
+  projectId?: string // M13-fix: bila ada, tulisan $db function di-broadcast ke SSE
 ): TriggerOutcome[] {
   let functions: StoredFunction[];
   try {
@@ -73,13 +75,33 @@ export function fireTriggers(
     // Audit F-04: jalankan lewat per-user queue agar recompute untuk user
     // yang sama tidak saling menimpa out-of-order.
     const queueKey = `${fn.name}|${String(record.userId ?? '')}`;
+
+    // M13-fix: tulisan $db dari function TER-TRIGGER tetap di-broadcast ke
+    // subscriber SSE. Gerbang anti-rekursi M41 hanya menekan TRIGGER (SSE
+    // tidak mengeksekusi kode — tidak mungkin loop). Tanpa ini, field
+    // turunan backend (streak, agregat) tidak pernah terlihat realtime.
+    // Best-effort: gagal publish tidak boleh menggagalkan function.
+    const onDbRealtimeWrite = projectId
+      ? (rtAction: 'create' | 'update' | 'delete', rtCollection: string, rtRecord: Record<string, unknown>) => {
+          try {
+            const meta = getCollectionByName(db, rtCollection);
+            if (meta) realtimeHub.publish(db, meta, rtAction, rtRecord, projectId);
+          } catch (err) {
+            console.error(
+              `[trigger:${fn.name}] realtime publish ${rtCollection}.${rtAction} failed:`,
+              err instanceof Error ? err.message : err
+            );
+          }
+        }
+      : undefined;
+
     void perUserFunctionQueue
       .run(queueKey, () =>
         runFunctionCode(fn.code, {
           timeoutMs: fn.timeoutMs,
           memoryLimitMb: fn.memoryMb, // M44
           httpAllow: fn.httpAllow, // M25
-          // M41: $db in-process. depth+1 = tulisan $db TIDAK memicu trigger lagi
+          // M41: $db in-process. depth+1 = tulis via $db TIDAK memicu trigger lagi
           // (anti-rekursi: trigger → function → tulis → trigger → ... tak hingga).
           projectDb: db,
           dbAccess: fn.dbAccess,
@@ -87,6 +109,7 @@ export function fireTriggers(
           secrets: getSecretsForFunction(db, fn.name), // M42
           modules: fn.modules, // M43
           executionLog: { functionName: fn.name, source: 'trigger' }, // M46
+          onDbRealtimeWrite, // M13-fix
           triggerContext: {
             action,
             collection,
@@ -128,10 +151,11 @@ export function fireTriggersSafe(
   action: 'create' | 'update' | 'delete',
   record: Record<string, unknown>,
   previous?: Record<string, unknown> | null,
-  depth = 0 // M41
+  depth = 0, // M41
+  projectId?: string // M13-fix: teruskan agar tulisan $db function di-broadcast SSE
 ): void {
   try {
-    fireTriggers(db, collection, action, record, previous, depth);
+    fireTriggers(db, collection, action, record, previous, depth, projectId);
   } catch (err) {
     console.error(`[trigger] unexpected error firing ${collection}.${action}:`, err);
   }

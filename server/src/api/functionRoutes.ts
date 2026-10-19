@@ -18,7 +18,7 @@
 import { Router } from '../core/router.js';
 import { requireAdmin } from '../platform/adminAuth.js';
 import { getProjectDb } from '../core/projectDbManager.js';
-import { listCollections } from '../core/schema.js';
+import { listCollections, getCollectionByName } from '../core/schema.js';
 import {
   initFunctionsTable,
   createFunction,
@@ -29,6 +29,7 @@ import {
 } from '../core/functionsStore.js';
 import { runFunctionCode } from '../core/functionRunner.js';
 import { fireTriggersSafe } from '../core/triggerExecutor.js';
+import { realtimeHub } from '../core/realtime.js';
 import { setSecret, listSecrets, deleteSecret, getSecretsForFunction } from '../core/secretsStore.js';
 import { setModule, listModules, getModule, deleteModule } from '../core/moduleRegistry.js';
 import { listExecutions, clearExecutions } from '../core/executionLog.js';
@@ -427,7 +428,19 @@ export function createFunctionRouter(): Router {
         modules: fn.modules, // M43
         executionLog: { functionName: fn.name, source: 'callable' }, // M46
         onDbWrite: (action, collection, record, previous) =>
-          fireTriggersSafe(db, collection, action, record, previous, 1),
+          fireTriggersSafe(db, collection, action, record, previous, 1, req.params.pid),
+        // M13-fix: tulisan $db dari function callable juga di-broadcast SSE.
+        onDbRealtimeWrite: (action, collection, record) => {
+          try {
+            const meta = getCollectionByName(db, collection);
+            if (meta) realtimeHub.publish(db, meta, action, record, req.params.pid);
+          } catch (err) {
+            console.error(
+              `[function:${fn.name}] realtime publish ${collection}.${action} failed:`,
+              err instanceof Error ? err.message : err
+            );
+          }
+        },
       });
       res.json(result);
     } catch (err) {
@@ -488,7 +501,19 @@ export function createFunctionRouter(): Router {
         modules: fn.modules, // M43
         executionLog: { functionName: fn.name, source: 'public' }, // M46
         onDbWrite: (action, collection, record, previous) =>
-          fireTriggersSafe(db, collection, action, record, previous, 1),
+          fireTriggersSafe(db, collection, action, record, previous, 1, req.params.pid),
+        // M13-fix: tulisan $db dari function callable juga di-broadcast SSE.
+        onDbRealtimeWrite: (action, collection, record) => {
+          try {
+            const meta = getCollectionByName(db, collection);
+            if (meta) realtimeHub.publish(db, meta, action, record, req.params.pid);
+          } catch (err) {
+            console.error(
+              `[function:${fn.name}] realtime publish ${collection}.${action} failed:`,
+              err instanceof Error ? err.message : err
+            );
+          }
+        },
       });
 
       if (!result.ok) {

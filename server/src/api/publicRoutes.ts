@@ -375,7 +375,7 @@ export function createPublicRouter(): Router {
         collection: req.params.name,
         record: record as Record<string, unknown>,
       });
-      fireTriggersSafe(db, req.params.name, 'create', record as Record<string, unknown>);
+      fireTriggersSafe(db, req.params.name, 'create', record as Record<string, unknown>, undefined, 0, req.params.pid);
       res.status(201).json({ record });
     } catch (err) {
       handleErrorPublic(res, err);
@@ -419,7 +419,7 @@ export function createPublicRouter(): Router {
           collection: req.params.name,
           record: record as Record<string, unknown>,
         });
-        fireTriggersSafe(db, req.params.name, 'create', record as Record<string, unknown>);
+        fireTriggersSafe(db, req.params.name, 'create', record as Record<string, unknown>, undefined, 0, req.params.pid);
       }
       res.status(201).json({ records: created, count: created.length });
     } catch (err) {
@@ -466,7 +466,9 @@ export function createPublicRouter(): Router {
         req.params.name,
         'update',
         record as Record<string, unknown>,
-        oldRecord ?? undefined
+        oldRecord ?? undefined,
+        0,
+        req.params.pid
       );
 
       res.json({ record });
@@ -506,7 +508,7 @@ export function createPublicRouter(): Router {
           record: deletePayload,
         });
         // M15b: trigger delete (dengan full snapshot)
-        fireTriggersSafe(db, req.params.name, 'delete', deletePayload);
+        fireTriggersSafe(db, req.params.name, 'delete', deletePayload, undefined, 0, req.params.pid);
         // record sudah terhapus — file cleanup by prefix
         await deleteRecordFiles(req.params.pid, req.params.id);
       }
