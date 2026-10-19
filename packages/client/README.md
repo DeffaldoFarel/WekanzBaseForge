@@ -97,6 +97,35 @@ await bf.auth.logout();               // cabut sesi di server + clear store
 AuthStore: `LocalStorageAuthStore` (browser, default) dan
 `MemoryAuthStore` (SSR/Node) — pilih via `new BaseForge({ authStore })`.
 
+### ⚠️ Security: Token Storage (baca sebelum production)
+
+Di browser, default `LocalStorageAuthStore` **mempersist `refreshToken` ke
+`localStorage`**. Access token berumur pendek (~15 menit), tapi refresh token
+adalah kunci sesi jangka panjang — **XSS apa pun di aplikasi Anda berarti
+pengambilalihan akun** (rotasi refresh sisi server membatasi, bukan
+mencegah: token curian tetap valid sampai rotasi sah berikutnya).
+
+Pilihan Anda, sesuai model ancaman:
+
+| Store | Persist? | Cocok untuk |
+|---|---|---|
+| `LocalStorageAuthStore` (default browser) | ✅ login bertahan antar reload | SPA biasa — **pastikan permukaan XSS minim** (framework modern + tanpa `dangerouslySetInnerHTML` pada data user) |
+| `MemoryAuthStore` | ❌ hilang saat reload | Aplikasi berisiko tinggi / ingin sesi per-tab: user login ulang setelah reload — refresh token tidak pernah menyentuh storage yang bisa dibaca script |
+
+```typescript
+import { BaseForge, MemoryAuthStore } from '@wekanz/baseforge';
+
+// Opt-in sesi non-persist (refresh token hanya di memori):
+const bf = new BaseForge({
+  baseUrl: 'https://baseforge.wekanz.id',
+  projectId: 'PROJECT_ID',
+  authStore: new MemoryAuthStore(),
+});
+```
+
+Catatan: `httpOnly` cookie belum didukung server — localStorage/memory adalah
+dua pilihan yang ada hari ini.
+
 ---
 
 ## 📁 File Uploads & Thumbnails

@@ -37,6 +37,7 @@ import { getProjectDb } from './core/projectDbManager.js';
 import { tokenCleanupScheduler } from './core/tokenCleanup.js';
 import { registerShutdownHandlers } from './core/lifecycle.js';
 import { productionSecretGate } from './platform/prodSecrets.js';
+import { corsMiddleware } from './core/serverMiddleware.js'; // AUD-8-O1/O2
 import { Router, type Middleware } from './core/router.js';
 
 const PORT = parseInt(process.env.PORT ?? '5100', 10);
@@ -53,20 +54,10 @@ const loggerMiddleware: Middleware = (req, res) => {
 };
 
 // ─── Middleware CORS (agar dashboard di port lain bisa mengakses) ────────────
-// Saat development, dashboard Next.js jalan di :3000 dan server di :5100.
-// Browser menolak lintas-origin kecuali server mengizinkan — itulah CORS.
-const corsMiddleware: Middleware = (req, res) => {
-  res.raw.setHeader('Access-Control-Allow-Origin', '*'); // dev only!
-  res.raw.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
-  res.raw.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-
-  // Browser mengirim OPTIONS "preflight" sebelum request non-sederhana
-  if (req.method === 'OPTIONS') {
-    res.status(204).json(null);
-    return false; // berhenti di sini
-  }
-  return true;
-};
+// AUD-8-O1/O2: implementasi pindah ke core/serverMiddleware.ts (dapat diuji):
+// allowlist CORS_ALLOWED_ORIGINS, production wajib eksplisit, X-API-Key di
+// Allow-Headers, dan nosniff global. Komentar lama di sini ("dev only!")
+// sebenarnya benar — kini kode-nya yang akhirnya mengikutinya.
 
 async function main(): Promise<void> {
   // AUD-1-06: fail-loud — produksi tanpa JWT_SECRET jangan pernah menyala

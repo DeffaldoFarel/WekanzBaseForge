@@ -10,6 +10,34 @@
 import fs from "node:fs";
 import path from "node:path";
 import { marked } from "marked";
+import sanitizeHtml from "sanitize-html";
+
+// AUD-7a-D1 (FASE 8 audit, fix FASE 7): output marked dipakai langsung di
+// dangerouslySetInnerHTML — markdown apa pun berisi HTML mentah akan TETAP
+// jadi HTML aktif (probe: <script>, onerror=, javascript: semua lolos).
+// Hari ini sumbernya hanya file .md statis repo — tapi ini loaded footgun:
+// satu paste HTML mentah ke dokumen = XSS di origin dashboard. Output kini
+// DISANITASI dengan allowlist: konten sah (heading/tabel/kode/link/gambar)
+// utuh, script/event-handler/scheme berbahaya dibuang.
+const SANITIZE_CONFIG: sanitizeHtml.IOptions = {
+  allowedTags: sanitizeHtml.defaults.allowedTags.concat([
+    "img", "h1", "h2", "h3", "h4", "h5", "h6", "details", "summary", "del", "ins", "mark", "kbd", "figure", "figcaption",
+  ]),
+  allowedAttributes: {
+    "*": ["class", "id"],
+    a: ["href", "name", "target", "rel", "title"],
+    img: ["src", "srcset", "alt", "title", "width", "height", "loading"],
+    code: ["class"],
+    th: ["align"],
+    td: ["align"],
+  },
+  // scheme berbahaya dibuang; URL relatif & http/https/mailto lolos
+  allowedSchemes: ["http", "https", "mailto"],
+  transformTags: {
+    // link eksternal dibuka di tab baru, tanpa akses window.opener
+    a: sanitizeHtml.simpleTransform("a", { rel: "noopener noreferrer", target: "_blank" }),
+  },
+};
 
 const REPO_ROOT = path.join(process.cwd(), "..");
 const DOCS_DIR = path.join(REPO_ROOT, "docs");
@@ -122,6 +150,10 @@ export function renderDoc(slug: string[]): RenderedDoc | null {
 
   const md = fs.readFileSync(filePath, "utf-8");
   const title = firstTitle(filePath, "Documentation");
-  const html = rewriteDocLinks(marked.parse(md, { async: false }) as string);
+  // AUD-7a-D1: sanitasi SEBELUM rewrite link (rewrite adalah kode tepercaya;
+  // hasil sanitize yang menjadi inputnya).
+  const html = rewriteDocLinks(
+    sanitizeHtml(marked.parse(md, { async: false }) as string, SANITIZE_CONFIG)
+  );
   return { title, html };
 }
