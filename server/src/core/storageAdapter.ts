@@ -19,6 +19,7 @@ import crypto from 'node:crypto';
 import { getPlatformDb } from './platformDb.js';
 import { generateId } from './router.js';
 import { S3Config, s3Put, s3Get, s3Delete, s3List, s3HeadBucket, S3Object } from './s3.js';
+import { encryptSecret, decryptSecret } from './secretsStore.js';
 import type { StoredFileInfo } from './storageTypes.js';
 
 // ─── Interface ────────────────────────────────────────────────────────────────
@@ -278,7 +279,23 @@ function resolveConfig(): StorageConfig {
     if (row) {
       const parsed = JSON.parse(row.value);
       if (parsed.backend === 's3' && parsed.s3?.endpoint && parsed.s3?.bucket) {
-        return parsed as StorageConfig;
+        // AUD-0-04: secretAccessKey tersimpan TERENKRIPSI (secretAccessKeyEnc).
+        // Payload LEGACY masih menyimpan plaintext secretAccessKey — tetap
+        // dibaca (re-encrypt terjadi otomatis saat admin menyimpan ulang
+        // konfigurasi). Dekripsi gagal (key enkripsi berganti) → skip sumber
+        // ini — JANGAN buat adapter S3 dengan secret kosong; fallback env/local.
+        const s3: Record<string, unknown> = parsed.s3;
+        if (typeof s3.secretAccessKeyEnc === 'string' && typeof s3.secretAccessKey !== 'string') {
+          try {
+            s3.secretAccessKey = decryptSecret(String(s3.secretAccessKeyEnc));
+          } catch {
+            console.error('[storage] decrypt secretAccessKeyEnc gagal (key enkripsi berganti?) — fallback ke env/local');
+          }
+        }
+        delete s3.secretAccessKeyEnc; // jangan biarkan ciphertext bocor ke adapter/cache runtime
+        if (typeof s3.secretAccessKey === 'string' && s3.secretAccessKey) {
+          return parsed as StorageConfig;
+        }
       }
     }
   } catch { /* DB belum ada — lanjut ke env */ }
@@ -344,7 +361,11 @@ export function saveStorageConfig(config: { backend: 'local' | 's3'; s3?: S3Conf
   const db = getPlatformDb();
   db.exec(`CREATE TABLE IF NOT EXISTS _platform_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)`);
 
-  // Simpan s3 config TANPA secret (secret dari env atau disimpan encrypted)
+  // AUD-0-04: JANGAN simpan secretAccessKey plaintext di platform.db.
+  // Enkripsi at-rest dengan skema secretsStore (AES-256-GCM) — melindungi
+  // artefak yang KELUAR dari server (backup data/, dump SQLite).
+  // Plaintext legacy (payload lama) tetap terbaca di resolveConfig dan
+  // otomatis di-re-encrypt saat admin menyimpan ulang konfigurasi.
   const toStore: Record<string, unknown> = { backend: config.backend };
   if (config.s3) {
     toStore.s3 = {
@@ -352,8 +373,8 @@ export function saveStorageConfig(config: { backend: 'local' | 's3'; s3?: S3Conf
       region: config.s3.region,
       bucket: config.s3.bucket,
       prefix: config.s3.prefix,
-      accessKeyId: config.s3.accessKeyId,
-      secretAccessKey: config.s3.secretAccessKey, // TODO: encrypt at-rest
+      accessKeyId: config.s3.accessKeyId, // key ID: setengah-publik (muncul di log S3), boleh plaintext
+      secretAccessKeyEnc: encryptSecret(config.s3.secretAccessKey),
     };
   }
 

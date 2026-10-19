@@ -36,6 +36,7 @@ import {
 } from '../core/records.js';
 import { fireWebhooks } from '../core/webhooks.js';
 import { fireTriggersSafe } from '../core/triggerExecutor.js';
+import { realtimeHub } from '../core/realtime.js';
 import { DuplicateIdError, DuplicateEmailError, RestrictError } from '../core/records.js';
 import type { CollectionDefinition, IndexDefinition } from '../core/schema.js';
 import type { CollectionRules } from '../core/rules.js';
@@ -317,7 +318,14 @@ export function createDatabaseRouter(): Router {
       const db = getProjectDb(req.params.pid);
       const body = (req.body ?? {}) as Record<string, unknown>;
       const record = createRecord(db, req.params.name, body);
-      // M28: webhook + trigger + realtime untuk admin API juga
+      // AUD-0-03: fan-out lengkap untuk admin writes — invariant DB → realtime
+      // → webhook → trigger. Sebelumnya realtime publish hilang di jalur admin,
+      // jadi edit dari Database Studio tidak pernah sampai ke subscriber SSE.
+      const meta = getCollectionByName(db, req.params.name);
+      if (meta) {
+        realtimeHub.publish(db, meta, 'create', record as Record<string, unknown>, req.params.pid);
+      }
+      // M28: webhook + trigger untuk admin API juga
       fireWebhooks(db, {
         projectId: req.params.pid,
         action: 'create',
@@ -341,6 +349,11 @@ export function createDatabaseRouter(): Router {
       if (!record) {
         res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Record not found' } });
         return;
+      }
+      // AUD-0-03: realtime publish untuk update admin (invariant fan-out)
+      const updateMeta = getCollectionByName(db, req.params.name);
+      if (updateMeta) {
+        realtimeHub.publish(db, updateMeta, 'update', record as Record<string, unknown>, req.params.pid);
       }
       fireWebhooks(db, {
         projectId: req.params.pid,
@@ -372,6 +385,12 @@ export function createDatabaseRouter(): Router {
 
       // M38: full payload (bukan hanya {id}) — webhook + trigger dapat context
       const deletePayload = (snapshot ?? { id: req.params.id }) as Record<string, unknown>;
+      // AUD-0-03: realtime publish untuk delete admin — pakai snapshot penuh
+      // (pola M38: rules/filter subscriber dievaluasi in-memory).
+      const deleteMeta = getCollectionByName(db, req.params.name);
+      if (deleteMeta) {
+        realtimeHub.publish(db, deleteMeta, 'delete', deletePayload, req.params.pid);
+      }
       fireWebhooks(db, {
         projectId: req.params.pid,
         action: 'delete',
@@ -415,6 +434,8 @@ export function createDatabaseRouter(): Router {
 
       const deleted: string[] = [];
       const failed: { id: string; reason: string }[] = [];
+      // AUD-0-03: batch-delete admin juga broadcast realtime per record
+      const batchDeleteMeta = getCollectionByName(db, req.params.name);
 
       for (const id of body.ids) {
         if (typeof id !== 'string' || id.trim() === '') {
@@ -431,6 +452,9 @@ export function createDatabaseRouter(): Router {
             continue;
           }
           const payload = (snapshot ?? { id }) as Record<string, unknown>;
+          if (batchDeleteMeta) {
+            realtimeHub.publish(db, batchDeleteMeta, 'delete', payload, req.params.pid);
+          }
           fireWebhooks(db, {
             projectId: req.params.pid,
             action: 'delete',
@@ -492,6 +516,21 @@ export function createDatabaseRouter(): Router {
       }
 
       const created = createRecordsBatch(db, req.params.name, body.records);
+      // AUD-0-03: batch admin selaras dengan batch publik (Ops-2) — fan-out
+      // lengkap per record SETELAH commit: realtime → webhook → trigger.
+      const batchMeta = getCollectionByName(db, req.params.name);
+      if (batchMeta) {
+        for (const record of created) {
+          realtimeHub.publish(db, batchMeta, 'create', record as Record<string, unknown>, req.params.pid);
+          fireWebhooks(db, {
+            projectId: req.params.pid,
+            action: 'create',
+            collection: req.params.name,
+            record: record as Record<string, unknown>,
+          });
+          fireTriggersSafe(db, req.params.name, 'create', record as Record<string, unknown>, undefined, 0, req.params.pid);
+        }
+      }
       res.status(201).json({ records: created, count: created.length });
     } catch (err) {
       handleError(res, err);

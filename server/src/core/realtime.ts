@@ -322,6 +322,21 @@ class RealtimeHub {
     for (const c of this.clients.values()) subs += c.subs.size;
     return { clients: this.clients.size, subscriptions: subs };
   }
+
+  // ── Audit AUD-0-01: stats project-scoped ──
+  // Route debug stats kini admin-only — dan TANPA scope ini angka yang
+  // dikembalikan tetap GLOBAL (semua client lintas project). Operator
+  // project A tidak seharusnya melihat jumlah koneksi project B.
+  statsForProject(projectId: string): { clients: number; subscriptions: number } {
+    let clients = 0;
+    let subs = 0;
+    for (const c of this.clients.values()) {
+      if (c.projectId !== projectId) continue;
+      clients++;
+      subs += c.subs.size;
+    }
+    return { clients, subscriptions: subs };
+  }
 }
 
 // Singleton — realtime state hidup di proses server

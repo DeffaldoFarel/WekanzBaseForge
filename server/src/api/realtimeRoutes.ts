@@ -6,7 +6,7 @@
 //                                             (contract SDK — semantik REPLACE)
 // POST /api/p/:pid/realtime/subscribe       → { clientId, collection, filter? }
 // POST /api/p/:pid/realtime/unsubscribe     → { clientId, subId }
-// GET  /api/p/:pid/realtime/stats           → debug stats
+// GET  /api/p/:pid/realtime/stats           → debug stats (admin-only, project-scoped)
 //
 // Ops-6 (2026-09-19, pemicu real-test WekanzDashboard):
 // 1. POST /realtime BARU — SDK @wekanz/baseforge syncSubscriptions() POST ke
@@ -270,6 +270,14 @@ export function createRealtimeRouter(): Router {
         res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'clientId and subId are required' } });
         return;
       }
+      // Audit AUD-0-02: guard F-05 yang sama dengan sync/subscribe — clientId
+      // harus milik koneksi project route INI. Tanpa ini, pemanggil dari route
+      // project asing yang mengetahui clientId+subId bisa mematikan subscription
+      // milik project lain (cross-project DoS).
+      if (!realtimeHub.getClientForProject(body.clientId, req.params.pid)) {
+        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Unknown clientId — connect first' } });
+        return;
+      }
       const ok = realtimeHub.unsubscribe(body.clientId, body.subId);
       res.json({ success: ok });
     } catch (err) {
@@ -278,9 +286,18 @@ export function createRealtimeRouter(): Router {
     }
   });
 
-  // ── Stats (debug) ─────────────────────────────────────────────────────────
+  // ── Stats (debug) — audit AUD-0-01: admin-only + project-scoped ──
+  // Sebelumnya: anonymous boleh akses dan :pid diabaikan → bocor angka
+  // client/subscription GLOBAL lintas project ke siapa pun. Endpoint tidak
+  // punya konsumen resmi (dashboard/SDK/tests), jadi kini: platform-admin
+  // only + angka scoped ke project route ini.
   router.get('/api/p/:pid/realtime/stats', (req, res) => {
-    res.json(realtimeHub.stats());
+    const bearer = extractBearer(req.headers.authorization, req.query.get('token'));
+    if (!bearer || !validateToken(bearer)) {
+      res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'Admin token required' } });
+      return;
+    }
+    res.json(realtimeHub.statsForProject(req.params.pid));
   });
 
   return router;
