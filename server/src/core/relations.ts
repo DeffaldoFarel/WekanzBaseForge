@@ -10,6 +10,9 @@ import { DatabaseSync } from 'node:sqlite';
 import { getCollectionByName, CollectionMeta } from './schema.js';
 import { FieldDefinition } from './fieldTypes.js';
 import { ForgeRecord } from './records.js';
+import { deserializeRow } from './recordFormat.js';
+import { evaluateRuleOnData } from './rules.js';
+import type { RequestContext } from './query/sqlBuilder.js';
 
 // ─── Query counter (untuk MEMBUKTIKAN N+1 vs batch di test) ─────────────────
 // Kita membungkus penghitungan query supaya test bisa membuktikan bahwa
@@ -61,7 +64,8 @@ export function expandRecords(
   meta: CollectionMeta,
   expandSpec: string,
   counter?: QueryCounter,
-  depth: number = 0
+  depth: number = 0,
+  reqCtx?: RequestContext
 ): ForgeRecord[] {
   if (!expandSpec || records.length === 0) return records;
 
@@ -128,7 +132,7 @@ export function expandRecords(
   }
 
   // 2. SATU query untuk mengambil SEMUA record target sekaligus
-  const targetById = new Map<string, Record<string, unknown>>();
+  const targetById = new Map<string, ForgeRecord>();
   if (referencedIds.size > 0) {
     const ids = [...referencedIds];
     const placeholders = ids.map(() => '?').join(', ');
@@ -138,8 +142,23 @@ export function expandRecords(
 
     counter?.hit(); // hitung sebagai SATU query (bukan N!)
 
+    // AUD-2-02: dua hal yang sebelumnya TIDAK dilakukan di sini:
+    // (a) target DI-DESERIALIZE dulu (core/recordFormat.ts) — kolom
+    //     password_hash (collection auth) dan hash scrypt field tipe password
+    //     tidak pernah keluar; field json/relation/file kembali ter-parse.
+    // (b) viewRule collection target dievaluasi PER RECORD untuk end user
+    //     (semantik PocketBase) — record yang tak boleh dilihat requester
+    //     tidak ikut di-expand. reqCtx undefined (admin/service) = bypass.
+    const vRule = reqCtx !== undefined ? (targetMeta.rules.viewRule ?? null) : null;
     for (const row of rows) {
-      targetById.set(row.id as string, row);
+      const rec = deserializeRow(targetMeta, row);
+      if (reqCtx !== undefined) {
+        if (vRule === null) continue; // collection admin-only → skip utk end user
+        if (vRule.trim() !== '' && !evaluateRuleOnData(vRule, rec as unknown as Record<string, unknown>, reqCtx)) {
+          continue; // record ini tidak boleh dilihat requester → jangan di-expand
+        }
+      }
+      targetById.set(rec.id, rec);
     }
   }
 
@@ -167,7 +186,7 @@ export function expandRecords(
   // Expand SEMUA target level ini SEKALIGUS (satu batch) untuk level berikutnya
   let nestedById = new Map<string, ForgeRecord>();
   if (restSpec && allTargets.length > 0) {
-    const nestedExpanded = expandRecords(db, allTargets, targetMeta, restSpec, counter, depth + 1);
+    const nestedExpanded = expandRecords(db, allTargets, targetMeta, restSpec, counter, depth + 1, reqCtx);
     for (const n of nestedExpanded) {
       nestedById.set(n.id, n);
     }

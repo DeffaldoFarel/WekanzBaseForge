@@ -20,6 +20,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { getCollectionByName, type CollectionMeta } from './schema.js';
 import { filterToSql, type RequestContext } from './query/sqlBuilder.js';
 import { decideRule } from './rules.js';
+import { deserializeRow } from './recordFormat.js';
 import { validateVector, similarityScore, type DistanceMetric } from './vector.js';
 
 export interface VectorSearchOptions {
@@ -164,7 +165,9 @@ export function vectorSearch(
     const score = similarityScore(queryVector, vec, metric);
     if (score < minScore) continue;
 
-    candidates.push({ id: String(row.id), score, record: row });
+    // AUD-2-03: record DI-DESERIALIZE sebelum keluar — sebelumnya raw row
+    // (hash field password & password_hash collection auth ikut bocor).
+    candidates.push({ id: String(row.id), score, record: deserializeRow(meta, row) });
   }
 
   // Top-k: sort by score DESC, ambil k pertama

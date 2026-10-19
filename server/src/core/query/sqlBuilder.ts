@@ -118,10 +118,8 @@ function walkComparison(
 
   // ── Lapis pertahanan #1: field harus ada di skema ──
   if (!validFieldNames.has(node.field)) {
-    throw new Error(
-      `Field '${node.field}' does not exist in this collection. ` +
-        `Available fields: ${[...validFieldNames].join(', ')}`
-    );
+    // AUD-2-04: jangan ikut membocorkan daftar field skema ke end user.
+    throw new Error(`Field '${node.field}' does not exist in this collection`);
   }
 
   const col = `"${node.field}"`;

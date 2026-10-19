@@ -33,6 +33,8 @@ import type { DatabaseSync } from 'node:sqlite';
 import { deleteRecordFiles } from '../core/storage.js';
 import { realtimeHub } from '../core/realtime.js';
 import { checkSearchRateLimit } from '../core/searchGuard.js'; // M18e
+import { checkRateLimit } from '../auth/rateLimiter.js';
+import { clientIpFromRequest } from '../auth/clientIp.js';
 import { extractApiKey, resolveApiKey, ApiKeyError } from '../auth/apiKeys.js'; // M26
 // M19: agregasi lewat REST publik — WAJIB meneruskan reqCtx supaya listRule
 // ikut membatasi baris yang dihitung (COUNT saja sudah membocorkan data).
@@ -304,6 +306,17 @@ export function createPublicRouter(): Router {
   //   listRule ditegakkan (sama seperti aggregate M19 — similarity bocor data).
   router.post('/api/p/:pid/collections/:name/vector-search', async (req, res) => {
     try {
+      // AUD-2-05: vector-search = full-scan + parse semua vector per request.
+      // Batasi 30/menit per (project, IP) — sejajar semangat searchGuard M18e
+      // (sebelumnya TIDAK ADA limit → permukaan DoS di collection publik).
+      const vsIp = clientIpFromRequest(req);
+      if (!(await checkRateLimit(`vector-search:${req.params.pid}:${vsIp}`, 30, 60_000))) {
+        res.status(429).json({
+          error: { code: 'RATE_LIMITED', message: 'Too many vector search requests. Please try again shortly.' },
+        });
+        return;
+      }
+
       const db = getProjectDb(req.params.pid);
       const body = (req.body ?? {}) as {
         vector?: number[]; k?: number; field?: string;

@@ -13,7 +13,9 @@
 
 import { DatabaseSync } from 'node:sqlite';
 import { FieldDefinition } from './fieldTypes.js';
-import { filterToSql, RequestContext } from './query/sqlBuilder.js';
+import { filterToSql, RequestContext, resolveRequestValue } from './query/sqlBuilder.js';
+import { tokenize } from './query/lexer.js';
+import { parse, type AstNode } from './query/parser.js';
 
 // ─── Tipe ────────────────────────────────────────────────────────────────────
 
@@ -71,8 +73,14 @@ export function decideRule(
   return { mode: 'filter', sql: where, params };
 }
 
-// ─── Evaluasi rule terhadap DATA (untuk create; nanti juga update) ──────────
-// Data yang dikirim user disubstitusi ke rule sebagai field, lalu dievaluasi.
+// ─── Evaluasi rule terhadap DATA (create/update/delete/view per-record) ────
+// AUD-2-01: evaluator REGEX lama mengabaikan tanda kurung — rule
+// `a && (b || c)` dievaluasi `(a && b) || c` di jalur viewRule/updateRule/
+// deleteRule/createRule → user lain bisa GET+PATCH+DELETE record milik user
+// lain (probe audit terbukti), sementara jalur LIST (parser SQL) menolak —
+// dua jalur, dua keputusan. Kini rule diparse dengan PARSER ASLI (grammar
+// yang sama dengan filterToSql) lalu dievaluasi in-memory: satu grammar,
+// satu kebenaran, konsisten dengan LIST.
 
 export function evaluateRuleOnData(
   rule: string,
@@ -80,106 +88,87 @@ export function evaluateRuleOnData(
   reqCtx: RequestContext | undefined
 ): boolean {
   if (reqCtx === undefined) return true;
-  if (rule.trim() === "") return true;
-  if (!reqCtx?.auth && rule.includes("@request")) return false;
-  // Substitusi sederhana & aman: setiap IDENT yang cocok dengan nama field
-  // data diganti STRING literal-nya. IDENT yang tidak cocok → 1=0 (aman).
-  // Catatan: ini evaluator konstanta, bukan SQL builder — kita bandingkan
-  // langsung di JS setelah resolve.
+  if (rule.trim() === '') return true;
+  if (!reqCtx?.auth && rule.includes('@request')) return false;
 
-  // Ambil pasangan (field, op, value) dengan regex sederhana per-klasul.
-  // Untuk M11 kita dukung bentuk paling umum: field op nilai && / ||
-  const clauseRe = /([a-zA-Z_][a-zA-Z0-9_.]*|@request\.[a-zA-Z0-9_.]+)\s*(=|!=|>|>=|<|<=|~|!~)\s*("[^"]*"|'[^']*'|@request\.[a-zA-Z0-9_.]+|true|false|null|-?\d+(?:\.\d+)?)/g;
+  let ast: AstNode;
+  try {
+    ast = parse(tokenize(rule));
+  } catch {
+    return false; // rule korup/tidak terparse → tolak (fail-safe)
+  }
+  return evalRuleNode(ast, data, reqCtx);
+}
 
-  let result: boolean | null = null; // null = belum ada; AND binds tighter
-  let pendingOp: 'AND' | 'OR' | null = null;
-  let lastIndex = 0;
-  const expr = rule;
+function evalRuleNode(node: AstNode, data: Record<string, unknown>, reqCtx: RequestContext): boolean {
+  if (node.kind === 'logical') {
+    const left = evalRuleNode(node.left, data, reqCtx);
+    const right = evalRuleNode(node.right, data, reqCtx);
+    return node.operator === 'AND' ? left && right : left || right;
+  }
+  const { field, operator, value } = node;
+  const left = field.startsWith('@') ? resolveRequestValue(field, reqCtx) : data[field];
+  const right = typeof value === 'string' && value.startsWith('@') ? resolveRequestValue(value, reqCtx) : value;
+  return evalComparison(left, operator, right);
+}
 
-  while (lastIndex < expr.length) {
-    // Cari operator logika berikutnya
-    const nextLogical = findNextLogical(expr, lastIndex);
-    const segment = expr.slice(lastIndex, nextLogical.pos);
-    const segTrim = segment.trim();
-
-    if (segTrim.length > 0) {
-      const m = clauseRe.exec(segTrim + ' ');
-      clauseRe.lastIndex = 0;
-      let clauseTruth: boolean;
-
-      if (m) {
-        const field = m[1];
-        const op = m[2];
-        const rawVal = m[3];
-
-        const resolveValue = (raw: string): unknown => {
-          if (raw.startsWith('@request.')) {
-            if (!reqCtx?.auth) return null;
-            const key = raw.slice('@request.'.length).split('.').slice(1).join('.');
-            return (reqCtx.auth as unknown as Record<string, unknown>)[key] ?? null;
-          }
-          if (raw.startsWith('"') || raw.startsWith("'")) return raw.slice(1, -1);
-          if (raw === 'true') return true;
-          if (raw === 'false') return false;
-          if (raw === 'null') return null;
-          return Number(raw);
-        };
-
-        let left: unknown;
-        let right: unknown;
-        if (field.startsWith('@request.')) {
-          left = resolveValue(field);
-          right = resolveValue(rawVal);
-        } else {
-          // field = kolom data
-          left = data[field];
-          right = resolveValue(rawVal);
-        }
-
-        clauseTruth = compareValues(left, op, right);
-      } else {
-        clauseTruth = false; // segmen tidak bisa diparse → tolak (aman)
-      }
-
-      // Gabungkan dengan operator logika (AND lebih kuat dari OR)
-      if (result === null) {
-        result = clauseTruth;
-      } else if (pendingOp === 'AND') {
-        result = result && clauseTruth;
-      } else {
-        result = result || clauseTruth;
-      }
-    }
-
-    pendingOp = nextLogical.op;
-    lastIndex = nextLogical.pos + (nextLogical.op ? 2 : 0);
-    if (!nextLogical.op) break;
+/**
+ * Semantik perbandingan MENIRU SQL agar konsisten dengan jalur LIST:
+ *  - NULL/undefined di sisi data → false (SQL UNKNOWN — baris tidak lolos)
+ *  - `= null` / `!= null` → IS NULL / IS NOT NULL
+ *  - `~` / `!~` → LIKE / NOT LIKE (case-insensitive, sesuai SQLite ASCII)
+ *  - bool dibandingkan sebagai 1/0 (cara SQLite menyimpannya)
+ *  - `?op` (any-match) → minimal satu elemen array cocok
+ */
+function evalComparison(left: unknown, op: string, right: unknown): boolean {
+  if (op.startsWith('?')) {
+    const base = op.slice(1);
+    const arr = Array.isArray(left) ? left : [];
+    if (base === '!=') return !arr.some((el) => evalComparison(el, '=', right));
+    return arr.some((el) => evalComparison(el, base, right));
   }
 
-  return result ?? false;
-}
-
-function findNextLogical(expr: string, from: number): { pos: number; op: 'AND' | 'OR' | null } {
-  const andIdx = expr.indexOf('&&', from);
-  const orIdx = expr.indexOf('||', from);
-  if (andIdx === -1 && orIdx === -1) return { pos: expr.length, op: null };
-  if (andIdx === -1) return { pos: orIdx, op: 'OR' };
-  if (orIdx === -1) return { pos: andIdx, op: 'AND' };
-  return andIdx < orIdx ? { pos: andIdx, op: 'AND' } : { pos: orIdx, op: 'OR' };
-}
-
-function compareValues(left: unknown, op: string, right: unknown): boolean {
+  const isNull = (v: unknown) => v === null || v === undefined;
   switch (op) {
-    case '=': return left === right;
-    case '!=': return left !== right;
-    case '>': return (left as number) > (right as number);
-    case '>=': return (left as number) >= (right as number);
-    case '<': return (left as number) < (right as number);
-    case '<=': return (left as number) <= (right as number);
-    case '~': return String(left ?? '').includes(String(right ?? ''));
-    case '!~': return !String(left ?? '').includes(String(right ?? ''));
-    default: return false;
+    case '=':
+      if (right === null) return isNull(left);
+      if (isNull(left)) return false;
+      return looseEq(left, right);
+    case '!=':
+      if (right === null) return !isNull(left);
+      if (isNull(left)) return false;
+      return !looseEq(left, right);
+    case '>':
+      return cmpNum(left, right) > 0;
+    case '>=':
+      return cmpNum(left, right) >= 0;
+    case '<':
+      return cmpNum(left, right) < 0;
+    case '<=':
+      return cmpNum(left, right) <= 0;
+    case '~':
+      if (isNull(left)) return false;
+      return String(left).toLowerCase().includes(String(right ?? '').toLowerCase());
+    case '!~':
+      if (isNull(left)) return false;
+      return !String(left).toLowerCase().includes(String(right ?? '').toLowerCase());
+    default:
+      return false;
   }
+}
+
+function looseEq(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  const an = typeof a === 'boolean' ? (a ? 1 : 0) : a;
+  const bn = typeof b === 'boolean' ? (b ? 1 : 0) : b;
+  return typeof an === 'number' && typeof bn === 'number' && an === bn;
+}
+
+function cmpNum(left: unknown, right: unknown): number {
+  const l = typeof left === 'boolean' ? (left ? 1 : 0) : Number(left);
+  const r = typeof right === 'boolean' ? (right ? 1 : 0) : Number(right);
+  if (!Number.isFinite(l) || !Number.isFinite(r)) return NaN; // semua perbandingan → false
+  return l - r;
 }
 
 // ─── Helper tipe untuk schema.ts ─────────────────────────────────────────────

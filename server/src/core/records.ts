@@ -24,6 +24,7 @@ import { tokenize } from './query/lexer.js';
 // M19: expand relasi — modul ini sudah lengkap sejak M12/D6 tetapi tidak
 // pernah diimpor oleh lapisan mana pun (modul yatim). M19 menyambungkannya.
 import { expandRecords } from './relations.js';
+import { deserializeRow } from './recordFormat.js';
 
 // M16a: error khusus write ke view collection
 export class ViewWriteError extends Error {
@@ -306,74 +307,10 @@ function serializeValue(field: FieldDefinition, value: unknown): unknown {
   }
 }
 
-// ─── DESERIALIZE: baris mentah SQLite → bentuk yang diharapkan user ─────────
-// Kebalikan serialize: 1/0 → true/false, string JSON → object.
-
-function deserializeRow(meta: CollectionMeta, row: Record<string, unknown>): ForgeRecord {
-  const fmap = fieldMap(meta);
-  const result: Record<string, unknown> = { ...row };
-
-  for (const [key, value] of Object.entries(result)) {
-    const field = fmap.get(key);
-    if (!field || value === null) continue;
-
-    if (field.type === 'bool') {
-      result[key] = value === 1;
-    } else if (field.type === 'json' && typeof value === 'string') {
-      try {
-        result[key] = JSON.parse(value);
-      } catch {
-        result[key] = value; // biarkan apa adanya kalau bukan JSON valid
-      }
-    } else if (field.type === 'relation' && typeof value === 'string') {
-      // D2: multi-relation disimpan sebagai JSON array → parse kembali
-      const isMulti = (field.options?.maxSelect ?? 1) > 1;
-      if (isMulti) {
-        try {
-          result[key] = JSON.parse(value);
-        } catch {
-          result[key] = [];
-        }
-      }
-      // single relation: biarkan string apa adanya
-    } else if (field.type === 'file' && typeof value === 'string') {
-      // M14: multi-file disimpan sebagai JSON array → parse kembali
-      const isMulti = (field.options?.maxSelect ?? 1) > 1;
-      if (isMulti) {
-        try {
-          result[key] = JSON.parse(value);
-        } catch {
-          result[key] = [];
-        }
-      }
-    } else if (field.type === 'geoPoint' && typeof value === 'string') {
-      // M16b: { lat, lng } TEXT JSON → object
-      try {
-        result[key] = JSON.parse(value);
-      } catch {
-        result[key] = null;
-      }
-    } else if (field.type === 'vector' && typeof value === 'string') {
-      // M29: embedding TEXT JSON → array of numbers
-      try {
-        result[key] = JSON.parse(value);
-      } catch {
-        result[key] = null;
-      }
-    } else if (field.type === 'password') {
-      // M16b: HASH TIDAK PERNAH DIKEMBALIKAN — field hilang dari response.
-      // (Bagi client: field ini write-only. Tidak ada verify endpoint untuk
-      // field-level password di M16b — kebutuhan verify = auth collection.)
-      delete result[key];
-    }
-  }
-
-  if (meta.type === 'auth') {
-    delete result.password_hash;
-  }
-
-  return result as ForgeRecord;
-}
+// ─── DESERIALIZE ────────────────────────────────────────────────────────────
+// AUD-2-02/03: deserializeRow kini hidup di core/recordFormat.ts agar bisa
+// dipakai BERSAMA oleh records.ts, relations.ts (expand), dan vectorSearch.ts
+// — sebelumnya expand/vector menempel raw row (hash password ikut bocor).
 
 // ─── Audit #18: validasi relasi (existence + ownership) ─────────────────────
 // End-user writes may not point a relation at a nonexistent record or at
@@ -676,7 +613,8 @@ export function getRecord(
   // ── M19: expand dijalankan SETELAH viewRule lolos ──
   // Kalau dibalik, relasi record yang tak boleh dilihat ikut ter-query.
   if (options?.expand && options.expand.trim() !== '') {
-    const [expanded] = expandRecords(db, [record], meta, options.expand.trim());
+    // AUD-2-02: reqCtx diteruskan — viewRule collection target dievaluasi
+    const [expanded] = expandRecords(db, [record], meta, options.expand.trim(), undefined, 0, reqCtx);
     return expanded ?? record;
   }
 
@@ -1041,7 +979,8 @@ export function listRecords(
   // array, bukan string JSON mentah.
   let items = rows.map((r) => deserializeRow(meta, r));
   if (options.expand && options.expand.trim() !== '') {
-    items = expandRecords(db, items, meta, options.expand.trim());
+    // AUD-2-02: reqCtx diteruskan — viewRule collection target dievaluasi
+    items = expandRecords(db, items, meta, options.expand.trim(), undefined, 0, options.reqCtx);
   }
 
   return {
