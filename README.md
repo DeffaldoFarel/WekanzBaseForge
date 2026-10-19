@@ -4,7 +4,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![SQLite](https://img.shields.io/badge/Database-SQLite%20WAL-003B57?logo=sqlite&logoColor=white)](https://www.sqlite.org/)
 [![Next.js](https://img.shields.io/badge/Dashboard-Next.js%2015-000000?logo=next.js&logoColor=white)](https://nextjs.org/)
-[![Tests](https://img.shields.io/badge/Tests-778%20Passing-brightgreen?logo=node.js&logoColor=white)](https://github.com/DeffaldoFarel/WekanzBaseForge)
+[![Tests](https://img.shields.io/badge/Tests-784%20Passing-brightgreen?logo=node.js&logoColor=white)](https://github.com/DeffaldoFarel/WekanzBaseForge)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 **WekanzBaseForge** is an open-source, production-hardened **Backend-as-a-Service (BaaS)** engineered for high performance, deterministic reliability, and complete data ownership. Built natively with modern Node.js and TypeScript, BaseForge delivers multi-tenant SQL database collections, end-user authentication, V8-isolated serverless functions, file storage, outbound webhooks, and real-time streaming — all managed via an intuitive, full-width Next.js 15 dashboard.
@@ -70,7 +70,7 @@
 | **File Parser** | `@fastify/busboy` | Streaming, memory-safe multipart parser for uploads up to 100MB |
 | **Rate Limiter** | `ioredis` + Lua (Memory fallback) | Atomic, multi-instance ready fixed-window rate limiter |
 | **Dashboard** | Next.js 15 + React 19 + Tailwind CSS | Fluid, responsive multi-tenant administrative workspace |
-| **Testing** | `node:test` + `tsx` | 778 passing unit and integration tests |
+| **Testing** | `node:test` + `tsx` | 784 passing unit and integration tests |
 
 ---
 
@@ -134,7 +134,7 @@ BaseForge includes comprehensive end-to-end integration and unit tests covering 
 ```bash
 cd server
 npm test
-# → 778 tests passing (0 fail) across 33 test suites
+# → 784 tests passing (0 fail) across 33 test suites
 # → m01-kv / m02-sqlite are benchmark suites: on slower machines they can
 #   exceed the 15s per-file budget (reported as cancelled) — pre-existing
 #   behavior, not test failures.

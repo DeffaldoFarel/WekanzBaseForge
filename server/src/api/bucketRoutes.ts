@@ -28,8 +28,20 @@ import {
 } from '../core/bucketStorage.js';
 import { parseMultipart } from '../core/multipart.js';
 import { getThumb, isThumbable } from '../core/thumbs.js';
+import { assertStorageQuota, StorageQuotaExceededError } from '../core/storageQuota.js'; // AUD-4-04
 
-const MIME_WHITELIST_OVERRIDES: Record<string, string> = {
+// AUD-4-02: MIME untuk SERVING ditentukan WHITELIST EKSTENSI — sama disiplin
+// dengan route record (storageRoutes): contentType client TIDAK PERNAH
+// dipercaya untuk serving. Sebelumnya evil.svg + ct image/svg+xml (atau .bin
+// + text/html) disajikan AKTIF inline → stored XSS di origin API (probe).
+// Ekstensi tidak dikenal / aktif (svg/html/js) → octet-stream + attachment.
+const MIME_WHITELIST: Record<string, string> = {
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.png': 'image/png',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.avif': 'image/avif',
   '.pdf': 'application/pdf',
   '.txt': 'text/plain',
   '.csv': 'text/csv',
@@ -43,7 +55,7 @@ const MIME_WHITELIST_OVERRIDES: Record<string, string> = {
 
 function mimeFor(filename: string): string {
   const ext = filename.slice(filename.lastIndexOf('.')).toLowerCase();
-  return MIME_WHITELIST_OVERRIDES[ext] ?? 'application/octet-stream';
+  return MIME_WHITELIST[ext] ?? 'application/octet-stream';
 }
 
 type BucketActor = { kind: 'user'; userId: string } | { kind: 'service' };
@@ -143,6 +155,9 @@ export function createBucketRouter(): Router {
         return;
       }
 
+      // AUD-4-04: kuota storage per-project — dicek SEBELUM objek ditulis.
+      await assertStorageQuota(req.params.pid, db, file.data.length);
+
       // Optional fileId dari form field
       const requestedFileId = parsed.fields.fileId || parsed.fields.id || undefined;
 
@@ -177,6 +192,10 @@ export function createBucketRouter(): Router {
         url,
       });
     } catch (err) {
+      if (err instanceof StorageQuotaExceededError) {
+        res.status(413).json({ error: { code: 'QUOTA_EXCEEDED', message: err.message } }); // AUD-4-04
+        return;
+      }
       if (respondBucketAuthError(res, err)) return;
       const message = err instanceof Error ? err.message : 'Upload failed';
       res.status(400).json({ error: { code: 'UPLOAD_FAILED', message } });
@@ -194,7 +213,7 @@ export function createBucketRouter(): Router {
         return;
       }
 
-      const mime = result.info.contentType || mimeFor(result.info.filename);
+      const mime = mimeFor(result.info.filename); // AUD-4-02: whitelist ekstensi — bukan metadata client
 
       // M35+M14b: ?thumb=WxH — grid storage meminta thumbnail untuk SETIAP
       // file gambar. Endpoint ini dulu MENGABAIKAN thumb dan mengirim file
@@ -223,7 +242,8 @@ export function createBucketRouter(): Router {
 
       res.raw.setHeader('Content-Type', mime);
       res.raw.setHeader('Content-Length', String(serveData.length));
-      res.raw.setHeader('Cache-Control', 'public, max-age=3600');
+      res.raw.setHeader('Cache-Control', 'public, max-age=3600'); // bucket: public URL by design
+      res.raw.setHeader('X-Content-Type-Options', 'nosniff'); // AUD-4-02: pertahanan berlapis
       res.raw.setHeader('Content-Disposition', `inline; filename="${result.info.filename}"`);
       if (mime === 'application/octet-stream') {
         res.raw.setHeader('Content-Disposition', `attachment; filename="${result.info.filename}"`);

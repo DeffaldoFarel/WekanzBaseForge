@@ -16,6 +16,7 @@ import { getProjectDb } from '../core/projectDbManager.js';
 import { getCollectionByName } from '../core/schema.js';
 import { getRecord } from '../core/records.js';
 import { readFile, storedFilenames, deleteFile, listProjectStorageFiles, cleanOrphanedFiles } from '../core/storage.js';
+import { getStorageQuotaBytes, setStorageQuotaBytes, getStorageUsageBytes, DEFAULT_STORAGE_QUOTA_BYTES } from '../core/storageQuota.js'; // AUD-4-04
 import { RequestContext } from '../core/query/sqlBuilder.js';
 import { verifyToken } from '../auth/jwt.js';
 import { extractApiKey, resolveApiKey, ApiKeyError } from '../auth/apiKeys.js'; // M26
@@ -148,7 +149,11 @@ export function createStorageRouter(): Router {
       const mime = mimeFor(filename);
       res.raw.setHeader('Content-Type', mime);
       res.raw.setHeader('Content-Length', String(serveData.length));
-      res.raw.setHeader('Cache-Control', 'public, max-age=3600');
+      // AUD-4-03: file ini mengikuti viewRule collection — bisa berisi konten
+      // PRIVAT. Cache shared (proxy ISP/korporat/CDN) tidak boleh menyimpan
+      // respons ter-otorisasi lalu menyajikannya ke orang lain → 'private'.
+      res.raw.setHeader('Cache-Control', 'private, max-age=3600');
+      res.raw.setHeader('X-Content-Type-Options', 'nosniff'); // AUD-4-02: berlapis
       // Ekstensi tidak dikenal → paksa download (jangan render!)
       if (mime === 'application/octet-stream') {
         res.raw.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
@@ -209,6 +214,38 @@ export function createStorageRouter(): Router {
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Internal error';
       res.status(500).json({ error: { code: 'INTERNAL', message } });
+    }
+  });
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // AUD-4-04: STORAGE QUOTA — lihat & atur kuota per-project
+  // ══════════════════════════════════════════════════════════════════════════
+
+  // GET /api/admin/projects/:pid/storage/quota → { quotaBytes, usageBytes, defaultQuotaBytes }
+  router.get('/api/admin/projects/:pid/storage/quota', requireAdmin, async (req, res) => {
+    try {
+      const db = getProjectDb(req.params.pid);
+      res.json({
+        quotaBytes: getStorageQuotaBytes(db),
+        usageBytes: await getStorageUsageBytes(req.params.pid),
+        defaultQuotaBytes: DEFAULT_STORAGE_QUOTA_BYTES,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Internal error';
+      res.status(500).json({ error: { code: 'INTERNAL', message } });
+    }
+  });
+
+  // PUT /api/admin/projects/:pid/storage/quota { quotaBytes } — 0 = unlimited
+  router.put('/api/admin/projects/:pid/storage/quota', requireAdmin, (req, res) => {
+    try {
+      const db = getProjectDb(req.params.pid);
+      const body = (req.body ?? {}) as { quotaBytes?: number };
+      setStorageQuotaBytes(db, body.quotaBytes as number);
+      res.json({ success: true, quotaBytes: getStorageQuotaBytes(db) });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Internal error';
+      res.status(400).json({ error: { code: 'BAD_REQUEST', message } });
     }
   });
 

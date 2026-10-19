@@ -26,7 +26,9 @@ import {
   multipartToRecordData,
   cleanupReplacedFiles,
   cleanupAllRecordFiles,
+  checkUpdateAccess, // AUD-4-01: pre-flight gate PATCH multipart
 } from '../core/records.js';
+import { StorageQuotaExceededError } from '../core/storageQuota.js'; // AUD-4-04
 import { RequestContext } from '../core/query/sqlBuilder.js';
 import { ForbiddenError } from '../core/rules.js';
 import type { DatabaseSync } from 'node:sqlite';
@@ -66,7 +68,8 @@ async function prepareBodyData(
       meta,
       recordId,
       reqExt.rawBody,
-      reqExt.headers['content-type'] ?? ''
+      reqExt.headers['content-type'] ?? '',
+      db
     );
   }
   return (reqExt.body ?? {}) as Record<string, unknown>;
@@ -116,6 +119,11 @@ function handleErrorPublic(res: {
   // M40: email duplikat di auth collection → 409 EMAIL_TAKEN
   if (err instanceof DuplicateEmailError) {
     res.status(409).json({ error: { code: 'EMAIL_TAKEN', message: err.message } });
+    return;
+  }
+  // AUD-4-04: kuota storage terlampaui → 413 (dari multipartToRecordData)
+  if (err instanceof StorageQuotaExceededError) {
+    res.status(413).json({ error: { code: 'QUOTA_EXCEEDED', message: err.message } });
     return;
   }
   const message = err instanceof Error ? err.message : 'Internal error';
@@ -448,8 +456,25 @@ export function createPublicRouter(): Router {
       const meta = getCollectionByName(db, req.params.name);
       if (!meta) throw new Error(`Collection '${req.params.name}' not found`);
 
+      // AUD-4-01: multipart PATCH MENULIS FILE ke disk di dalam prepareBodyData —
+      // validasi eksistensi record + updateRule SEBELUM parsing multipart.
+      // Sebelumnya rid hasil decode %2F ('../..') menulis file DI LUAR storage
+      // root (dan caller tanpa izin meninggalkan orphan) sebelum updateRecord
+      // sempat menjawab 404/403.
+      const access = checkUpdateAccess(db, req.params.name, req.params.id, reqCtx);
+      if (!access.allowed) {
+        const notFound = access.reason === 'not_found';
+        res.status(notFound ? 404 : 403).json({
+          error: {
+            code: notFound ? 'NOT_FOUND' : 'FORBIDDEN',
+            message: notFound ? 'Record not found' : 'You do not have permission to update this record',
+          },
+        });
+        return;
+      }
+
       // M14: snapshot file lama SEBELUM update (untuk cleanup yang diganti)
-      const oldRecord = getRecordRawPublic(db, req.params.name, req.params.id);
+      const oldRecord = access.existing;
       const body = await prepareBodyData(req, db, req.params.pid, req.params.name, req.params.id);
 
       const record = updateRecord(db, req.params.name, req.params.id, body, reqCtx);

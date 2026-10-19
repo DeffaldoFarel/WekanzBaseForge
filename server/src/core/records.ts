@@ -16,6 +16,7 @@ import { FieldDefinition, validateValue } from './fieldTypes.js';
 import { filterToSql, RequestContext } from './query/sqlBuilder.js';
 import { decideRule, evaluateRuleOnData, ForbiddenError, CollectionRules } from './rules.js';
 import { parseMultipart, extractBoundary, MultipartFile } from './multipart.js';
+import { assertStorageQuota } from './storageQuota.js';
 import { saveFile, deleteFile, deleteRecordFiles, storedFilenames } from './storage.js';
 import { isViewCollection } from './schema.js';
 import { hashPassword, verifyPassword, validatePasswordStrength } from '../auth/password.js';
@@ -115,7 +116,10 @@ export async function multipartToRecordData(
   meta: CollectionMeta,
   recordId: string,
   body: Buffer,
-  contentType: string
+  contentType: string,
+  /** AUD-4-04: project DB untuk pengecekan kuota storage (opsional —
+   *  caller lama tanpa db melewati kuota, backward compatible). */
+  db?: DatabaseSync
 ): Promise<Record<string, unknown>> {
   const boundary = extractBoundary(contentType);
   if (!boundary) throw new Error('Malformed multipart: boundary not found');
@@ -124,6 +128,14 @@ export async function multipartToRecordData(
   const { fields, files } = await parseMultipart(body, boundary);
   const data: Record<string, unknown> = { ...fields };
   const fmap = fieldMap(meta);
+
+  // AUD-4-04: kuota storage per-project — dicek SETELAH parse (ukuran diketahui),
+  // SEBELUM file pertama tersimpan. (Filename sudah tervalidasi parseMultipart
+  // sanitizeFilename — pertahanan traversal #1 M14a; vektor AUD-4-01 adalah rid.)
+  if (db && files.length > 0) {
+    const incoming = files.reduce((acc, f) => acc + f.data.length, 0);
+    await assertStorageQuota(projectId, db, incoming);
+  }
 
   // Kelompokkan file per field
   const filesByField = new Map<string, MultipartFile[]>();
@@ -637,6 +649,42 @@ function getRecordRaw(
 }
 
 // ─── UPDATE ──────────────────────────────────────────────────────────────────
+
+/**
+ * AUD-4-01: pre-flight permission gate untuk PATCH — mirror dari gerbang
+ * updateRecord (eksistensi + updateRule pada record EXISTING), supaya jalur
+ * multipart bisa memvalidasi SEBELUM file ditulis ke disk. Sebelumnya
+ * prepareBodyData → saveFile jalan lebih dulu: rid hasil decode %2F bisa
+ * menulis file DI LUAR storage root (probe AUD-4-01) dan caller tanpa izin
+ * meninggalkan file orphan sebelum 403.
+ *
+ * updateRecord tetap melakukan semua pemeriksaan ulang SETELAH body di-parse
+ * (termasuk cek data-dependent: perubahan userId, backendManaged field) —
+ * helper ini hanya gerbang yang tidak bergantung data.
+ */
+export type UpdateAccess =
+  | { allowed: false; reason: 'not_found' | 'forbidden' }
+  | { allowed: true; existing: Record<string, unknown> };
+
+export function checkUpdateAccess(
+  db: DatabaseSync,
+  collection: string,
+  id: string,
+  reqCtx: RequestContext | undefined
+): UpdateAccess {
+  const meta = mustGetCollection(db, collection);
+  assertNotView(meta);
+  const existing = getRecordRaw(db, meta, collection, id);
+  if (!existing) return { allowed: false, reason: 'not_found' };
+  if (reqCtx !== undefined) {
+    const uRule = ruleFor(meta, 'updateRule');
+    if (uRule === null) return { allowed: false, reason: 'forbidden' };
+    if (uRule.trim() !== '' && !evaluateRuleOnData(uRule, existing as Record<string, unknown>, reqCtx)) {
+      return { allowed: false, reason: 'forbidden' };
+    }
+  }
+  return { allowed: true, existing: existing as Record<string, unknown> };
+}
 
 export function updateRecord(
   db: DatabaseSync,

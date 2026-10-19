@@ -56,6 +56,18 @@ function localPath(projectId: string, storedName: string): string {
   return path.join(storageRoot(), projectId, storedName);
 }
 
+// AUD-4-01/05: GUARD TRAVERSAL — nama fisik dibangun dari komponen yang tidak
+// sepenuhnya terkendali (recordId bisa datang dari URL yang di-decode %2F).
+// read() sudah lama punya guard; save()/delete() TIDAK — file bisa
+// ditulis/dihapus DI LUAR storage root (probe AUD-4-01: PATCH multipart dengan
+// rid '../..' menulis file di luar root SEBELUM updateRecord sempat 404).
+// resolveInside mengembalikan path yang DIPASTIKAN di dalam dir, atau null.
+function resolveInside(dir: string, full: string): string | null {
+  const resolved = path.resolve(full);
+  const root = path.resolve(dir) + path.sep;
+  return resolved.startsWith(root) ? resolved : null;
+}
+
 const MIME_MAP: Record<string, string> = {
   '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif',
   '.webp': 'image/webp', '.avif': 'image/avif', '.svg': 'image/svg+xml',
@@ -75,6 +87,12 @@ export class LocalDiskAdapter implements StorageAdapter {
 
     let stored = filename;
     let full = path.join(dir, `${recordId}_${stored}`);
+    // AUD-4-01: tulis HARUS tetap di dalam folder project — jika tidak, tolak.
+    // (Guard bersifat MELEMPAR, bukan senyap: percobaan traversal harus terlihat
+    // di log/route, bukan ditelan sebagai "sukses".)
+    if (!resolveInside(dir, full)) {
+      throw new Error('storage: refusing to write outside the project storage directory (path traversal)');
+    }
     if (fs.existsSync(full)) {
       const ext = path.extname(filename);
       const base = path.basename(filename, ext);
@@ -103,7 +121,14 @@ export class LocalDiskAdapter implements StorageAdapter {
 
   async delete(projectId: string, recordId: string, filename: string): Promise<void> {
     try {
-      fs.unlinkSync(path.join(storageRoot(), projectId, `${recordId}_${filename}`));
+      const dir = path.join(storageRoot(), projectId);
+      const full = path.join(dir, `${recordId}_${filename}`);
+      // AUD-4-05: traversal pada delete → NO-OP senyap (delete idempotent;
+      // tidak ada file sah yang pernah berada di luar root). read() memakai
+      // pola yang sama (return null) — konsisten.
+      const resolved = resolveInside(dir, full);
+      if (!resolved) return;
+      fs.unlinkSync(resolved);
     } catch {
       // idempotent
     }
