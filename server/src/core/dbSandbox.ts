@@ -231,7 +231,10 @@ export async function sandboxedDbCall(
       const previous = needSnapshot
         ? (getRecord(ctx.db, opts.collection, opts.id) as unknown as Record<string, unknown> | null)
         : null;
-      const deleted = deleteRecord(ctx.db, opts.collection, opts.id);
+      // AUD-6-03: collector anak ter-cascade — realtime/trigger anak ikut
+      // menyala (dulu anak ter-cascade hilang diam-diam dari SSE/trigger).
+      const cascaded: { collection: string; record: Record<string, unknown> }[] = [];
+      const deleted = deleteRecord(ctx.db, opts.collection, opts.id, undefined, cascaded);
       if (deleted && previous) {
         // Tanpa snapshot, rules delete tak bisa dievaluasi — fail-safe: skip
         // broadcast (konsisten dengan recordMatchesInMemory yang gagal → skip).
@@ -244,6 +247,13 @@ export async function sandboxedDbCall(
           (previous ?? { id: opts.id }) as Record<string, unknown>,
           previous
         );
+      }
+      // AUD-6-03: fan-out untuk semua anak yang ikut ter-cascade
+      for (const c of cascaded) {
+        ctx.onRealtimeWrite?.('delete', c.collection, c.record);
+        if (!suppressTriggers) {
+          ctx.onWrite?.('delete', c.collection, c.record, c.record);
+        }
       }
       return deleted;
     }

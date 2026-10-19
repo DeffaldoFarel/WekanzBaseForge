@@ -37,6 +37,7 @@ import {
 import { fireWebhooks } from '../core/webhooks.js';
 import { fireTriggersSafe } from '../core/triggerExecutor.js';
 import { realtimeHub } from '../core/realtime.js';
+import { deleteRecordFiles } from '../core/storage.js'; // AUD-6-03: file cleanup delete admin
 import { DuplicateIdError, DuplicateEmailError, RestrictError } from '../core/records.js';
 import type { CollectionDefinition, IndexDefinition } from '../core/schema.js';
 import type { CollectionRules } from '../core/rules.js';
@@ -370,14 +371,16 @@ export function createDatabaseRouter(): Router {
   });
 
   // DELETE /api/admin/projects/:pid/collections/:name/records/:id — hapus record
-  router.delete('/api/admin/projects/:pid/collections/:name/records/:id', requireAdmin, (req, res) => {
+  router.delete('/api/admin/projects/:pid/collections/:name/records/:id', requireAdmin, async (req, res) => {
     try {
       const db = getProjectDb(req.params.pid);
 
       // M38: snapshot SEBELUM delete (untuk webhook/trigger full payload)
       const snapshot = snapshotRecord(db, req.params.name, req.params.id);
 
-      const deleted = deleteRecord(db, req.params.name, req.params.id);
+      // AUD-6-03: collector anak ter-cascade — fan-out event + file cleanup
+      const cascaded: { collection: string; record: Record<string, unknown> }[] = [];
+      const deleted = deleteRecord(db, req.params.name, req.params.id, undefined, cascaded);
       if (!deleted) {
         res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Record not found' } });
         return;
@@ -398,6 +401,22 @@ export function createDatabaseRouter(): Router {
         record: deletePayload,
       });
       fireTriggersSafe(db, req.params.name, 'delete', deletePayload, undefined, 0, req.params.pid);
+      // AUD-6-03: file cleanup untuk record top-level (dulu hanya jalur publik
+      // yang membersihkan — delete admin meninggalkan orphan) + semua anak
+      // ter-cascade (event + trigger + file).
+      await deleteRecordFiles(req.params.pid, req.params.id);
+      for (const c of cascaded) {
+        const cMeta = getCollectionByName(db, c.collection);
+        if (cMeta) realtimeHub.publish(db, cMeta, 'delete', c.record, req.params.pid);
+        fireWebhooks(db, {
+          projectId: req.params.pid,
+          action: 'delete',
+          collection: c.collection,
+          record: c.record,
+        });
+        fireTriggersSafe(db, c.collection, 'delete', c.record, undefined, 0, req.params.pid);
+        await deleteRecordFiles(req.params.pid, String(c.record.id ?? ''));
+      }
       res.json({ success: true });
     } catch (err) {
       handleError(res, err);
@@ -418,7 +437,7 @@ export function createDatabaseRouter(): Router {
   // record tetap aman secara individual; yang berbeda hanya jumlah HTTP request.
   //
   // Maks 100 per batch — selaras batas create batch Ops-2.
-  router.post('/api/admin/projects/:pid/collections/:name/records/batch-delete', requireAdmin, (req, res) => {
+  router.post('/api/admin/projects/:pid/collections/:name/records/batch-delete', requireAdmin, async (req, res) => {
     try {
       const db = getProjectDb(req.params.pid);
       const body = req.body as { ids?: string[] } | undefined;
@@ -446,7 +465,9 @@ export function createDatabaseRouter(): Router {
           // M38: snapshot sebelum delete (webhook/trigger dapat full payload,
           // konsisten dengan single delete di atas).
           const snapshot = snapshotRecord(db, req.params.name, id);
-          const ok = deleteRecord(db, req.params.name, id);
+          // AUD-6-03: collector anak ter-cascade — fan-out event + file cleanup
+          const cascaded: { collection: string; record: Record<string, unknown> }[] = [];
+          const ok = deleteRecord(db, req.params.name, id, undefined, cascaded);
           if (!ok) {
             failed.push({ id, reason: 'not found' });
             continue;
@@ -462,6 +483,20 @@ export function createDatabaseRouter(): Router {
             record: payload,
           });
           fireTriggersSafe(db, req.params.name, 'delete', payload, undefined, 0, req.params.pid);
+          // AUD-6-03: file cleanup top-level + fan-out/file semua anak cascade
+          await deleteRecordFiles(req.params.pid, id);
+          for (const c of cascaded) {
+            const cMeta = getCollectionByName(db, c.collection);
+            if (cMeta) realtimeHub.publish(db, cMeta, 'delete', c.record, req.params.pid);
+            fireWebhooks(db, {
+              projectId: req.params.pid,
+              action: 'delete',
+              collection: c.collection,
+              record: c.record,
+            });
+            fireTriggersSafe(db, c.collection, 'delete', c.record, undefined, 0, req.params.pid);
+            await deleteRecordFiles(req.params.pid, String(c.record.id ?? ''));
+          }
           deleted.push(id);
         } catch (err) {
           failed.push({ id, reason: err instanceof Error ? err.message : 'delete failed' });

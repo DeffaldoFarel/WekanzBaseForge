@@ -13,7 +13,8 @@
 import { DatabaseSync } from 'node:sqlite';
 import { generateId } from './router.js';
 import { CollectionRules, DEFAULT_RULES, validateRuleFields, collectRuleFieldNames } from './rules.js';
-import { createFts, dropFts } from './fts.js';
+import { createFts, dropFts, ftsTableName } from './fts.js';
+import { safeRollback } from './txUtil.js';
 import {
   FieldDefinition,
   fieldToSql,
@@ -487,20 +488,70 @@ export function updateCollection(
     );
   }
 
-  // Tambah kolom baru satu per satu via ALTER TABLE
-  for (const field of newFields) {
-    const columnSql = fieldToSql(field);
-    db.exec(`ALTER TABLE "${name}" ADD COLUMN ${columnSql};`);
+  // AUD-6-02: seluruh perubahan skema fisik dalam SATU transaksi — dulu
+  // ALTER + meta update berjalan terpisah (ALTER sukses, meta gagal = meta
+  // bohong ke arah sebaliknya).
+  db.exec('BEGIN');
+  try {
+    // Tambah kolom baru satu per satu via ALTER TABLE
+    for (const field of newFields) {
+      const columnSql = fieldToSql(field);
+      db.exec(`ALTER TABLE "${name}" ADD COLUMN ${columnSql};`);
+    }
+
+    // ── AUD-6-02: sinkronisasi options yang berdampak FISIK ──
+    // Dulu hanya meta _collections yang ditimpa penuh (termasuk options field
+    // LAMA) tanpa menyentuh fisik: toggle unique → duplikat tetap diterima
+    // (meta bohong); field fulltext baru → FTS table tak pernah dibuat →
+    // ?search= error. Sekarang: index unique dibuat/dihapus sesuai options
+    // baru, dan FTS dibangun ulang saat set field fulltext berubah.
+    const before = existing.fields;
+    const after = updates.fields;
+    for (const nf of after) {
+      const of = before.find((f) => f.name === nf.name);
+      if (!of) {
+        // Field BARU dengan unique → index-nya belum pernah dibuat
+        if (nf.unique) {
+          db.exec(generateUniqueIndexSql(name, nf));
+        }
+        continue;
+      }
+      if (!!of.unique !== !!nf.unique) {
+        if (nf.unique) {
+          // Duplikat sudah ada di data → SQLite melempar error jujur di sini
+          db.exec(generateUniqueIndexSql(name, nf));
+        } else {
+          db.exec(`DROP INDEX IF EXISTS "idx_${name}_${nf.name}_unique"`);
+        }
+      }
+    }
+    const ftsBefore = before.filter((f) => f.options?.fulltext === true).map((f) => f.name);
+    const ftsAfter = after.filter((f) => f.options?.fulltext === true).map((f) => f.name);
+    if (JSON.stringify(ftsBefore) !== JSON.stringify(ftsAfter)) {
+      dropFts(db, name);
+      if (ftsAfter.length > 0) {
+        createFts(db, name, ftsAfter);
+        const cols = ftsAfter.map((f) => `"${f}"`).join(', ');
+        db.exec(
+          `INSERT INTO "${ftsTableName(name)}" (record_id, ${cols}) SELECT "id", ${cols} FROM "${name}"`
+        );
+      }
+    }
+
+    // Update definisi di meta table
+    db.prepare(
+      `UPDATE _collections SET fields = ?,
+       updated = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE name = ?`
+    ).run(JSON.stringify(updates.fields), name);
+
+    // ── D5: catat migrasi ──
+    recordMigration(db, name, 'add_column', { added: newFields.map((f) => f.name), fields: updates.fields });
+
+    db.exec('COMMIT');
+  } catch (err) {
+    // AUD-6-04: kegagalan ROLLBACK tidak boleh menimpa error asli
+    safeRollback(db, err);
   }
-
-  // Update definisi di meta table
-  db.prepare(
-    `UPDATE _collections SET fields = ?,
-     updated = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE name = ?`
-  ).run(JSON.stringify(updates.fields), name);
-
-  // ── D5: catat migrasi ──
-  recordMigration(db, name, 'add_column', { added: newFields.map((f) => f.name), fields: updates.fields });
 
   return getCollectionByName(db, name)!;
 }
@@ -829,7 +880,23 @@ export function rebuildCollection(
       ).run(JSON.stringify(newFields), JSON.stringify(finalIndexes), name);
     }
 
-    // ── 7. D5: catat migrasi rebuild (dengan before & after) ──
+    // ── 7. AUD-6-01: FTS — DROP TABLE lama menghapus trigger FTS bersama
+    // tabelnya; tanpa blok ini index membeku/stale selamanya setelah rebuild.
+    // Selalu bangun ulang dari nol: drop sisa + createFts dengan daftar field
+    // fulltext skema BARU + repopulasi dari tabel yang baru saja dibangun.
+    // (Kolom fulltext bisa berbeda dari skema lama — repopulasi menjaga index
+    // konsisten dengan data yang selamat.)
+    dropFts(db, name);
+    const ftsFields = newFields.filter((f) => f.options?.fulltext === true).map((f) => f.name);
+    if (ftsFields.length > 0) {
+      createFts(db, name, ftsFields);
+      const cols = ftsFields.map((f) => `"${f}"`).join(', ');
+      db.exec(
+        `INSERT INTO "${ftsTableName(name)}" (record_id, ${cols}) SELECT "id", ${cols} FROM "${name}"`
+      );
+    }
+
+    // ── 8. D5: catat migrasi rebuild (dengan before & after) ──
     recordMigration(db, name, 'rebuild', {
       before: oldFields,
       after: newFields,
@@ -838,10 +905,14 @@ export function rebuildCollection(
     db.exec('COMMIT');
     return getCollectionByName(db, name)!;
   } catch (err) {
-    db.exec('ROLLBACK');
-    throw new Error(
-      `Rebuild of collection '${name}' failed (no data was lost): ${err instanceof Error ? err.message : err}`
-    );
+    // AUD-6-04: kegagalan ROLLBACK tidak boleh menimpa error asli
+    try {
+      safeRollback(db, err);
+    } catch (e) {
+      throw new Error(
+        `Rebuild of collection '${name}' failed (no data was lost): ${e instanceof Error ? e.message : e}`
+      );
+    }
   }
 }
 

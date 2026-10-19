@@ -527,7 +527,11 @@ export function createPublicRouter(): Router {
       // filter by userId tidak bisa match (userId tidak ada di payload).
       const snapshot = meta ? getRecord(db, req.params.name, req.params.id) : null;
 
-      const ok = deleteRecord(db, req.params.name, req.params.id, reqCtx);
+      // AUD-6-03: collector anak ter-cascade — dipakai untuk fan-out event +
+      // file cleanup (dulu anak ter-cascade hilang diam-diam tanpa event dan
+      // filenya jadi orphan).
+      const cascaded: { collection: string; record: Record<string, unknown> }[] = [];
+      const ok = deleteRecord(db, req.params.name, req.params.id, reqCtx, cascaded);
       if (!ok) {
         res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Record not found' } });
         return;
@@ -549,6 +553,19 @@ export function createPublicRouter(): Router {
         fireTriggersSafe(db, req.params.name, 'delete', deletePayload, undefined, 0, req.params.pid);
         // record sudah terhapus — file cleanup by prefix
         await deleteRecordFiles(req.params.pid, req.params.id);
+        // AUD-6-03: anak yang ikut ter-cascade → event + trigger + file juga
+        for (const c of cascaded) {
+          const cMeta = getCollectionByName(db, c.collection);
+          if (cMeta) realtimeHub.publish(db, cMeta, 'delete', c.record, req.params.pid);
+          fireWebhooks(db, {
+            projectId: req.params.pid,
+            action: 'delete',
+            collection: c.collection,
+            record: c.record,
+          });
+          fireTriggersSafe(db, c.collection, 'delete', c.record, undefined, 0, req.params.pid);
+          await deleteRecordFiles(req.params.pid, String(c.record.id ?? ''));
+        }
       }
       res.json({ success: true });
     } catch (err) {

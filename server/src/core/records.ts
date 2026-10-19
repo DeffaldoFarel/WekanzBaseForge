@@ -17,6 +17,7 @@ import { filterToSql, RequestContext } from './query/sqlBuilder.js';
 import { decideRule, evaluateRuleOnData, ForbiddenError, CollectionRules } from './rules.js';
 import { parseMultipart, extractBoundary, MultipartFile } from './multipart.js';
 import { assertStorageQuota } from './storageQuota.js';
+import { safeRollback } from './txUtil.js';
 import { saveFile, deleteFile, deleteRecordFiles, storedFilenames } from './storage.js';
 import { isViewCollection } from './schema.js';
 import { hashPassword, verifyPassword, validatePasswordStrength } from '../auth/password.js';
@@ -594,8 +595,8 @@ export function createRecordsBatch(
     }
     db.exec('COMMIT');
   } catch (err) {
-    db.exec('ROLLBACK');
-    throw err;
+    // AUD-6-04: kegagalan ROLLBACK tidak boleh menimpa error asli
+    safeRollback(db, err);
   }
   return created;
 }
@@ -845,7 +846,11 @@ export function deleteRecord(
   db: DatabaseSync,
   collection: string,
   id: string,
-  reqCtx?: RequestContext
+  reqCtx?: RequestContext,
+  /** AUD-6-03: collector opsional — diisi snapshot semua record yang ikut
+   *  ter-cascade-delete (post-order). Pemanggil (routes/$db) memakainya
+   *  untuk fan-out realtime/trigger/webhook + file cleanup anak. */
+  cascaded?: { collection: string; record: Record<string, unknown> }[]
 ): boolean {
   const meta = mustGetCollection(db, collection);
   assertNotView(meta); // M16a: view read-only
@@ -867,58 +872,20 @@ export function deleteRecord(
   // ── D3: Tangani record lain yang merujuk ke record ini ──
   // Semua dibungkus SATU transaksi: kalau ada restrict yang melarang,
   // tidak ada SATUPUN perubahan yang terjadi (atomik — M07!).
+  //
+  // AUD-6-03: cascade kini REKURSIF — dulu hanya 1 level (grandchild yang
+  // merujuk child ter-cascade tetap hidup dengan relasi menggantung).
+  // Anak yang ter-cascade juga dikumpulkan (snapshot penuh, ter-deserialize)
+  // ke `cascaded` supaya pemanggil (routes / $db) bisa men-fan-out realtime,
+  // trigger, webhook, DAN menghapus file-nya — dulu anak hilang diam-diam
+  // tanpa event dan filenya jadi orphan.
+  const cascadedOut = cascaded ?? [];
+  const visited = new Set<string>([`${collection}:${id}`]);
   const referencingFields = findReferencingFields(db, collection);
 
   db.exec('BEGIN');
   try {
-    for (const { collection: refCol, field } of referencingFields) {
-      const strategy = field.options?.cascadeDelete ?? 'setNull';
-      const isMulti = (field.options?.maxSelect ?? 1) > 1;
-
-      // Ambil semua record di collection perujuk (kita periksa satu per satu
-      // apakah merujuk ke id yang mau dihapus)
-      const rows = db
-        .prepare(`SELECT id, "${field.name}" AS refval FROM "${refCol}"`)
-        .all() as { id: string; refval: unknown }[];
-
-      for (const row of rows) {
-        let refers = false;
-        if (isMulti) {
-          refers = idsOf(row.refval).includes(id);
-        } else {
-          refers = row.refval === id;
-        }
-        if (!refers) continue;
-
-        // Record ini merujuk ke yang mau dihapus → terapkan strategi
-        if (strategy === 'restrict') {
-          // Hitung berapa banyak yang merujuk (untuk pesan error)
-          const count = rows.filter((r) =>
-            isMulti ? idsOf(r.refval).includes(id) : r.refval === id
-          ).length;
-          throw new RestrictError(refCol, field.name, count);
-        }
-
-        if (strategy === 'cascade') {
-          // Hapus record anak ini juga
-          db.prepare(`DELETE FROM "${refCol}" WHERE id = ?`).run(row.id);
-        }
-
-        if (strategy === 'setNull') {
-          if (isMulti) {
-            // Multi: hapus HANYA id ini dari array, sisakan yang lain
-            const remaining = idsOf(row.refval).filter((x) => x !== id);
-            db.prepare(`UPDATE "${refCol}" SET "${field.name}" = ? WHERE id = ?`).run(
-              JSON.stringify(remaining),
-              row.id
-            );
-          } else {
-            // Single: kosongkan field relasinya
-            db.prepare(`UPDATE "${refCol}" SET "${field.name}" = NULL WHERE id = ?`).run(row.id);
-          }
-        }
-      }
-    }
+    cascadeDeleteReferences(db, collection, id, referencingFields, visited, cascadedOut, 0);
 
     // Setelah semua rujukan ditangani, baru hapus record aslinya
     const result = db.prepare(`DELETE FROM "${collection}" WHERE id = ?`).run(id);
@@ -927,8 +894,98 @@ export function deleteRecord(
 
     return result.changes > 0;
   } catch (err) {
-    db.exec('ROLLBACK');
-    throw err;
+    // AUD-6-04: kegagalan ROLLBACK tidak boleh menimpa error asli
+    safeRollback(db, err);
+  }
+}
+
+/** Batas kedalaman cascade — rantai relasi normal jauh di bawah ini; nilai
+ *  lebih besar menandakan siklus yang lolos guard visited → gagal aman. */
+const MAX_CASCADE_DEPTH = 50;
+
+/**
+ * AUD-6-03: proses SEMUA record yang merujuk `id` di `collection`, rekursif
+ * untuk strategi cascade. Dipanggil DALAM transaksi deleteRecord.
+ * Urutan `out`: post-order (subtree anak lebih dulu) — fan-out pemanggil
+ * tetap mengirim record top-level lebih dulu, lalu entry `out`.
+ */
+function cascadeDeleteReferences(
+  db: DatabaseSync,
+  collection: string,
+  id: string,
+  referencingFields: ReferencingField[],
+  visited: Set<string>,
+  out: { collection: string; record: Record<string, unknown> }[],
+  depth: number
+): void {
+  if (depth > MAX_CASCADE_DEPTH) {
+    throw new Error(`Cascade delete exceeded depth ${MAX_CASCADE_DEPTH} (possible relation cycle)`);
+  }
+
+  for (const { collection: refCol, field } of referencingFields) {
+    const strategy = field.options?.cascadeDelete ?? 'setNull';
+    const isMulti = (field.options?.maxSelect ?? 1) > 1;
+
+    // Ambil semua record di collection perujuk (kita periksa satu per satu
+    // apakah merujuk ke id yang mau dihapus)
+    const rows = db
+      .prepare(`SELECT id, "${field.name}" AS refval FROM "${refCol}"`)
+      .all() as { id: string; refval: unknown }[];
+
+    for (const row of rows) {
+      let refers = false;
+      if (isMulti) {
+        refers = idsOf(row.refval).includes(id);
+      } else {
+        refers = row.refval === id;
+      }
+      if (!refers) continue;
+
+      // Record ini merujuk ke yang mau dihapus → terapkan strategi
+      if (strategy === 'restrict') {
+        // Hitung berapa banyak yang merujuk (untuk pesan error)
+        const count = rows.filter((r) =>
+          isMulti ? idsOf(r.refval).includes(id) : r.refval === id
+        ).length;
+        throw new RestrictError(refCol, field.name, count);
+      }
+
+      if (strategy === 'cascade') {
+        // AUD-6-03: snapshot anak SEBELUM dihapus (payload event + anti-cycle)
+        const childKey = `${refCol}:${row.id}`;
+        if (visited.has(childKey)) continue; // cycle guard
+        visited.add(childKey);
+        const childMeta = getCollectionByName(db, refCol);
+        const childRow = db
+          .prepare(`SELECT * FROM "${refCol}" WHERE id = ?`)
+          .get(row.id) as Record<string, unknown> | undefined;
+        if (!childRow) continue;
+
+        // Rekursif dulu: tangani grandchildren anak ini SEBELUM menghapusnya
+        cascadeDeleteReferences(db, refCol, row.id, findReferencingFields(db, refCol), visited, out, depth + 1);
+
+        db.prepare(`DELETE FROM "${refCol}" WHERE id = ?`).run(row.id);
+        out.push({
+          collection: refCol,
+          record: (childMeta ? deserializeRow(childMeta, childRow) : childRow) as Record<string, unknown>,
+        });
+        continue;
+      }
+
+      if (strategy === 'setNull') {
+        if (isMulti) {
+          // Multi: hapus HANYA id ini dari array, sisakan yang lain
+          const remaining = idsOf(row.refval).filter((x) => x !== id);
+          db.prepare(`UPDATE "${refCol}" SET "${field.name}" = ? WHERE id = ?`).run(
+            JSON.stringify(remaining),
+            row.id
+          );
+        } else {
+          // Single: kosongkan field relasinya
+          db.prepare(`UPDATE "${refCol}" SET "${field.name}" = NULL WHERE id = ?`).run(row.id);
+        }
+      }
+    }
   }
 }
 
