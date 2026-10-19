@@ -33,6 +33,8 @@ import { realtimeHub } from '../core/realtime.js';
 import { setSecret, listSecrets, deleteSecret, getSecretsForFunction } from '../core/secretsStore.js';
 import { setModule, listModules, getModule, deleteModule } from '../core/moduleRegistry.js';
 import { listExecutions, clearExecutions } from '../core/executionLog.js';
+import { checkRateLimit } from '../auth/rateLimiter.js';
+import { clientIpFromRequest } from '../auth/clientIp.js';
 import type { RequestContext } from '../core/query/sqlBuilder.js';
 import { verifyToken } from '../auth/jwt.js';
 import { validateToken } from '../platform/adminAuth.js';
@@ -455,6 +457,20 @@ export function createFunctionRouter(): Router {
 
   router.post('/api/p/:pid/functions/:name/execute', async (req, res) => {
     try {
+      // AUD-3-01: tiap panggilan membuat isolate V8 BARU (hingga 256MB heap /
+      // 120s sesuai konfigurasi function) — jalur anonim tanpa batas berarti
+      // banjir request = ribuan isolate hidup bersamaan (probe: 60 paralel
+      // → 60×200 dalam 212ms). Dibatasi 30/menit per (project, IP), sejajar
+      // semangat vector-search (AUD-2-05); cek dilakukan PALING AWAL agar
+      // penyerang tidak sempat menyentuh getProjectDb sekalipun.
+      const execIp = clientIpFromRequest(req);
+      if (!(await checkRateLimit(`fn-exec:${req.params.pid}:${execIp}`, 30, 60_000))) {
+        res.status(429).json({
+          error: { code: 'RATE_LIMITED', message: 'Too many function invocations. Please try again shortly.' },
+        });
+        return;
+      }
+
       const db = getProjectDb(req.params.pid);
       const fn = getFunctionByName(db, req.params.name);
       if (!fn) {

@@ -82,9 +82,26 @@ function isPrivateIp(ip: string): boolean {
   if (v6 === '::1' || v6 === '::') return true;
   if (v6.startsWith('fc') || v6.startsWith('fd')) return true; // fc00::/7
   if (v6.startsWith('fe8') || v6.startsWith('fe9') || v6.startsWith('fea') || v6.startsWith('feb')) return true; // fe80::/10
-  // IPv4-mapped (::ffff:10.0.0.1)
+  // IPv4-mapped, bentuk desimal (::ffff:127.0.0.1)
   const mapped = v6.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
   if (mapped) return isPrivateIp(mapped[1]);
+  // AUD-3-04: IPv4-mapped, bentuk HEX (::ffff:7f00:1 = 127.0.0.1). Sebelumnya
+  // HANYA bentuk desimal yang dikenali — bentuk hex lolos sebagai "IP publik"
+  // dan $http hanya tertolong oleh efek samping URL.hostname yang menyertakan
+  // kurung (jatuh ke jalur DNS yang menormalkan). Pertahanan harus ada di
+  // fungsi ini sendiri, bukan bergantung pada bentuk input.
+  const mappedHex = v6.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+  if (mappedHex) {
+    const hi = parseInt(mappedHex[1], 16);
+    const lo = parseInt(mappedHex[2], 16);
+    return isPrivateIp(`${hi >> 8}.${hi & 0xff}.${lo >> 8}.${lo & 0xff}`);
+  }
+  // AUD-3-04: IPv4-compatible deprecated (::127.0.0.1) — perlakukan sama.
+  const compat = v6.match(/^::(\d+\.\d+\.\d+\.\d+)$/);
+  if (compat) return isPrivateIp(compat[1]);
+  // Bentuk penuh 0:0:0:0:0:ffff:XXXX:XXXX → setara ::ffff:XXXX:XXXX
+  const FULL_PREFIX = '0:0:0:0:0:ffff:';
+  if (v6.startsWith(FULL_PREFIX)) return isPrivateIp('::ffff:' + v6.slice(FULL_PREFIX.length));
   return false;
 }
 
@@ -126,6 +143,11 @@ export async function assertPublicHost(hostname: string, port: number, allowList
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    // AUD-3-04: block() SSRF dari dalam loop resolve JANGAN dibungkus ulang
+    // jadi "DNS lookup failed" — diblokir bukanlah gagal DNS, dan pesan blok
+    // murni ("resolves to private IP ...") harus naik apa adanya agar log &
+    // diagnosis operator tidak menyesatkan.
+    if (msg.startsWith('$http blocked:')) throw err;
     throw new Error(`$http blocked: DNS lookup failed for '${host}' (${msg})`);
   }
 }

@@ -17,6 +17,7 @@ import { listFunctions, StoredFunction } from './functionsStore.js';
 import { getSecretsForFunction } from './secretsStore.js';
 import { cronMatches, cronMatchesInTimezone } from './cronParser.js';
 import { runFunctionCode, FunctionRunResult } from './functionRunner.js';
+import { fireTriggersSafe } from './triggerExecutor.js';
 import { listProjects } from './platformDb.js';
 import { getProjectDb } from './projectDbManager.js';
 import { getCollectionByName } from './schema.js';
@@ -145,6 +146,16 @@ class Scheduler {
       projectDb: db,
       dbAccess: fn.dbAccess,
       depth: 0,
+      // AUD-3-02: kontrak header modul — "depth 0 = cron adalah pemanggil
+      // terluar, jadi tulisan $db BOLEH memicu trigger". Sebelumnya scheduler
+      // tidak menyuntikkan onDbWrite, sehingga reaksi TIDAK PERNAH menyala
+      // dari cron (probe: rollover → reactor diam). Semantik identik jalur
+      // execute (functionRoutes): reaksi jalan di depth 1, tulisan milik
+      // reaksi sendiri tersupresi — anti-rekursi utuh.
+      onDbWrite: db
+        ? (action, collection, record, previous) =>
+            fireTriggersSafe(db, collection, action, record, previous, 1, projectId)
+        : undefined,
       secrets: db ? getSecretsForFunction(db, fn.name) : {}, // M42
       modules: fn.modules, // M43
       executionLog: { functionName: fn.name, source: 'schedule' }, // M46

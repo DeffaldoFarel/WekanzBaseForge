@@ -417,6 +417,14 @@ export async function runFunctionCode(
     // ── Runtime prelude (console, $http shim, serializer) ──
     await context.eval(RUNTIME_PRELUDE, { timeout: timeoutMs });
 
+    // AUD-3-03: putuskan binding global __envSource. Proxy $env sudah
+    // memegang referensi target saat konstruksi, jadi menimpa NAMA global
+    // dari HOST (deterministik — assignment dari dalam context bisa gagal
+    // senyap bila properti non-writable) membuat objek mentah tak terjangkau
+    // guest: tulisan ke __envSource kini jatuh ke umpan kosong dan tidak
+    // pernah menyentuh target Proxy. $env tetap berfungsi apa adanya.
+    jail.setSync('__envSource', new ivm.ExternalCopy({}).copyInto());
+
     // ── M43: prelude modul — disusun di HOST, dieval sebelum kode user ──
     // Mengisi $lib.<name> lewat factory IIFE gaya CJS. Urutan = urutan array.
     if (opts.modules && opts.modules.length > 0) {
