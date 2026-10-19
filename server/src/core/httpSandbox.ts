@@ -127,9 +127,18 @@ export async function assertPublicHost(hostname: string, port: number, allowList
     block(`'${host}' is an internal hostname`);
   }
 
-  if (net.isIP(host)) {
-    if (isPrivateIp(host) && !isExplicitEntry(host, allowList)) {
-      block(`'${host}' is a private/loopback IP`);
+  // AUD-3-04: literal IPv6 TERKURUNG ('[::ffff:7f00:1]') — URL.hostname
+  // menyertakan kurung, dan net.isIP menolak bentuk berkutub sehingga dulu
+  // jatuh ke dns.lookup. getaddrinfo Windows MENORMALKAN literal berkutub
+  // (→ blok "resolves to private IP"), tapi Linux MENOLAKnya (ENOTFOUND)
+  // → pesan blok terbungkus "DNS lookup failed" — hasil akhir tetap aman
+  // (diblok), tapi menyesatkan dan platform-dependent. Strip kurung di
+  // sini: bentuk literal apa pun (kurung / tanpa kurung) diuji di jalur
+  // murni isPrivateIp SEBELUM DNS, identik di semua platform.
+  const bare = host.startsWith('[') && host.endsWith(']') ? host.slice(1, -1) : host;
+  if (net.isIP(bare)) {
+    if (isPrivateIp(bare) && !isExplicitEntry(bare, allowList)) {
+      block(`'${bare}' is a private/loopback IP`);
     }
     return; // IP publik literal → lolos
   }

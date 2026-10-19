@@ -31,7 +31,17 @@ export const MAX_REALTIME_SUBSCRIPTIONS = 100;
  *  buffer tumbuh tanpa batas kalau return res.write() diabaikan (probe:
  *  805 KB dari 100 event kecil saja). Melewati plafon = koneksi DIPUTUS —
  *  pola PocketBase: satu subscriber mati lebih aman daripada OOM server. */
-const MAX_SSE_BUFFERED_BYTES = 5 * 1024 * 1024; // 5 MB
+// AUD-5-01: plafon antrean tulis per koneksi SSE — subscriber yang tidak
+// membaca diputus sebelum buffer membesar. Default 5 MB; env
+// MAX_SSE_BUFFERED_BYTES menimpa. DIBACA LIVE per pengecekan (bukan sekali
+// saat import) supaya test bisa menyetel nilai kecil dan deterministik
+// lintas platform: buffer kernel Linux autotune bisa menelan ~10 MB
+// sebelum antrean userspace membesar, Windows jauh lebih dini — dengan
+// threshold test 64 KB kedua platform memicu destroy sama cepat.
+function maxBufferedBytes(): number {
+  const raw = parseInt(process.env.MAX_SSE_BUFFERED_BYTES ?? '', 10);
+  return Number.isFinite(raw) && raw > 0 ? raw : 5 * 1024 * 1024;
+}
 
 /** AUD-5-03: limit koneksi — env-override untuk operator (dibaca per connect). */
 function envLimit(name: string, def: number): number {
@@ -135,7 +145,7 @@ class RealtimeHub {
     // membaca tetap menumpuk buffer pelan-pelan; cek plafon juga di sini.
     const ping = setInterval(() => {
       try {
-        if (res.writableLength > MAX_SSE_BUFFERED_BYTES) {
+        if (res.writableLength > maxBufferedBytes()) {
           res.destroy();
           clearInterval(ping);
           return;
@@ -387,7 +397,7 @@ class RealtimeHub {
     try {
       const body = parsed ? (data as string) : JSON.stringify(data);
       client.res.write(`event: ${event}\ndata: ${body}\n\n`);
-      if (client.res.writableLength > MAX_SSE_BUFFERED_BYTES) {
+      if (client.res.writableLength > maxBufferedBytes()) {
         client.res.destroy();
       }
     } catch {

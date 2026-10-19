@@ -205,12 +205,14 @@ test('AUD-3-04: pesan blok SSRF murni + isPrivateIp mengenali IPv6 hex-mapped', 
     (err: Error) => /private/i.test(err.message) && !err.message.includes('DNS lookup failed')
   );
   // Bentuk TERKURUNG (jalur nyata $http — URL.hostname menyertakan kurung):
-  // masuk jalur resolve DNS; pesan blok harus naik MURNI ("resolves to private
-  // IP"), tidak dibungkus "DNS lookup failed" (diblokir ≠ gagal DNS).
+  // harus ditolak sebagai IP privat dengan pesan blok MURNI — di SEMUA
+  // platform. Dulu jalur ini bergantung pada getaddrinfo: Windows
+  // menormalkan literal berkutub (→ "resolves to private IP"), Linux
+  // menolaknya (→ terbungkus "DNS lookup failed"). Kini kurung di-strip
+  // sebelum cek literal, jadi hasilnya identik mana-mana.
   await assert.rejects(
     assertPublicHost('[::ffff:7f00:1]', 80, []),
-    (err: Error) =>
-      /resolves to private IP/.test(err.message) && !err.message.includes('DNS lookup failed')
+    (err: Error) => /private/i.test(err.message) && !err.message.includes('DNS lookup failed')
   );
   // Kontrol: kegagalan DNS betulan tetap dilaporkan sebagai kegagalan DNS.
   await assert.rejects(

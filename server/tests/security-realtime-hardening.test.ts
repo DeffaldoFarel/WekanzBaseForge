@@ -219,34 +219,9 @@ test('AUD-5-04: cap total subscription per klien + filter ≤ 1000 karakter', as
   sse.destroy();
 });
 
-// ─── AUD-5-01: backpressure — subscriber lambat diputus ─────────────────────
-
-test('AUD-5-01: subscriber yang tidak membaca diputus sebelum buffer membesar', async () => {
-  const paused = await sseConnect(pid);
-  await req('POST', `/api/p/${pid}/realtime/subscribe`, { clientId: paused.clientId, collection: 'docs' }, adminToken);
-  paused.sock.pause(); // berhenti membaca — meniru client lambat/malicious
-
-  const reader = await sseConnect(pid);
-  await req('POST', `/api/p/${pid}/realtime/subscribe`, { clientId: reader.clientId, collection: 'docs' }, adminToken);
-
-  const blob = 'X'.repeat(100_000); // 100KB per record
-  for (let i = 0; i < 60; i++) {
-    await req('POST', `/api/p/${pid}/collections/docs/records`, { body: blob }, adminToken);
-  }
-
-  // Subscriber paused harus DIPUTUS (dihapus dari hub) — bukan menumpuk buffer
-  const start = Date.now();
-  let clientsNow = realtimeHub.statsForProject(pid).clients;
-  while (clientsNow > 1 && Date.now() - start < 6000) {
-    await sleep(100);
-    clientsNow = realtimeHub.statsForProject(pid).clients;
-  }
-  assert.equal(clientsNow, 1, `subscriber lambat harus diputus (clients=${clientsNow}, buffer unbounded tanpa fix)`);
-
-  // Pembaca aktif tetap hidup dan menerima event
-  assert.ok(reader.events.filter((e) => e.event === 'PB_CREATE').length >= 50, 'pembaca aktif menerima event (kontrol)');
-  reader.destroy(); paused.destroy();
-});
+// ─── AUD-5-01 dipindah ke security-sse-backpressure.test.ts ─────────────────
+// (flood 14 MB + sleep antar-chunk membuat durasinya tidak muat di budget
+//  15 detik per-file file ini — AUD-5-02 webhook retry sudah memakan ~6.5s).
 
 // ─── AUD-5-02: webhook SSRF guard ────────────────────────────────────────────
 
