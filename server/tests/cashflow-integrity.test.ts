@@ -460,6 +460,39 @@ test('schema activation rejects existing trading records without explicit flow',
   } finally { db.close(); }
 });
 
+test('rebuild backfills an optional cashflow target mode as legacy NULL, not empty text', () => {
+  const db = new DatabaseSync(':memory:');
+  try {
+    initSchemaTable(db);
+    defineCollection(db, { name: 'accounts', fields: [{ name: 'userId', type: 'text' }] });
+    defineCollection(db, { name: 'activities', fields: [
+      { name: 'userId', type: 'text' },
+      { name: 'accountId', type: 'relation', options: { collectionId: 'accounts' } },
+      { name: 'amount', type: 'number', options: { signed: true } },
+      { name: 'idr', type: 'number', options: { signed: true } },
+    ] });
+    createRecord(db, 'accounts', { id: 'legacy', userId: 'u1' });
+    createRecord(db, 'activities', { id: 'activity', userId: 'u1', accountId: 'legacy', amount: 1, idr: -10 });
+    const targetVersion = getSchemaVersion(db, 'accounts');
+    rebuildCollection(db, 'accounts', {
+      fields: [
+        { name: 'userId', type: 'text' },
+        { name: 'trackingMode', type: 'select', options: { values: ['asset_ledger', 'trading_cashflow'], maxSelect: 1 } },
+      ],
+      expectedSchemaVersion: targetVersion,
+    });
+    assert.equal((db.prepare('SELECT trackingMode FROM accounts WHERE id=?').get('legacy') as { trackingMode: unknown }).trackingMode, null);
+    const sourceFields = getCollectionByName(db, 'activities')!.fields.map(field => field.name === 'accountId'
+      ? { ...field, options: { ...field.options, cashflowIntegrity: constraint } }
+      : field);
+    rebuildCollection(db, 'activities', {
+      fields: [...sourceFields, { name: 'flowType', type: 'select', options: { values: ['deposit', 'withdrawal', 'profit', 'loss'], maxSelect: 1 } }],
+      expectedSchemaVersion: getSchemaVersion(db, 'activities'),
+    });
+    assert.equal((db.prepare('SELECT flowType FROM activities WHERE id=?').get('activity') as { flowType: unknown }).flowType, null);
+  } finally { db.close(); }
+});
+
 test('rebuild cannot reinterpret cashflow by resetting a target mode', () => {
   const db = fixture();
   try {

@@ -1043,8 +1043,11 @@ function rebuildCollectionLocked(
   return getCollectionByName(db, name)!;
 }
 
-// Nilai default untuk kolom BARU yang required saat rebuild
+// Nilai default untuk kolom BARU saat rebuild. Kolom optional harus NULL agar
+// absent enum/text/number tidak berubah menjadi empty string atau zero; guard
+// legacy membaca NULL sebagai "field tidak diset".
 function defaultValueForType(field: FieldDefinition): string {
+  if (!field.required) return 'NULL';
   switch (field.type) {
     case 'number':
       return '0';
