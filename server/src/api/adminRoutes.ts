@@ -36,6 +36,10 @@ export function createAdminRouter(): Router {
     res.json({ status: 'ok', timestamp: new Date().toISOString(), service: 'baseforge' });
   });
 
+  router.get('/api/capabilities', (_req, res) => {
+    res.json({ capabilities: { cashflowIntegrity: [1] } });
+  });
+
   router.get('/api/admin/setup-state', (req, res) => {
     res.json(getAdminSetupState());
   });

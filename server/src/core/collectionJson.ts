@@ -27,6 +27,8 @@ import {
   CollectionDefinition,
 } from './schema.js';
 import { filterToSql } from './query/sqlBuilder.js';
+import { listCollections } from './schema.js';
+import { withCashflowWriteLock } from './cashflowIntegrity.js';
 
 const EXPORT_FORMAT = 'baseforge-collection';
 const EXPORT_VERSION = 1;
@@ -81,6 +83,14 @@ export function importCollection(
   json: string,
   options: ImportOptions = {}
 ): ImportResult {
+  return withCashflowWriteLock(db, () => importCollectionInternal(db, json, options));
+}
+
+function importCollectionInternal(
+  db: DatabaseSync,
+  json: string,
+  options: ImportOptions
+): ImportResult {
   // ── Parse & validasi format ──
   let data: {
     format?: string;
@@ -111,6 +121,22 @@ export function importCollection(
   const mode = options.mode ?? 'create';
   const name = data.collection.name;
   const existing = getCollectionByName(db, name);
+  // Raw INSERT OR REPLACE bypasses both source and target validation.
+  // Refuse import before any destructive replace until an atomic importer
+  // can preserve these constraints.
+  const incomingOptIn = data.collection.fields.some(field => field.options &&
+    Object.prototype.hasOwnProperty.call(field.options, 'cashflowIntegrity'));
+  if (incomingOptIn) throw new Error('Cashflow integrity does not permit collection import');
+  for (const meta of listCollections(db)) {
+    // Inspect only the contract marker and its target here: importing either
+    // side bypasses validation even when that particular contract is malformed.
+    // Parsing an unrelated contract would unnecessarily block unrelated imports.
+    if (meta.fields.some(field => field.options &&
+        Object.prototype.hasOwnProperty.call(field.options, 'cashflowIntegrity') &&
+        (meta.name === name || field.options.collectionId === name))) {
+      throw new Error('Cashflow integrity does not permit collection import');
+    }
+  }
 
   // ── Mode create: tolak kalau sudah ada ──
   if (mode === 'create' && existing) {

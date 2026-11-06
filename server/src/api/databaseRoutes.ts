@@ -22,6 +22,7 @@ import {
   duplicateCollection,
   updateCollection,
   rebuildCollection,
+
   validateCollectionBody,
 } from '../core/schema.js';
 // M19: agregasi — modul core D7 yang sebelumnya tidak punya pintu REST.
@@ -79,6 +80,7 @@ export function createDatabaseRouter(): Router {
           indexes: meta.indexes,
           rules: meta.rules,
           recordCount: count,
+          schemaVersion: meta.schemaVersion,
           created: meta.created,
         };
       });
@@ -158,7 +160,7 @@ export function createDatabaseRouter(): Router {
         res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Collection not found' } });
         return;
       }
-      res.json({ collection: meta });
+      res.json({ collection: meta, schemaVersion: meta.schemaVersion });
     } catch (err) {
       handleError(res, err);
     }
@@ -168,7 +170,7 @@ export function createDatabaseRouter(): Router {
   router.patch('/api/admin/projects/:pid/collections/:name', requireAdmin, (req, res) => {
     try {
       const db = getProjectDb(req.params.pid);
-      const body = req.body as { fields?: FieldDefinition[]; rules?: unknown } | undefined;
+      const body = req.body as { fields?: FieldDefinition[]; rules?: unknown; expectedSchemaVersion?: number } | undefined;
 
       // Ops-4 (B2): PATCH hanya melakukan perubahan ADITIF pada fields
       // (updateCollection → ALTER TABLE ADD COLUMN) dan TIDAK pernah menyimpan
@@ -192,8 +194,12 @@ export function createDatabaseRouter(): Router {
         res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'fields must be an array' } });
         return;
       }
-      const updated = updateCollection(db, req.params.name, { fields: body.fields });
-      res.json({ collection: updated });
+      const updated = updateCollection(db, req.params.name, {
+        fields: body.fields,
+        ...(Object.prototype.hasOwnProperty.call(body, 'expectedSchemaVersion')
+          ? { expectedSchemaVersion: body.expectedSchemaVersion } : {}),
+      });
+      res.json({ collection: updated, schemaVersion: updated.schemaVersion });
     } catch (err) {
       handleError(res, err);
     }
@@ -207,6 +213,7 @@ export function createDatabaseRouter(): Router {
         fields?: FieldDefinition[];
         indexes?: IndexDefinition[];
         rules?: Partial<CollectionRules>;
+        expectedSchemaVersion?: number;
       } | undefined;
 
       // Ops-4 (B1): validasi yang sama dengan POST — PUT juga menerima rules,
@@ -223,13 +230,15 @@ export function createDatabaseRouter(): Router {
       }
       const updated = rebuildCollection(db, req.params.name, {
         fields: body.fields,
+        ...(Object.prototype.hasOwnProperty.call(body, 'expectedSchemaVersion')
+          ? { expectedSchemaVersion: body.expectedSchemaVersion } : {}),
         indexes: Array.isArray(body.indexes) ? body.indexes : undefined,
         // M21 (B2): sebelumnya rules tidak pernah diteruskan ke sini, sehingga
         // PUT dengan rules membalas 200 tanpa menyimpan apa pun.
         rules:
           body.rules && typeof body.rules === 'object' ? body.rules : undefined,
       });
-      res.json({ collection: updated });
+      res.json({ collection: updated, schemaVersion: updated.schemaVersion });
     } catch (err) {
       handleError(res, err);
     }
@@ -628,6 +637,16 @@ export function createDatabaseRouter(): Router {
 // Helper: petakan error ke HTTP response yang sesuai
 function handleError(res: { status: (c: number) => { json: (d: unknown) => void } }, err: unknown): void {
   const message = err instanceof Error ? err.message : 'Unknown error';
+
+  if (/schema version/i.test(message)) {
+    res.status(409).json({ error: { code: 'SCHEMA_VERSION_CONFLICT', message } });
+    return;
+  }
+
+  if (/cashflow integrity/i.test(message)) {
+    res.status(400).json({ error: { code: 'VALIDATION_ERROR', message } });
+    return;
+  }
 
   // M34: DuplicateIdError → 409 Conflict (bukan 400)
   if (err instanceof DuplicateIdError) {

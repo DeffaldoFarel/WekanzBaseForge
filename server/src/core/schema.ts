@@ -14,7 +14,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { generateId } from './router.js';
 import { CollectionRules, DEFAULT_RULES, validateRuleFields, collectRuleFieldNames } from './rules.js';
 import { createFts, dropFts, ftsTableName } from './fts.js';
-import { safeRollback } from './txUtil.js';
+import { assertCashflowDataAffectedBy, cashflowRules, assertCashflowOptionsPreserved, assertCashflowRecord, withCashflowWriteLock } from './cashflowIntegrity.js';
 import {
   FieldDefinition,
   fieldToSql,
@@ -51,6 +51,8 @@ export interface CollectionMeta {
   viewQuery: string | null; // M16a: SELECT statement (hanya untuk type=view)
   created: string;
   updated: string;
+  /** Migration count read in the same SQLite snapshot as this metadata. */
+  schemaVersion?: number;
 }
 
 interface CollectionRow {
@@ -63,6 +65,7 @@ interface CollectionRow {
   viewQuery: string | null; // M16a
   created: string;
   updated: string;
+  schemaVersion: number;
 }
 
 // ─── Inisialisasi tabel meta ─────────────────────────────────────────────────
@@ -173,6 +176,41 @@ export function getSchemaVersion(db: DatabaseSync, collectionName: string): numb
   return row.n;
 }
 
+function hasCashflowMarker(fields: FieldDefinition[]): boolean {
+  return fields.some(field => field.options &&
+    Object.prototype.hasOwnProperty.call(field.options, 'cashflowIntegrity'));
+}
+
+function cashflowTargetNames(db: DatabaseSync): Set<string> {
+  const targets = new Set<string>();
+  for (const source of listCollections(db)) {
+    for (const field of source.fields) {
+      const marker = field.options && Object.prototype.hasOwnProperty.call(field.options, 'cashflowIntegrity');
+      if (marker && typeof field.options?.collectionId === 'string') targets.add(field.options.collectionId);
+    }
+  }
+  return targets;
+}
+
+/** Called under the project write lock, before schema or constraint changes. */
+function checkSchemaVersion(
+  db: DatabaseSync,
+  existing: CollectionMeta,
+  edit: { fields: FieldDefinition[]; expectedSchemaVersion?: number },
+): void {
+  const supplied = Object.prototype.hasOwnProperty.call(edit, 'expectedSchemaVersion');
+  const expected = edit.expectedSchemaVersion;
+  if (supplied && (typeof expected !== 'number' || !Number.isSafeInteger(expected) || expected < 0 || expected !== existing.schemaVersion)) {
+    throw new Error('Stale schema version conflict; reload collection before editing');
+  }
+  // A source or target schema edit is versioned, but valid metadata is
+  // revalidated against the complete candidate before the write commits.
+  if (hasCashflowMarker(existing.fields) || hasCashflowMarker(edit.fields) || cashflowTargetNames(db).has(existing.name)) {
+    if (!supplied || expected !== existing.schemaVersion) throw new Error('Schema version required for schema edit');
+  }
+
+}
+
 // ─── SQL GENERATOR — bagian paling ajaib ─────────────────────────────────────
 // Menerjemahkan definisi collection menjadi CREATE TABLE lengkap.
 // Perhatikan: fungsi ini TIDAK menyentuh database — ia murni
@@ -266,7 +304,7 @@ export function validateCollectionBody(body: unknown): string | null {
     return 'request body must be an object';
   }
 
-  const allowed = new Set(['name', 'type', 'fields', 'indexes', 'rules', 'viewQuery']);
+  const allowed = new Set(['name', 'type', 'fields', 'indexes', 'rules', 'viewQuery', 'expectedSchemaVersion']);
   const ruleKeys = new Set([
     'listRule',
     'viewRule',
@@ -337,6 +375,13 @@ export function defineCollection(
   db: DatabaseSync,
   def: CollectionDefinition
 ): CollectionMeta {
+  return withCashflowWriteLock(db, () => defineCollectionLocked(db, def));
+}
+
+function defineCollectionLocked(
+  db: DatabaseSync,
+  def: CollectionDefinition
+): CollectionMeta {
   // ── Validasi nama collection ──
   if (!isValidName(def.name)) {
     throw new Error(
@@ -385,6 +430,15 @@ export function defineCollection(
       `Duplicate field name: '${dupField.second}' bentrok dengan '${dupField.first}' ` +
         `(nama kolom SQLite tidak membedakan huruf besar/kecil)`
     );
+  }
+
+  // Validate opted-in metadata before inserting collection metadata or SQL.
+  if (fieldsToUse.some(field => field.options && Object.prototype.hasOwnProperty.call(field.options, 'cashflowIntegrity'))) {
+    cashflowRules(db, {
+      id: '', name: def.name, fields: fieldsToUse, indexes: def.indexes ?? [],
+      rules: { ...DEFAULT_RULES, ...(def.rules ?? {}) }, type: def.type ?? 'base',
+      viewQuery: null, created: '', updated: '',
+    });
   }
 
   // ── Simpan definisi ke META table ──
@@ -436,6 +490,17 @@ export function defineCollection(
   // ── D5: catat migrasi ──
   recordMigration(db, def.name, 'create', { fields: def.fields, indexes });
 
+  // A source collection can protect a target that already exists. Advance the
+  // target revision in this same outer transaction before exposing the result.
+  if (hasCashflowMarker(fieldsToUse)) {
+    for (const field of fieldsToUse) {
+      const marker = field.options && Object.prototype.hasOwnProperty.call(field.options, 'cashflowIntegrity');
+      if (marker && typeof field.options?.collectionId === 'string' && field.options.collectionId !== def.name && getCollectionByName(db, field.options.collectionId)) {
+        recordMigration(db, field.options.collectionId, 'update_rules', { reason: 'cashflow_integrity_activation', source: def.name });
+      }
+    }
+  }
+
   return getCollectionByName(db, def.name)!;
 }
 
@@ -444,7 +509,7 @@ export function getCollectionByName(
   name: string
 ): CollectionMeta | undefined {
   const row = db
-    .prepare('SELECT * FROM _collections WHERE name = ?')
+    .prepare('SELECT _collections.*, (SELECT COUNT(*) FROM _migrations WHERE collection = _collections.name) AS schemaVersion FROM _collections WHERE name = ?')
     .get(name) as unknown as CollectionRow | undefined;
 
   if (!row) return undefined;
@@ -453,7 +518,7 @@ export function getCollectionByName(
 
 export function listCollections(db: DatabaseSync): CollectionMeta[] {
   const rows = db
-    .prepare('SELECT * FROM _collections ORDER BY created ASC')
+    .prepare('SELECT _collections.*, (SELECT COUNT(*) FROM _migrations WHERE collection = _collections.name) AS schemaVersion FROM _collections ORDER BY created ASC')
     .all() as unknown as CollectionRow[];
   return rows.map(rowToMeta);
 }
@@ -466,13 +531,24 @@ export function listCollections(db: DatabaseSync): CollectionMeta[] {
 export function updateCollection(
   db: DatabaseSync,
   name: string,
-  updates: { fields: FieldDefinition[] }
+  updates: { fields: FieldDefinition[]; expectedSchemaVersion?: number }
+): CollectionMeta {
+  return withCashflowWriteLock(db, () => updateCollectionLocked(db, name, updates));
+}
+
+function updateCollectionLocked(
+  db: DatabaseSync,
+  name: string,
+  updates: { fields: FieldDefinition[]; expectedSchemaVersion?: number }
 ): CollectionMeta {
   const existing = getCollectionByName(db, name);
   if (!existing) {
     throw new Error(`Collection '${name}' not found`);
   }
 
+  checkSchemaVersion(db, existing, updates);
+
+  assertCashflowOptionsPreserved(existing.fields, updates.fields);
   const existingNames = new Set(existing.fields.map((f) => f.name));
   const newFields = updates.fields.filter((f) => !existingNames.has(f.name));
 
@@ -491,8 +567,6 @@ export function updateCollection(
   // AUD-6-02: seluruh perubahan skema fisik dalam SATU transaksi — dulu
   // ALTER + meta update berjalan terpisah (ALTER sukses, meta gagal = meta
   // bohong ke arah sebaliknya).
-  db.exec('BEGIN');
-  try {
     // Tambah kolom baru satu per satu via ALTER TABLE
     for (const field of newFields) {
       const columnSql = fieldToSql(field);
@@ -543,22 +617,43 @@ export function updateCollection(
       `UPDATE _collections SET fields = ?,
        updated = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE name = ?`
     ).run(JSON.stringify(updates.fields), name);
+    assertCashflowDataAffectedBy(db, name);
 
-    // ── D5: catat migrasi ──
+    // D5: catat migrasi
     recordMigration(db, name, 'add_column', { added: newFields.map((f) => f.name), fields: updates.fields });
 
-    db.exec('COMMIT');
-  } catch (err) {
-    // AUD-6-04: kegagalan ROLLBACK tidak boleh menimpa error asli
-    safeRollback(db, err);
+  // Bump targets newly constrained by this schema, including a second
+  // relation on an already opted-in source. Compare relations, not source-wide
+  // marker presence: a stale draft for target B predates B's activation even
+  // when target A was already protected.
+  for (const field of updates.fields) {
+    if (field.options?.cashflowIntegrity === undefined) continue;
+    const beforeField = existing.fields.find(old => old.name === field.name);
+    if (beforeField?.options?.cashflowIntegrity !== undefined) continue;
+    if (typeof field.options?.collectionId === 'string' && field.options.collectionId !== name && getCollectionByName(db, field.options.collectionId)) {
+      recordMigration(db, field.options.collectionId, 'update_rules', { reason: 'cashflow_integrity_activation', source: name });
+    }
   }
 
   return getCollectionByName(db, name)!;
 }
 
 export function deleteCollection(db: DatabaseSync, name: string): boolean {
+  return withCashflowWriteLock(db, () => deleteCollectionLocked(db, name));
+}
+
+function deleteCollectionLocked(db: DatabaseSync, name: string): boolean {
   const existing = getCollectionByName(db, name);
   if (!existing) return false;
+
+  for (const source of listCollections(db)) {
+    if (source.name === name) continue;
+    if (source.fields.some(field => field.options &&
+        Object.prototype.hasOwnProperty.call(field.options, 'cashflowIntegrity') &&
+        field.options.collectionId === name)) {
+      throw new Error('Cashflow integrity forbids deleting a referenced target collection');
+    }
+  }
 
   // Hapus dari meta + drop tabel/view asli
   db.prepare('DELETE FROM _collections WHERE name = ?').run(name);
@@ -587,6 +682,13 @@ export function deleteCollection(db: DatabaseSync, name: string): boolean {
 // bukan tabel — SQLite akan error, tapi kita beri pesan lebih ramah).
 
 export function createViewCollection(
+  db: DatabaseSync,
+  def: { name: string; viewQuery: string; rules?: Partial<CollectionRules> }
+): CollectionMeta {
+  return withCashflowWriteLock(db, () => createViewCollectionLocked(db, def));
+}
+
+function createViewCollectionLocked(
   db: DatabaseSync,
   def: { name: string; viewQuery: string; rules?: Partial<CollectionRules> }
 ): CollectionMeta {
@@ -663,6 +765,14 @@ export function updateCollectionRules(
   name: string,
   rules: Partial<CollectionRules>
 ): CollectionMeta {
+  return withCashflowWriteLock(db, () => updateCollectionRulesLocked(db, name, rules));
+}
+
+function updateCollectionRulesLocked(
+  db: DatabaseSync,
+  name: string,
+  rules: Partial<CollectionRules>
+): CollectionMeta {
   const existing = getCollectionByName(db, name);
   if (!existing) {
     throw new Error(`Collection '${name}' not found`);
@@ -711,12 +821,30 @@ export function rebuildCollection(
     fields: FieldDefinition[];
     indexes?: IndexDefinition[];
     rules?: Partial<CollectionRules>;
+    expectedSchemaVersion?: number;
+  }
+): CollectionMeta {
+  return withCashflowWriteLock(db, () => rebuildCollectionLocked(db, name, newDef));
+}
+
+function rebuildCollectionLocked(
+  db: DatabaseSync,
+  name: string,
+  newDef: {
+    fields: FieldDefinition[];
+    indexes?: IndexDefinition[];
+    rules?: Partial<CollectionRules>;
+    expectedSchemaVersion?: number;
   }
 ): CollectionMeta {
   const existing = getCollectionByName(db, name);
   if (!existing) {
     throw new Error(`Collection '${name}' not found`);
   }
+
+  checkSchemaVersion(db, existing, newDef);
+
+  assertCashflowOptionsPreserved(existing.fields, newDef.fields);
 
   // Validasi nama field baru
   for (const field of newDef.fields) {
@@ -764,8 +892,6 @@ export function rebuildCollection(
     }
   }
 
-  db.exec('BEGIN');
-  try {
     // ── 1. Buat tabel baru dengan skema baru ──
     const newTableDef: CollectionDefinition = { name: tempName, fields: newFields, type: existing.type };
     db.exec(generateCreateTableSql(newTableDef));
@@ -880,6 +1006,8 @@ export function rebuildCollection(
       ).run(JSON.stringify(newFields), JSON.stringify(finalIndexes), name);
     }
 
+    assertCashflowDataAffectedBy(db, name);
+
     // ── 7. AUD-6-01: FTS — DROP TABLE lama menghapus trigger FTS bersama
     // tabelnya; tanpa blok ini index membeku/stale selamanya setelah rebuild.
     // Selalu bangun ulang dari nol: drop sisa + createFts dengan daftar field
@@ -901,19 +1029,18 @@ export function rebuildCollection(
       before: oldFields,
       after: newFields,
     });
-
-    db.exec('COMMIT');
-    return getCollectionByName(db, name)!;
-  } catch (err) {
-    // AUD-6-04: kegagalan ROLLBACK tidak boleh menimpa error asli
-    try {
-      safeRollback(db, err);
-    } catch (e) {
-      throw new Error(
-        `Rebuild of collection '${name}' failed (no data was lost): ${e instanceof Error ? e.message : e}`
-      );
+  // Compare per relation, not source-wide markers, so a second target's old
+  // CAS token cannot survive that target's activation.
+  for (const field of newFields) {
+    if (field.options?.cashflowIntegrity === undefined) continue;
+    const beforeField = oldFields.find(old => old.name === field.name);
+    if (beforeField?.options?.cashflowIntegrity !== undefined) continue;
+    if (typeof field.options?.collectionId === 'string' && field.options.collectionId !== name && getCollectionByName(db, field.options.collectionId)) {
+      recordMigration(db, field.options.collectionId, 'update_rules', { reason: 'cashflow_integrity_activation', source: name });
     }
   }
+
+  return getCollectionByName(db, name)!;
 }
 
 // Nilai default untuk kolom BARU yang required saat rebuild
@@ -939,6 +1066,15 @@ export function duplicateCollection(
   newName: string,
   options: { withData?: boolean } = {}
 ): CollectionMeta {
+  return withCashflowWriteLock(db, () => duplicateCollectionLocked(db, sourceName, newName, options));
+}
+
+function duplicateCollectionLocked(
+  db: DatabaseSync,
+  sourceName: string,
+  newName: string,
+  options: { withData?: boolean }
+): CollectionMeta {
   const source = getCollectionByName(db, sourceName);
   if (!source) {
     throw new Error(`Source collection '${sourceName}' not found`);
@@ -946,9 +1082,18 @@ export function duplicateCollection(
   if (getCollectionByName(db, newName)) {
     throw new Error(`Collection '${newName}' sudah ada`);
   }
+  if (source.type !== 'base') throw new Error('Only base collections can be duplicated');
+  // Raw INSERT ... SELECT bypasses validation; validate the copied rows inside
+  // the same locked operation before allowing the physical copy.
+  const sourceRules = cashflowRules(db, source);
+  if (sourceRules.length > 0) {
+    for (const row of db.prepare(`SELECT * FROM "${sourceName}"`).all() as Record<string, unknown>[]) {
+      assertCashflowRecord(db, sourceRules, row);
+    }
+  }
 
   // Buat collection baru dengan skema sama
-  const created = defineCollection(db, {
+  const created = defineCollectionLocked(db, {
     name: newName,
     fields: source.fields,
     indexes: source.indexes,
@@ -976,6 +1121,7 @@ function rowToMeta(row: CollectionRow): CollectionMeta {
     viewQuery: row.viewQuery ?? null,
     created: row.created,
     updated: row.updated,
+    schemaVersion: row.schemaVersion,
   };
 }
 

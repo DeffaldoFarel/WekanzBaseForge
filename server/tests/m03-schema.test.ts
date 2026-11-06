@@ -21,6 +21,7 @@ import {
   updateCollection,
   deleteCollection,
   generateCreateTableSql,
+  getSchemaVersion,
 } from '../src/core/schema.js';
 
 const TEST_DIR = path.resolve('../data/m03-test');
@@ -193,6 +194,7 @@ test('M03: updateCollection menambah kolom via ALTER TABLE', () => {
 
   // Tambah kolom baru
   const updated = updateCollection(db, 'habits', {
+    expectedSchemaVersion: getSchemaVersion(db, 'habits'),
     fields: [
       { name: 'title', type: 'text', required: true },
       { name: 'note', type: 'text' },        // ← kolom baru!
@@ -233,6 +235,7 @@ test('M03: updateCollection menolak penghapusan kolom (belum didukung)', () => {
 
   assert.throws(() => {
     updateCollection(db, 'habits', {
+      expectedSchemaVersion: getSchemaVersion(db, 'habits'),
       fields: [{ name: 'title', type: 'text' }], // streak dihapus!
     });
   }, /not supported|drop/i);

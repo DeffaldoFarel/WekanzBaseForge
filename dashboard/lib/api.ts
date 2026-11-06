@@ -362,6 +362,8 @@ export interface CollectionInfo {
   fields: FieldDef[];
   indexes: IndexDef[];
   recordCount?: number;
+  /** CAS token paired with fields/indexes from this same server snapshot. */
+  schemaVersion?: number;
   created: string;
 }
 
@@ -401,7 +403,7 @@ export async function createCollection(
 export async function updateCollection(
   projectId: string,
   name: string,
-  def: { fields: FieldDef[] }
+  def: { fields: FieldDef[]; expectedSchemaVersion?: number }
 ): Promise<CollectionInfo> {
   const data = await request<{ collection: CollectionInfo }>(
     `/api/admin/projects/${projectId}/collections/${name}`,
@@ -413,7 +415,7 @@ export async function updateCollection(
 export async function rebuildCollectionSchema(
   projectId: string,
   name: string,
-  def: { fields: FieldDef[]; indexes?: IndexDef[] }
+  def: { fields: FieldDef[]; indexes?: IndexDef[]; expectedSchemaVersion?: number }
 ): Promise<CollectionInfo> {
   const data = await request<{ collection: CollectionInfo }>(
     `/api/admin/projects/${projectId}/collections/${name}`,

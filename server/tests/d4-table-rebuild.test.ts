@@ -10,7 +10,7 @@ import assert from 'node:assert';
 import fs from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { initSchemaTable, defineCollection, rebuildCollection, getCollectionByName } from '../src/core/schema.js';
+import { initSchemaTable, defineCollection, rebuildCollection, getCollectionByName, getSchemaVersion } from '../src/core/schema.js';
 import { createRecord, getRecord } from '../src/core/records.js';
 
 const TEST_DIR = path.resolve('../data/d4-test');
@@ -61,6 +61,7 @@ test('D4: hapus kolom → kolom hilang, data kolom lain selamat', () => {
 
   // Rebuild: hapus kolom 'streak'
   rebuildCollection(db, 'habits', {
+    expectedSchemaVersion: getSchemaVersion(db, 'habits'),
     fields: [
       { name: 'title', type: 'text', required: true },
       { name: 'note', type: 'text' },
@@ -100,6 +101,7 @@ test('D4: ubah tipe kolom → nilai dikonversi', () => {
 
   // Rebuild: ubah score dari number → text
   rebuildCollection(db, 'habits', {
+    expectedSchemaVersion: getSchemaVersion(db, 'habits'),
     fields: [
       { name: 'title', type: 'text' },
       { name: 'score', type: 'text' },
@@ -130,6 +132,7 @@ test('D4: tambah kolom required → data lama terisi default', () => {
 
   // Rebuild: tambah kolom 'category' yang REQUIRED
   rebuildCollection(db, 'habits', {
+    expectedSchemaVersion: getSchemaVersion(db, 'habits'),
     fields: [
       { name: 'title', type: 'text' },
       { name: 'category', type: 'text', required: true },
@@ -167,6 +170,7 @@ test('D4: unique index dibuat ulang setelah rebuild', () => {
 
   // Rebuild (tambah kolom)
   rebuildCollection(db, 'users', {
+    expectedSchemaVersion: getSchemaVersion(db, 'users'),
     fields: [
       { name: 'email', type: 'email', unique: true },
       { name: 'name', type: 'text' },
@@ -206,6 +210,7 @@ test('D4: banyak data tetap utuh setelah rebuild (100 records)', () => {
 
   // Rebuild: hapus streak, tambah note
   rebuildCollection(db, 'habits', {
+    expectedSchemaVersion: getSchemaVersion(db, 'habits'),
     fields: [
       { name: 'title', type: 'text' },
       { name: 'note', type: 'text' },

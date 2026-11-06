@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { buildStudioSchemaEdit, studioSchemaSaveErrorMessage } from "@/lib/schemaEdit";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -458,10 +459,13 @@ export default function AdvancedDatabaseStudioPage() {
     setSchemaError("");
     try {
       const validFields = fieldsDraft.filter((f) => f.name.trim().length > 0);
-      const updated = await rebuildCollectionSchema(projectId, collectionName, {
-        fields: validFields,
-        indexes: indexesDraft,
-      });
+      // Pair the CAS token with the same collection snapshot that initialized
+      // this draft. Never refresh the version while retaining old fields.
+      const updated = await rebuildCollectionSchema(
+        projectId,
+        collectionName,
+        buildStudioSchemaEdit(collection, validFields, indexesDraft),
+      );
       setCollection(updated);
       setFieldsDraft(JSON.parse(JSON.stringify(updated.fields)));
       setIndexesDraft(JSON.parse(JSON.stringify(updated.indexes || [])));
@@ -469,7 +473,7 @@ export default function AdvancedDatabaseStudioPage() {
       await loadAllCollections();
       await loadRecords();
     } catch (e) {
-      setSchemaError(e instanceof Error ? e.message : "Failed to update schema");
+      setSchemaError(studioSchemaSaveErrorMessage(e));
     } finally {
       setSchemaSaving(false);
     }

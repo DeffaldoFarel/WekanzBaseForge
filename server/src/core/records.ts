@@ -17,7 +17,8 @@ import { filterToSql, RequestContext } from './query/sqlBuilder.js';
 import { decideRule, evaluateRuleOnData, ForbiddenError, CollectionRules } from './rules.js';
 import { parseMultipart, extractBoundary, MultipartFile } from './multipart.js';
 import { assertStorageQuota } from './storageQuota.js';
-import { safeRollback } from './txUtil.js';
+
+import { cashflowRules, assertCashflowRecord, assertCashflowTargetUpdate, assertCashflowReparent, withCashflowWriteLock } from './cashflowIntegrity.js';
 import { saveFile, deleteFile, deleteRecordFiles, storedFilenames } from './storage.js';
 import { isViewCollection } from './schema.js';
 import { hashPassword, verifyPassword, validatePasswordStrength } from '../auth/password.js';
@@ -432,6 +433,16 @@ export function createRecord(
   collection: string,
   data: Record<string, unknown>,
   reqCtx?: RequestContext,
+  preGeneratedId?: string
+): ForgeRecord {
+  return withCashflowWriteLock(db, () => createRecordInternal(db, collection, data, reqCtx, preGeneratedId));
+}
+
+function createRecordInternal(
+  db: DatabaseSync,
+  collection: string,
+  data: Record<string, unknown>,
+  reqCtx?: RequestContext,
   preGeneratedId?: string // M14: multipart butuh id SEBELUM insert (nama file)
 ): ForgeRecord {
   const meta = mustGetCollection(db, collection);
@@ -522,6 +533,7 @@ export function createRecord(
 
   // ── Audit #18: relasi harus resolve ke record milik user yang sama ──
   assertRelationsResolvable(db, collection, data, fmap, reqCtx);
+  assertCashflowRecord(db, cashflowRules(db, meta), data);
 
   if (isAuth) {
     const pwd = data.password;
@@ -585,20 +597,14 @@ export function createRecordsBatch(
   recordsData: Record<string, unknown>[],
   reqCtx?: RequestContext // Ops-2: diteruskan ke createRecord agar rules berlaku
 ): ForgeRecord[] {
-  mustGetCollection(db, collection);
-
-  const created: ForgeRecord[] = [];
-  db.exec('BEGIN');
-  try {
+  return withCashflowWriteLock(db, () => {
+    mustGetCollection(db, collection);
+    const created: ForgeRecord[] = [];
     for (const data of recordsData) {
-      created.push(createRecord(db, collection, data, reqCtx));
+      created.push(createRecordInternal(db, collection, data, reqCtx));
     }
-    db.exec('COMMIT');
-  } catch (err) {
-    // AUD-6-04: kegagalan ROLLBACK tidak boleh menimpa error asli
-    safeRollback(db, err);
-  }
-  return created;
+    return created;
+  });
 }
 
 // ─── READ ONE ────────────────────────────────────────────────────────────────
@@ -694,6 +700,16 @@ export function updateRecord(
   data: Record<string, unknown>,
   reqCtx?: RequestContext
 ): ForgeRecord | null {
+  return withCashflowWriteLock(db, () => updateRecordInternal(db, collection, id, data, reqCtx));
+}
+
+function updateRecordInternal(
+  db: DatabaseSync,
+  collection: string,
+  id: string,
+  data: Record<string, unknown>,
+  reqCtx?: RequestContext
+): ForgeRecord | null {
   const meta = mustGetCollection(db, collection);
   const fmap = fieldMap(meta);
   assertNotView(meta); // M16a: view read-only
@@ -730,6 +746,10 @@ export function updateRecord(
   // ── Audit #18: relasi yang di-repoint harus resolve ke record milik user
   //    yang sama (nilai null dibiarkan — mengosongkan relasi sah). ──
   assertRelationsResolvable(db, collection, data, fmap, reqCtx);
+  const cashflow = cashflowRules(db, meta);
+  assertCashflowRecord(db, cashflow, { ...existing, ...data });
+  assertCashflowReparent(db, cashflow, existing, { ...existing, ...data });
+  assertCashflowTargetUpdate(db, meta, id, existing, { ...existing, ...data });
 
   // ── M14: simpan file baru yang di-upload via multipart & hapus yang diganti ──
   // data di sini bisa mengandung nama file tersimpan (dari multipartToRecordData)
@@ -852,6 +872,19 @@ export function deleteRecord(
    *  untuk fan-out realtime/trigger/webhook + file cleanup anak. */
   cascaded?: { collection: string; record: Record<string, unknown> }[]
 ): boolean {
+  const pending: { collection: string; record: Record<string, unknown> }[] = [];
+  const deleted = withCashflowWriteLock(db, () => deleteRecordInternal(db, collection, id, reqCtx, pending));
+  if (deleted && cascaded) cascaded.push(...pending);
+  return deleted;
+}
+
+function deleteRecordInternal(
+  db: DatabaseSync,
+  collection: string,
+  id: string,
+  reqCtx?: RequestContext,
+  cascaded?: { collection: string; record: Record<string, unknown> }[]
+): boolean {
   const meta = mustGetCollection(db, collection);
   assertNotView(meta); // M16a: view read-only
 
@@ -883,20 +916,11 @@ export function deleteRecord(
   const visited = new Set<string>([`${collection}:${id}`]);
   const referencingFields = findReferencingFields(db, collection);
 
-  db.exec('BEGIN');
-  try {
-    cascadeDeleteReferences(db, collection, id, referencingFields, visited, cascadedOut, 0);
+  cascadeDeleteReferences(db, collection, id, referencingFields, visited, cascadedOut, 0);
 
-    // Setelah semua rujukan ditangani, baru hapus record aslinya
-    const result = db.prepare(`DELETE FROM "${collection}" WHERE id = ?`).run(id);
-
-    db.exec('COMMIT');
-
-    return result.changes > 0;
-  } catch (err) {
-    // AUD-6-04: kegagalan ROLLBACK tidak boleh menimpa error asli
-    safeRollback(db, err);
-  }
+  // Setelah semua rujukan ditangani, baru hapus record aslinya.
+  const result = db.prepare(`DELETE FROM "${collection}" WHERE id = ?`).run(id);
+  return result.changes > 0;
 }
 
 /** Batas kedalaman cascade — rantai relasi normal jauh di bawah ini; nilai
@@ -942,6 +966,10 @@ function cascadeDeleteReferences(
       if (!refers) continue;
 
       // Record ini merujuk ke yang mau dihapus → terapkan strategi
+      if (refers && cashflowRules(db, getCollectionByName(db, refCol)!).some(rule => rule.relation.name === field.name) &&
+          !['restrict', 'cascade', 'setNull'].includes(String(strategy))) {
+        throw new Error(`Cashflow integrity rejects unsupported cascadeDelete '${String(strategy)}' on ${refCol}.${field.name}`);
+      }
       if (strategy === 'restrict') {
         // Hitung berapa banyak yang merujuk (untuk pesan error)
         const count = rows.filter((r) =>
@@ -973,6 +1001,10 @@ function cascadeDeleteReferences(
       }
 
       if (strategy === 'setNull') {
+        const refMeta = getCollectionByName(db, refCol);
+        if (refMeta && cashflowRules(db, refMeta).some(rule => rule.relation.name === field.name)) {
+          throw new Error('Cashflow integrity forbids clearing a referenced relation');
+        }
         if (isMulti) {
           // Multi: hapus HANYA id ini dari array, sisakan yang lain
           const remaining = idsOf(row.refval).filter((x) => x !== id);

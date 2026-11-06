@@ -167,12 +167,17 @@ describe('M16c: export/import JSON', () => {
     const itemsA = listRecords(dbA, 'products').items;
     const itemsB = listRecords(dbB, 'products').items;
     assert.equal(itemsB.length, 2);
-    assert.equal(itemsB[0].title, itemsA[0].title);
-    assert.deepEqual(itemsB[0].tags, itemsA[0].tags);
-    // password hash ikut ter-import (sama dengan asal)
-    const rawA = dbA.prepare('SELECT secret FROM products WHERE id = ?').get(itemsA[0].id) as { secret: string };
-    const rawB = dbB.prepare('SELECT secret FROM products WHERE id = ?').get(itemsA[0].id) as { secret: string };
-    assert.equal(rawB.secret, rawA.secret, 'hash ter-preserve');
+    // Import assigns new timestamps, so order is not a record identity.
+    // Compare every exported row with its imported counterpart by id.
+    for (const itemA of itemsA) {
+      const itemB = itemsB.find(item => item.id === itemA.id);
+      assert.ok(itemB, `record ${itemA.id} was imported`);
+      assert.equal(itemB.title, itemA.title);
+      assert.deepEqual(itemB.tags, itemA.tags);
+      const rawA = dbA.prepare('SELECT secret FROM products WHERE id = ?').get(itemA.id) as { secret: string | null };
+      const rawB = dbB.prepare('SELECT secret FROM products WHERE id = ?').get(itemA.id) as { secret: string | null };
+      assert.equal(rawB.secret, rawA.secret, 'hash ter-preserve');
+    }
   });
 
   test('M16c: mode create menolak kalau collection sudah ada', () => {

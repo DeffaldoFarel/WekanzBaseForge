@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
-import { initSchemaTable, defineCollection, getCollectionByName, rebuildCollection } from '../src/core/schema.js';
+import { initSchemaTable, defineCollection, getCollectionByName, rebuildCollection, getSchemaVersion } from '../src/core/schema.js';
 import { createRecord, getRecord } from '../src/core/records.js';
 
 test('rebuildCollection: schema edit via API logic', () => {
@@ -31,6 +31,7 @@ test('rebuildCollection: schema edit via API logic', () => {
   // - Add stock (number, required: true with default 0)
   // - Change price to text
   const updated = rebuildCollection(db, 'products', {
+    expectedSchemaVersion: getSchemaVersion(db, 'products'),
     fields: [
       { name: 'name', type: 'text', required: true },
       { name: 'price', type: 'text' },

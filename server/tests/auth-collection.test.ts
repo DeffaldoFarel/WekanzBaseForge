@@ -12,7 +12,7 @@ import { createDatabaseRouter } from '../src/api/databaseRoutes.js';
 import { createPublicRouter } from '../src/api/publicRoutes.js';
 import { initPlatformDb, createProject, closePlatformDb } from '../src/core/platformDb.js';
 import { getProjectDb, closeAllProjectDbs } from '../src/core/projectDbManager.js';
-import { initSchemaTable, defineCollection, rebuildCollection } from '../src/core/schema.js';
+import { initSchemaTable, defineCollection, rebuildCollection, getSchemaVersion } from '../src/core/schema.js';
 import { createRecord, getRecord, listRecords } from '../src/core/records.js';
 import { verifyPassword } from '../src/auth/password.js';
 
@@ -77,6 +77,7 @@ describe('Unified Auth Collections (PocketBase Parity)', () => {
 
   test('rebuildCollection preserves password_hash intact', () => {
     const updated = rebuildCollection(db, 'users', {
+      expectedSchemaVersion: getSchemaVersion(db, 'users'),
       fields: [
         { name: 'email', type: 'email', required: true },
         { name: 'name', type: 'text' },

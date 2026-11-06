@@ -70,6 +70,19 @@ export interface FieldDefinition {
      *  (e.g. investment_activities.amount/idr for Sell/Loss). Opt out of the
      *  default >= 0 floor. (An explicit options.min still wins.) */
     signed?: boolean;
+    /** Opt-in relation-level cashflow integrity contract (version 1). */
+    cashflowIntegrity?: {
+      version: 1;
+      sourceOwner: string;
+      targetOwner: string;
+      targetMode: string;
+      assetMode: string;
+      tradingMode: string;
+      flowField: string;
+      quantityField: string;
+      valueField: string;
+      immutableModeWhenReferenced?: boolean;
+    };
   };
 }
 

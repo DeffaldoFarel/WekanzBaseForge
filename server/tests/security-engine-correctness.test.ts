@@ -144,6 +144,7 @@ test('AUD-6-01: rebuild skema tidak mematikan FTS (trigger utuh + index segar)',
   await req('POST', `/api/p/${pid}/collections/posts/records`, { title: 'betatwo', tag: 'x' }, adminToken);
 
   const put = await req('PUT', `/api/admin/projects/${pid}/collections/posts`, {
+    expectedSchemaVersion: (await req('GET', `/api/admin/projects/${pid}/collections/posts`, undefined, adminToken)).data.schemaVersion,
     fields: [F('title', 'text', { fulltext: true }), F('tag', 'text'), F('extra', 'text')],
   }, adminToken);
   assert.equal(put.status, 200, `rebuild harus sukses (dapat ${put.status}: ${JSON.stringify(put.data).slice(0, 120)})`);
@@ -172,6 +173,7 @@ test('AUD-6-02: PATCH add-field menyinkronkan unique & fulltext ke fisik', async
 
   // toggle unique ON pada field existing
   const patch = await req('PATCH', `/api/admin/projects/${pid}/collections/acct`, {
+    expectedSchemaVersion: (await req('GET', `/api/admin/projects/${pid}/collections/acct`, undefined, adminToken)).data.schemaVersion,
     fields: [F('email', 'text', {}, { unique: true }), F('name', 'text'), F('nickname', 'text')],
   }, adminToken);
   assert.equal(patch.status, 200, `PATCH harus sukses (dapat ${patch.status}: ${JSON.stringify(patch.data).slice(0, 120)})`);
@@ -183,6 +185,7 @@ test('AUD-6-02: PATCH add-field menyinkronkan unique & fulltext ke fisik', async
 
   // tambah field fulltext via PATCH (jalur ALTER)
   const patch2 = await req('PATCH', `/api/admin/projects/${pid}/collections/acct`, {
+    expectedSchemaVersion: (await req('GET', `/api/admin/projects/${pid}/collections/acct`, undefined, adminToken)).data.schemaVersion,
     fields: [F('email', 'text', {}, { unique: true }), F('name', 'text'), F('nickname', 'text'), F('content', 'text', { fulltext: true })],
   }, adminToken);
   assert.equal(patch2.status, 200);

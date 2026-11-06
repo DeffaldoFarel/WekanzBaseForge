@@ -84,6 +84,7 @@ test('D5: semua operasi skema tercatat berurutan', () => {
 
   // 2. add_column
   updateCollection(db, 'habits', {
+    expectedSchemaVersion: getSchemaVersion(db, 'habits'),
     fields: [
       { name: 'title', type: 'text' },
       { name: 'note', type: 'text' },
@@ -92,6 +93,7 @@ test('D5: semua operasi skema tercatat berurutan', () => {
 
   // 3. rebuild
   rebuildCollection(db, 'habits', {
+    expectedSchemaVersion: getSchemaVersion(db, 'habits'),
     fields: [{ name: 'title', type: 'text' }],
   });
 
@@ -121,6 +123,7 @@ test('D5: rebuild mencatat before & after', () => {
   });
 
   rebuildCollection(db, 'users', {
+    expectedSchemaVersion: getSchemaVersion(db, 'users'),
     fields: [
       { name: 'email', type: 'email' },
       { name: 'age', type: 'text' }, // ubah tipe
@@ -147,6 +150,7 @@ test('D5: getSchemaVersion menghitung jumlah perubahan', () => {
 
   defineCollection(db, { name: 'posts', fields: [{ name: 'title', type: 'text' }] });
   updateCollection(db, 'posts', {
+    expectedSchemaVersion: getSchemaVersion(db, 'posts'),
     fields: [
       { name: 'title', type: 'text' },
       { name: 'body', type: 'text' },
@@ -169,6 +173,7 @@ test('D5: getMigrations per collection hanya mengembalikan miliknya', () => {
   defineCollection(db, { name: 'a', fields: [{ name: 'x', type: 'text' }] });
   defineCollection(db, { name: 'b', fields: [{ name: 'y', type: 'text' }] });
   updateCollection(db, 'a', {
+    expectedSchemaVersion: getSchemaVersion(db, 'a'),
     fields: [
       { name: 'x', type: 'text' },
       { name: 'z', type: 'text' },
